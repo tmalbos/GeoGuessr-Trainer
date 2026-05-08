@@ -1,0 +1,90 @@
+roads:
+  lines:
+  - inner:
+      color: yellow
+      count: 1
+      pattern: solid
+      extra: null
+    outer:
+      color: white
+      count: 1
+      pattern: solid
+    rule: whole-country
+  - inner:
+      color: yellow
+      count: 1
+      pattern: dashed
+      extra: null
+    outer:
+      color: white
+      count: 1
+      pattern: solid
+    rule: whole-country
+  - inner:
+      color: yellow
+      count: 2
+      pattern: solid
+      extra: null
+    outer:
+      color: white
+      count: 1
+      pattern: solid
+    rule: whole-country
+signs:
+  stop:
+    shape: octagon
+    background_color: "#FF0000"
+    text:
+      value: "ALTO"
+      color: "#FFFFFF"
+    border:
+      has_border: true
+      thickness: standard
+      color: "#FFFFFF"
+poles:
+  - shape: octogonal
+    material: concrete
+license_plates:
+  - car_type: normal
+    front:
+      is_required: true
+      color: "#FFFFFF"
+      strips: null
+      letter_color: "#000000"
+      shape: short
+    back: null
+chevrons: null
+bollards:
+  - color: "#FFFFFF"
+    shape: cylindrical
+    material: concrete
+    height: standard
+    top:
+      color: "#FFFFFF"
+      shape: dome
+    reflectors:
+      - place: front
+        position: top
+        color: "#FFFF00"
+        shape: rectangle
+        orientation: horizontal
+        size: big
+    stripes:
+      position: bottom
+      color: "#000000"
+      orientation: horizontal
+      size: thick
+  - color: "#FFFFFF"
+    shape: cylindrical
+    material: concrete
+    height: standard
+    top:
+      color: "#FFFFFF"
+      shape: dome
+    reflectors: null
+    stripes:
+      position: bottom
+      color: "#000000"
+      orientation: horizontal
+      size: thick
+

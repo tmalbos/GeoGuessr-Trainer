@@ -1,0 +1,13 @@
+license_plates:
+  - car_type: normal
+    front:
+      is_required: true
+      color: "#FFFFFF"
+      strips: null
+      letter_color: "#000000"
+      shape: standard
+    back:
+      color: "#FFFF00"
+      strips: null
+      letter_color: "#000000"
+      shape: standard

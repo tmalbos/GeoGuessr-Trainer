@@ -1,0 +1,183 @@
+# schema.yaml — Dominio de valores válidos para la base de datos de señales geográficas.
+# Convenciones:
+#   - Colores: formato hex #RRGGBB
+#   - Campos sin tipo explícito son enums cerrados
+#   - list_of_ids: referencias a IDs de otras entradas del mismo país
+
+roads:
+  lines: # list
+    outer:
+      color: hex
+      count:
+        type: integer
+        min: 0
+        max: 2
+      pattern:
+        - solid
+        - dashed
+        - dotted
+    inner:
+      color: hex
+      count:
+        type: integer
+        min: 0
+        max: 2
+      pattern:
+        - solid
+        - dashed
+        - dotted
+    middle: # Optional
+      color: hex
+      count:
+        type: integer
+        min: 0
+        max: 1
+      pattern:
+        - solid
+        - dashed
+        - dotted
+signs:
+  stop:
+    shape:
+      - octagon
+      - circle
+      - inverted_triangle
+    background_color: hex
+    text:
+      value:
+        type: string
+        max_length: 10
+      color: hex
+    border:
+      has_border: boolean
+      thickness:
+        - slim
+        - standard
+        - thick
+      color: hex
+poles: # list
+  shape:
+    - round
+    - octogonal
+    - wobbly
+    - square
+    - holed
+    - concave
+  material:
+    - wood
+    - concrete
+    - metal
+    - fiberglass
+license_plates: # list
+  car_type:
+    - normal
+    - commercial
+    - taxi
+    - motorcycle
+    - military
+    - government
+    - electric
+  front:
+    is_required: boolean
+    color: hex
+    strips: # Optional
+      color: hex
+      side:
+        - left
+        - right
+        - top
+        - bottom
+    letter_color: hex
+    shape:
+      - wide
+      - short
+      - tall
+      - standard
+  back: # Optional if same as front
+    color: hex
+    strips: # Optional
+      color: hex
+      side:
+        - left
+        - right
+        - top
+        - bottom
+    letter_color: hex
+    shape:
+      - wide
+      - short
+      - tall
+      - standard
+terrain:
+  biome: string
+  dominant_relief: string
+  coverage_pct:
+    type: float
+    min: 0.0
+    max: 100.0
+chevrons: # Optional
+  background_color: hex
+  arrow_color: hex
+  border_color: hex_or_null
+bollards: # list
+  color: hex
+  shape:
+    - cylindrical
+    - rectangular
+    - diamond
+    - mushroom
+    - flexible-post
+  material:
+    - metal
+    - plastic
+    - concrete
+    - rubber
+    - wood
+  height:
+    - low
+    - standard
+    - high
+  top:
+    color: hex_or_null
+    shape:
+      - flat
+      - dome
+      - pointed
+      - reflector-cap
+  reflectors: # Optional
+    place:
+      - front
+      - side
+      - back
+    position:
+      - top
+      - middle
+      - bottom
+    color: hex_or_null
+    shape:
+      - circle
+      - square
+      - rectangle
+      - diamond
+      - none
+    orientation:
+      - horizontal
+      - vertical
+    size:
+      - small
+      - standard
+      - big
+  stripes: # Optional
+    position:
+      - top
+      - middle
+      - bottom
+      - multiple
+    color: hex_or_null
+    orientation:
+      - horizontal
+      - diagonal
+    size:
+      - slim
+      - standard
+      - thick

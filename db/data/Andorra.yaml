@@ -1,0 +1,22 @@
+roads:
+  lines:
+  - inner:
+      color: white
+      count: 1
+      pattern: dashed
+      extra: null
+    outer:
+      color: white
+      count: 1
+      pattern: solid
+    rule: whole-country
+  - inner:
+      color: white
+      count: 1
+      pattern: solid
+      extra: null
+    outer:
+      color: white
+      count: 1
+      pattern: solid
+    rule: whole-country
