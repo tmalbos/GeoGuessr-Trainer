@@ -1,8 +1,10 @@
-from datetime import datetime, timezone
-from core.config import MONGO_URI, MONGO_DB, COL_GAMES, COL_ROUNDS
+from datetime import datetime
+
+from src.core.config import COL_GAMES, COL_ROUNDS, MONGO_DB, MONGO_URI
 
 try:
     from pymongo import MongoClient
+
     _client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=2000)
     _client.server_info()
     _db = _client[MONGO_DB]
@@ -17,7 +19,8 @@ def _parse_datetime(value: str | None) -> datetime | None:
         return None
     try:
         import re
-        value = re.sub(r'(\.\d{6})\d+', r'\1', value)
+
+        value = re.sub(r"(\.\d{6})\d+", r"\1", value)
         return datetime.fromisoformat(value.replace("Z", "+00:00"))
     except Exception:
         return None
@@ -30,10 +33,10 @@ def save_game(game: dict):
     rounds = game.pop("rounds", [])
 
     game_doc = {
-        "game_id":      game["game_id"],
-        "map_name":     game["map_name"],
-        "played_at":    _parse_datetime(game.get("played_at")),
-        "total_score":  game["total_score"],
+        "game_id": game["game_id"],
+        "map_name": game["map_name"],
+        "played_at": _parse_datetime(game.get("played_at")),
+        "total_score": game["total_score"],
         "avg_distance": game["avg_distance"],
     }
 
@@ -45,14 +48,14 @@ def save_game(game: dict):
 
     for r in rounds:
         round_doc = {
-            "game_id":      r["game_id"],
+            "game_id": r["game_id"],
             "round_number": r["round_number"],
-            "real_geo":     r["real_geo"],
-            "guess_geo":    r["guess_geo"],
-            "score":        r["score"],
-            "distance_km":  r["distance_km"],
-            "steps":        r["steps"],
-            "time_sec":     r["time_sec"],
+            "real_geo": r["real_geo"],
+            "guess_geo": r["guess_geo"],
+            "score": r["score"],
+            "distance_km": r["distance_km"],
+            "steps": r["steps"],
+            "time_sec": r["time_sec"],
         }
         _db[COL_ROUNDS].update_one(
             {"game_id": round_doc["game_id"], "round_number": round_doc["round_number"]},

@@ -14,25 +14,27 @@ from pathlib import Path
 _EMPTY = {"realm": "", "biome": "", "ecoregion": ""}
 
 # Estado compartido entre el hilo de carga y el hilo principal
-_gdf        = None          # GeoDataFrame cargado
-_load_error = None          # excepción si falló la carga
-_ready      = threading.Event()  # se activa cuando la carga termina (ok o error)
-_load_lock  = threading.Lock()   # evita doble carga si se llama init() dos veces
+_gdf = None  # GeoDataFrame cargado
+_load_error = None  # excepción si falló la carga
+_ready = threading.Event()  # se activa cuando la carga termina (ok o error)
+_load_lock = threading.Lock()  # evita doble carga si se llama init() dos veces
 
 SHP_PATH = Path("Ecoregions2017/Ecoregions2017.shp")
 
 
-def _load(path: Path):
+def _load(path: Path) -> None:
     """Carga el shapefile en el hilo de background."""
     global _gdf, _load_error
     try:
         import geopandas as gpd
+
         gdf = gpd.read_file(path)[["ECO_NAME", "BIOME_NAME", "REALM", "geometry"]]
         # Reproyectar a WGS84 para que las coordenadas lat/lon funcionen directamente
         gdf = gdf.to_crs(epsg=4326)
         # Índice espacial (STRtree) — se construye implícitamente en geopandas >= 0.10
         # La primera consulta lo construye; hacemos una consulta dummy para forzarlo ahora
         from shapely.geometry import Point
+
         _ = gdf[gdf.geometry.contains(Point(0, 0))]
         _gdf = gdf
     except Exception as e:
@@ -41,7 +43,7 @@ def _load(path: Path):
         _ready.set()
 
 
-def init():
+def init() -> None:
     """
     Dispara la carga del shapefile en un hilo daemon.
     Llamar una sola vez al arrancar la aplicación.
@@ -64,7 +66,7 @@ def init():
         t.start()
 
 
-def lookup(lat: float | None, lon: float | None) -> dict:
+def lookup(lat: float | None, lon: float | None) -> dict[str, str]:
     """
     Dado (lat, lon), devuelve {"realm": ..., "biome": ..., "ecoregion": ...}.
     Bloquea hasta que la carga del shapefile termine (normalmente ya terminó).
@@ -81,6 +83,7 @@ def lookup(lat: float | None, lon: float | None) -> dict:
 
     try:
         from shapely.geometry import Point
+
         point = Point(lon, lat)
 
         candidates = _gdf.iloc[list(_gdf.sindex.query(point, predicate="intersects"))]
@@ -93,8 +96,8 @@ def lookup(lat: float | None, lon: float | None) -> dict:
 
         row = candidates.iloc[0]
         return {
-            "realm":     row["REALM"],
-            "biome":     row["BIOME_NAME"],
+            "realm": row["REALM"],
+            "biome": row["BIOME_NAME"],
             "ecoregion": row["ECO_NAME"],
         }
     except Exception:

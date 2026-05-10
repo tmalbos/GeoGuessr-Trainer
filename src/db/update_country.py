@@ -1,8 +1,9 @@
 import re
 import sys
 import unicodedata
-import yaml
 from pathlib import Path
+
+import yaml
 from pymongo import MongoClient
 
 # === CONFIG ===
@@ -13,10 +14,7 @@ DATA_DIR = Path("./db/data")
 
 
 def _remove_accents(text: str) -> str:
-    return "".join(
-        c for c in unicodedata.normalize("NFD", text)
-        if unicodedata.category(c) != "Mn"
-    )
+    return "".join(c for c in unicodedata.normalize("NFD", text) if unicodedata.category(c) != "Mn")
 
 
 def _pascal(name: str) -> str:
@@ -29,23 +27,16 @@ def _pascal(name: str) -> str:
 
 
 def _normalize_name(name: str) -> str:
-    return re.sub(
-        r"[^a-z0-9]",
-        "",
-        _remove_accents(name).lower()
-    )
+    return re.sub(r"[^a-z0-9]", "", _remove_accents(name).lower())
 
 
 def load_yaml(path: Path) -> dict:
-    with open(path, "r", encoding="utf-8") as f:
+    with open(path, encoding="utf-8") as f:
         return yaml.safe_load(f)
 
 
 def update_country(collection, country_code: str):
-    doc = collection.find_one(
-        {"country_code": country_code},
-        {"country_name": 1, "_id": 0}
-    )
+    doc = collection.find_one({"country_code": country_code}, {"country_name": 1, "_id": 0})
 
     if not doc:
         print(f"[ERROR] No country found for code: {country_code}")
@@ -61,10 +52,7 @@ def update_country(collection, country_code: str):
 
     update_fields = load_yaml(yaml_path)
 
-    result = collection.update_one(
-        {"country_code": country_code},
-        {"$set": update_fields}
-    )
+    result = collection.update_one({"country_code": country_code}, {"$set": update_fields})
 
     print(
         f"[{country_code}] {country_name} -> "
@@ -78,25 +66,20 @@ def main():
 
     # If country codes were provided
     if len(sys.argv) > 1:
-        country_codes = [
-            code.upper().lstrip(".")
-            for code in sys.argv[1:]
-        ]
+        country_codes = [code.upper().lstrip(".") for code in sys.argv[1:]]
 
         for country_code in country_codes:
             update_country(collection, country_code)
 
         return
 
-    countries = list(collection.find(
-        {"country_name": {"$exists": True}},
-        {"country_code": 1, "country_name": 1, "_id": 0}
-    ))
+    countries = list(
+        collection.find(
+            {"country_name": {"$exists": True}}, {"country_code": 1, "country_name": 1, "_id": 0}
+        )
+    )
 
-    country_lookup = {
-        _normalize_name(doc["country_name"]): doc
-        for doc in countries
-    }
+    country_lookup = {_normalize_name(doc["country_name"]): doc for doc in countries}
 
     for yaml_path in sorted(DATA_DIR.glob("*.yaml")):
         try:
@@ -111,8 +94,7 @@ def main():
             update_fields = load_yaml(yaml_path)
 
             result = collection.update_one(
-                {"country_code": doc["country_code"]},
-                {"$set": update_fields}
+                {"country_code": doc["country_code"]}, {"$set": update_fields}
             )
 
             print(

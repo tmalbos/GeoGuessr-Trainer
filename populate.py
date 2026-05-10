@@ -13,27 +13,25 @@ Uso:
 """
 
 import argparse
-import re
-import sys
-import time
-import yaml
+
 import requests
-from bs4 import BeautifulSoup
+import yaml
 from pymongo import MongoClient
 
 # ─── config ──────────────────────────────────────────────────────────────────
 
 MONGO_URI = "mongodb://localhost:27017/"
-MONGO_DB  = "geoguessr"
+MONGO_DB = "geoguessr"
 MONGO_COL = "geo_signals"
 
-SCHEMA_PATH = "db/schema.yaml"
+SCHEMA_PATH = "src/db/schema.yaml"
 
 _session = requests.Session()
 _session.headers.update({"User-Agent": "GeoSignals-Populate/1.0"})
 
 
 # ─── MongoDB ─────────────────────────────────────────────────────────────────
+
 
 def get_col():
     client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=3000)
@@ -50,6 +48,7 @@ def upsert(col, key: str, data: dict):
 
 # ─── schema validator ─────────────────────────────────────────────────────────
 
+
 def load_schema(path: str) -> dict:
     with open(path) as f:
         return yaml.safe_load(f)
@@ -61,6 +60,7 @@ def validate_enum(value, allowed: list, field: str):
 
 
 # ─── REST Countries — lista de países ────────────────────────────────────────
+
 
 def fetch_all_countries() -> list[dict]:
     print("Obteniendo lista de países desde REST Countries...")
@@ -78,11 +78,54 @@ def fetch_all_countries() -> list[dict]:
 
 # diamond: USA, Canadá, Australia, NZ, Japón, México, Centroamérica, Sudamérica
 DIAMOND_CODES = {
-    "US","CA","AU","NZ","JP","MX","GT","BZ","HN","SV","NI","CR","PA",
-    "AR","BO","BR","CL","CO","EC","GY","PY","PE","SR","UY","VE",
-    "CU","DO","HT","JM","TT","BB","LC","VC","GD","AG","DM","KN","BS",
-    "KR","TH","MM","LA","KH","MY","ID","PH",
+    "US",
+    "CA",
+    "AU",
+    "NZ",
+    "JP",
+    "MX",
+    "GT",
+    "BZ",
+    "HN",
+    "SV",
+    "NI",
+    "CR",
+    "PA",
+    "AR",
+    "BO",
+    "BR",
+    "CL",
+    "CO",
+    "EC",
+    "GY",
+    "PY",
+    "PE",
+    "SR",
+    "UY",
+    "VE",
+    "CU",
+    "DO",
+    "HT",
+    "JM",
+    "TT",
+    "BB",
+    "LC",
+    "VC",
+    "GD",
+    "AG",
+    "DM",
+    "KN",
+    "BS",
+    "KR",
+    "TH",
+    "MM",
+    "LA",
+    "KH",
+    "MY",
+    "ID",
+    "PH",
 }
+
 
 def warning_shape(cca2: str) -> str:
     return "diamond" if cca2 in DIAMOND_CODES else "triangle"
@@ -101,8 +144,8 @@ STOP_TEXT_MANUAL = {
     "AM": "ԿԱՆԳ",
     "GE": "STOP",
     "AZ": "STOP",
-    "BD": "",      # sin texto
-    "NP": "",      # sin texto
+    "BD": "",  # sin texto
+    "NP": "",  # sin texto
     "QA": "قف",
     "SA": "قف",
     "AE": "قف",
@@ -120,15 +163,29 @@ STOP_TEXT_MANUAL = {
     "MA": "قف",
     "TN": "قف",
     "MX": "ALTO",
-    "GT": "ALTO", "BZ": "ALTO", "HN": "ALTO",
-    "SV": "ALTO", "NI": "ALTO", "CR": "ALTO", "PA": "ALTO",
-    "AR": "PARE", "BO": "PARE", "BR": "PARE", "CL": "PARE",
-    "CO": "PARE", "EC": "PARE", "PY": "PARE", "PE": "PARE",
-    "UY": "PARE", "VE": "PARE", "CU": "PARE", "DO": "PARE",
+    "GT": "ALTO",
+    "BZ": "ALTO",
+    "HN": "ALTO",
+    "SV": "ALTO",
+    "NI": "ALTO",
+    "CR": "ALTO",
+    "PA": "ALTO",
+    "AR": "PARE",
+    "BO": "PARE",
+    "BR": "PARE",
+    "CL": "PARE",
+    "CO": "PARE",
+    "EC": "PARE",
+    "PY": "PARE",
+    "PE": "PARE",
+    "UY": "PARE",
+    "VE": "PARE",
+    "CU": "PARE",
+    "DO": "PARE",
     "PR": "PARE",
     "TR": "DUR",
     "ET": "ቁም",
-    "VU": "STOP",   # circular, texto STOP
+    "VU": "STOP",  # circular, texto STOP
 }
 
 STOP_SHAPE_MANUAL = {
@@ -138,8 +195,9 @@ STOP_SHAPE_MANUAL = {
     "PK": "circle",
 }
 
+
 def stop_sign_data(cca2: str) -> dict:
-    text  = STOP_TEXT_MANUAL.get(cca2, "STOP")
+    text = STOP_TEXT_MANUAL.get(cca2, "STOP")
     shape = STOP_SHAPE_MANUAL.get(cca2, "octagon")
     return {"text": text, "shape": shape}
 
@@ -162,17 +220,19 @@ NO_FRONT_PLATE = {
     "AF",
     "SD",
     "ET",
-    "KE",   # inconsistente
+    "KE",  # inconsistente
     "NG",
     "GH",
-    "EG",   # inconsistente
+    "EG",  # inconsistente
 }
+
 
 def front_plate_required(cca2: str) -> bool:
     return cca2 not in NO_FRONT_PLATE
 
 
 # ─── terrain — ecoregions shapefile ──────────────────────────────────────────
+
 
 def process_terrain(shapefile_path: str, col):
     try:
@@ -186,13 +246,12 @@ def process_terrain(shapefile_path: str, col):
     eco = gpd.read_file(shapefile_path)[["ECO_NAME", "BIOME_NAME", "REALM", "geometry"]]
 
     print("  Descargando polígonos de países (Natural Earth)...")
-    states_url = "https://naturalearth.s3.amazonaws.com/10m_cultural/ne_10m_admin_1_states_provinces.zip"
+    states_url = (
+        "https://naturalearth.s3.amazonaws.com/10m_cultural/ne_10m_admin_1_states_provinces.zip"
+    )
     states = gpd.read_file(states_url)[["iso_a2", "name", "geometry"]]
 
-    states = states.rename(columns={
-        "iso_a2": "country_code",
-        "name": "state_name"
-    })
+    states = states.rename(columns={"iso_a2": "country_code", "name": "state_name"})
 
     print(f"  Calculando intersecciones para {len(states)} estados...")
     eco = eco.to_crs(epsg=3857)
@@ -230,45 +289,41 @@ def process_terrain(shapefile_path: str, col):
 
         terrain_list = (
             intersection.groupby(["ECO_NAME", "BIOME_NAME", "REALM"])["pct"]
-                .sum()
-                .reset_index()
-                .rename(columns={
+            .sum()
+            .reset_index()
+            .rename(
+                columns={
                     "ECO_NAME": "ecoregion",
                     "BIOME_NAME": "biome",
                     "REALM": "realm",
-                    "pct": "coverage_pct"
-                })
-                .sort_values("coverage_pct", ascending=False)
-                .to_dict("records")
+                    "pct": "coverage_pct",
+                }
+            )
+            .sort_values("coverage_pct", ascending=False)
+            .to_dict("records")
         )
 
         if cca2 not in country_states:
             country_states[cca2] = []
 
-        country_states[cca2].append({
-            "name": state_name,
-            "terrain": terrain_list
-        })
+        country_states[cca2].append({"name": state_name, "terrain": terrain_list})
 
     for cca2, states_list in country_states.items():
-        col.update_one(
-            {"country_code": cca2},
-            {"$set": {"states": states_list}},
-            upsert=True
-        )
+        col.update_one({"country_code": cca2}, {"$set": {"states": states_list}}, upsert=True)
 
     print("  ✅ Terrain procesado.")
 
 
 # ─── main ─────────────────────────────────────────────────────────────────────
 
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--terrain", metavar="SHAPEFILE", help="Ruta al archivo Ecoregions2017.shp")
     args = parser.parse_args()
 
-    schema = load_schema(SCHEMA_PATH)
-    col    = get_col()
+    load_schema(SCHEMA_PATH)
+    col = get_col()
 
     countries = fetch_all_countries()
 

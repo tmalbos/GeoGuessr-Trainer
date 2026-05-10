@@ -2,8 +2,8 @@
 generator.py — Orquesta la generación de tarjetas Anki para una partida.
 """
 
-from anki.anki_connect import is_running, ensure_deck, add_note, note_exists, AnkiNotRunningError
-from anki.cards import build_notes, DECK
+from src.anki.anki_connect import add_note, ensure_deck, is_running, note_exists
+from src.anki.cards import DECK, build_notes
 
 
 def _wait_for_anki():

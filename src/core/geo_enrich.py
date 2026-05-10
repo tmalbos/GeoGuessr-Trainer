@@ -10,10 +10,9 @@ Fuentes:
 """
 
 import requests
-import time
 
-from core.eco_enrich import lookup as eco_lookup
-from core.regions import get_override
+from src.core.eco_enrich import lookup as eco_lookup
+from src.core.regions import get_override
 
 _session = requests.Session()
 _session.headers.update({"User-Agent": "GeoGuessr-Analyzer/1.0"})
@@ -40,7 +39,8 @@ def _nominatim(lat: float, lon: float) -> dict:
         r = _session.get(
             "https://nominatim.openstreetmap.org/reverse",
             params={
-                "lat": lat, "lon": lon,
+                "lat": lat,
+                "lon": lon,
                 "format": "json",
                 "zoom": 10,
                 "accept-language": "es",
@@ -51,19 +51,21 @@ def _nominatim(lat: float, lon: float) -> dict:
         addr = data.get("address", {})
 
         country_code = addr.get("country_code", "").upper()
-        country      = addr.get("country", "")
-        state        = addr.get("state") or addr.get("region") or addr.get("county") or ""
-        city         = (addr.get("city")
-                        or addr.get("town")
-                        or addr.get("village")
-                        or addr.get("municipality")
-                        or "")
+        country = addr.get("country", "")
+        state = addr.get("state") or addr.get("region") or addr.get("county") or ""
+        city = (
+            addr.get("city")
+            or addr.get("town")
+            or addr.get("village")
+            or addr.get("municipality")
+            or ""
+        )
 
         return {
             "country_code": country_code,
-            "country":      country,
-            "state":        state,
-            "city":         city,
+            "country": country,
+            "state": state,
+            "city": city,
         }
     except Exception:
         return {"country_code": "", "country": "", "state": "", "city": ""}
@@ -121,10 +123,17 @@ def enrich(lat: float | None, lon: float | None) -> dict:
     }
     """
     empty = {
-        "lat": lat, "lng": lon,
-        "hemisphere": "", "continent": "", "subregion": "",
-        "country": "", "state": "", "city": "",
-        "realm": "", "biome": "", "ecoregion": "",
+        "lat": lat,
+        "lng": lon,
+        "hemisphere": "",
+        "continent": "",
+        "subregion": "",
+        "country": "",
+        "state": "",
+        "city": "",
+        "realm": "",
+        "biome": "",
+        "ecoregion": "",
     }
 
     if lat is None or lon is None:
@@ -132,11 +141,12 @@ def enrich(lat: float | None, lon: float | None) -> dict:
 
     nominatim_data = _nominatim(lat, lon)
 
-    override_cca2 = get_override(nominatim_data["country_code"], nominatim_data["state"]) or \
-                    get_override(nominatim_data["country_code"], nominatim_data["city"])
+    override_cca2 = get_override(
+        nominatim_data["country_code"], nominatim_data["state"]
+    ) or get_override(nominatim_data["country_code"], nominatim_data["city"])
 
     effective_cca2 = override_cca2 or nominatim_data["country_code"]
-    country_data   = _rest_countries(nominatim_data["country_code"])
+    country_data = _rest_countries(nominatim_data["country_code"])
     eco = eco_lookup(lat, lon)
 
     return {
@@ -165,10 +175,7 @@ def enrich_parallel(coords: list[tuple[float | None, float | None]]) -> list[dic
     results = [None] * len(coords)
 
     with ThreadPoolExecutor(max_workers=8) as ex:
-        future_to_idx = {
-            ex.submit(enrich, lat, lon): idx
-            for idx, (lat, lon) in enumerate(coords)
-        }
+        future_to_idx = {ex.submit(enrich, lat, lon): idx for idx, (lat, lon) in enumerate(coords)}
         for future in as_completed(future_to_idx):
             idx = future_to_idx[future]
             results[idx] = future.result()

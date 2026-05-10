@@ -19,10 +19,10 @@ def fetch_game(game_id: str, ncfa_cookie: str) -> dict:
         raise CookieExpiredError()
     elif r.status_code == 404:
         print(f"\n❌ Juego '{game_id}' no encontrado. Verificá el link.")
-        return None
+        return {}
     elif r.status_code != 200:
         print(f"\n❌ Error HTTP {r.status_code}")
-        return None
+        return {}
 
     return r.json()
 

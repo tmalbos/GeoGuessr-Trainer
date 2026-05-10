@@ -3,13 +3,20 @@ GeoGuessr Analyzer — Punto de entrada principal.
 """
 
 import os
-import sys
-from core.auth     import load_cookie, prompt_new_cookie, refresh_cookie
-from core.api      import fetch_game, extract_game_id, CookieExpiredError
-from core.analyzer import parse_and_display
-from core.eco_enrich import init as eco_init, is_ready, load_error
-from core.stats    import print_analysis, available_levels
-from db.mongo      import MONGO_OK
+
+from src.core import (
+    CookieExpiredError,
+    extract_game_id,
+    fetch_game,
+    load_cookie,
+    prompt_new_cookie,
+    refresh_cookie,
+)
+from src.core.analyzer import parse_and_display
+from src.core.eco_enrich import init as eco_init
+from src.core.eco_enrich import is_ready, load_error
+from src.core.stats import available_levels, print_analysis
+from src.db import MONGO_OK
 
 MIN_ROUNDS = 10
 
@@ -55,12 +62,12 @@ def menu_insert():
 
 
 def menu_analysis(levels: list[tuple]):
-    options = {str(i+1): lv for i, lv in enumerate(levels)}
+    options = {str(i + 1): lv for i, lv in enumerate(levels)}
 
     while True:
         clear()
         print("\n  ── Análisis ─────────────────────────────")
-        for key, (level, label, n) in options.items():
+        for key, (_, label, n) in options.items():
             print(f"  [{key}] {label}  ({n} rondas)")
         print("  [0] Volver")
 

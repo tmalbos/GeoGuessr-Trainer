@@ -4,42 +4,34 @@
 
 REGION_OVERRIDES: dict[tuple[str, str], str] = {
     # China
-    ("CN", "Hong Kong"):   "HK",
-    ("CN", "Macau"):        "MO",
+    ("CN", "Hong Kong"): "HK",
+    ("CN", "Macau"): "MO",
     # Taiwan
-    ("CN", "Taiwan"):       "TW",
-
+    ("CN", "Taiwan"): "TW",
     # United States
-    ("US", "Puerto Rico"):  "PR",
-    ("US", "Guam"):         "GU",
+    ("US", "Puerto Rico"): "PR",
+    ("US", "Guam"): "GU",
     ("US", "American Samoa"): "AS",
     ("US", "United States Virgin Islands"): "VI",
-    ("US", "Northern Mariana Islands"):     "MP",
-
+    ("US", "Northern Mariana Islands"): "MP",
     # United Kingdom
-    ("GB", "Gibraltar"):    "GI",
-    ("GB", "Isle of Man"):  "IM",
-    ("GB", "Jersey"):       "JE",
-
+    ("GB", "Gibraltar"): "GI",
+    ("GB", "Isle of Man"): "IM",
+    ("GB", "Jersey"): "JE",
     # Denmark
     ("DK", "Faroe Islands"): "FO",
-    ("DK", "Greenland"):     "GL",
-
+    ("DK", "Greenland"): "GL",
     # France
-    ("FR", "Martinique"):   "MQ",
-    ("FR", "Réunion"):      "RE",
+    ("FR", "Martinique"): "MQ",
+    ("FR", "Réunion"): "RE",
     ("FR", "Saint Pierre and Miquelon"): "PM",
-
     # Norway
-    ("NO", "Svalbard"):     "SJ",
-
+    ("NO", "Svalbard"): "SJ",
     # Australia
-    ("AU", "Christmas Island"):  "CX",
-    ("AU", "Cocos Islands"):     "CC",
-
+    ("AU", "Christmas Island"): "CX",
+    ("AU", "Cocos Islands"): "CC",
     # New Zealand
-    ("NZ", "Pitcairn Islands"):  "PN",
-
+    ("NZ", "Pitcairn Islands"): "PN",
     # Special cases of partial recognition
     ("IL", "Palestinian Territory"): "PS",
 }

@@ -5,10 +5,12 @@ Si no puede, pide que el usuario la ingrese manualmente.
 """
 
 import os
-from core.config import COOKIE_FILE
+
+from src.core.config import COOKIE_FILE
 
 try:
     from playwright.sync_api import sync_playwright
+
     PLAYWRIGHT_OK = True
 except ImportError:
     PLAYWRIGHT_OK = False
@@ -55,7 +57,9 @@ def extract_cookie_playwright() -> str | None:
     browsers = [
         {
             "name": "Brave",
-            "user_data": os.path.expandvars(r"%LOCALAPPDATA%\BraveSoftware\Brave-Browser\User Data"),
+            "user_data": os.path.expandvars(
+                r"%LOCALAPPDATA%\BraveSoftware\Brave-Browser\User Data"
+            ),
             "executable": r"C:\Program Files\BraveSoftware\Brave-Browser\Application\brave.exe",
         },
         {
@@ -70,8 +74,10 @@ def extract_cookie_playwright() -> str | None:
         },
     ]
 
-    cfg = next((b for b in browsers
-                if os.path.exists(b["user_data"]) and os.path.exists(b["executable"])), None)
+    cfg = next(
+        (b for b in browsers if os.path.exists(b["user_data"]) and os.path.exists(b["executable"])),
+        None,
+    )
 
     if not cfg:
         print("  [Playwright] No se encontró ningún browser compatible.")
@@ -94,9 +100,6 @@ def extract_cookie_playwright() -> str | None:
             return ncfa
     except Exception as e:
         print(f"  [Playwright] Error: {e}")
-        return None
-    except Exception as e:
-        print(f"  [Playwright] No se pudo extraer la cookie: {e}")
         return None
 
 

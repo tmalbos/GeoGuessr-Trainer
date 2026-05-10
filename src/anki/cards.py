@@ -3,17 +3,18 @@ cards.py — Generación de tarjetas Anki para GeoGuessr.
 """
 
 import re
-import requests
 import unicodedata
+
+import requests
 import yaml
 
-from anki.anki_connect import _invoke
-from db.mongo import _db
+from src.anki.anki_connect import _invoke
+from src.db.mongo import _db
 
-DECK         = "GeoGuessr"
-MODEL_BASIC  = "Básico (teclear la respuesta)"
+DECK = "GeoGuessr"
+MODEL_BASIC = "Básico (teclear la respuesta)"
 MODEL_SINGLE = "Single Choice"
-SEPARATOR    = "<br>"
+SEPARATOR = "<br>"
 
 _session = requests.Session()
 _session.headers.update({"User-Agent": "GeoGuessr-Anki/1.0"})
@@ -21,10 +22,7 @@ _cache: dict[str, dict] = {}
 
 
 def _remove_accents(text: str) -> str:
-    return "".join(
-        c for c in unicodedata.normalize("NFD", text)
-        if unicodedata.category(c) != "Mn"
-    )
+    return "".join(c for c in unicodedata.normalize("NFD", text) if unicodedata.category(c) != "Mn")
 
 
 def _pascal(name: str) -> str:
@@ -64,6 +62,7 @@ def _download_flag(flag_url: str, filename: str) -> bool:
         if r.status_code != 200:
             return False
         import base64
+
         data_b64 = base64.b64encode(r.content).decode()
         _invoke("storeMediaFile", filename=filename, data=data_b64)
         return True
@@ -136,65 +135,73 @@ def build_notes(country_code: str) -> list[dict]:
         print(f"  [WARN] No se encontró data para '{country_name}' en REST Countries")
         return []
 
-    capital  = _remove_accents((data.get("capital") or [None])[0])
-    side     = data.get("car", {}).get("side", "").lower()
-    tld      = (data.get("tld") or [None])[0]
+    capital = _remove_accents((data.get("capital") or [None])[0])
+    side = data.get("car", {}).get("side", "").lower()
+    tld = (data.get("tld") or [None])[0]
     flag_url = data.get("flags", {}).get("png") or data.get("flags", {}).get("svg", "")
-    cca2     = data.get("cca2", "").lower()
+    cca2 = data.get("cca2", "").lower()
 
-    pc    = f"Pais::{_pascal(country_name)}"
-    tags  = [pc]
+    pc = f"Pais::{_pascal(country_name)}"
+    tags = [pc]
     notes = []
 
     # 1. Bandera
     if flag_url and cca2:
         filename = f"flag_{cca2}.png"
         if _download_flag(flag_url, filename):
-            notes.append({
-                "model":  MODEL_BASIC,
-                "fields": {
-                    "Anverso": f'¿De qué país es esta bandera?{SEPARATOR}<img src="{filename}" style="max-width:300px;">',
-                    "Reverso": country_name,
-                },
-                "tags": tags + ["Basico::Bandera"],
-            })
+            notes.append(
+                {
+                    "model": MODEL_BASIC,
+                    "fields": {
+                        "Anverso": f'¿De qué país es esta bandera?{SEPARATOR}<img src="{filename}" style="max-width:300px;">',
+                        "Reverso": country_name,
+                    },
+                    "tags": tags + ["Basico::Bandera"],
+                }
+            )
 
     # 2. Capital
     if capital:
-        notes.append({
-            "model":  MODEL_BASIC,
-            "fields": {
-                "Anverso": f"Cual es la capital de {country_name}?",
-                "Reverso": capital,
-            },
-            "tags": tags + ["Basico::Capital"],
-        })
+        notes.append(
+            {
+                "model": MODEL_BASIC,
+                "fields": {
+                    "Anverso": f"Cual es la capital de {country_name}?",
+                    "Reverso": capital,
+                },
+                "tags": tags + ["Basico::Capital"],
+            }
+        )
 
     # 3. Lado de conducción
     if side:
         side_label = "1" if side == "left" else "2"
 
-        notes.append({
-            "model":  MODEL_SINGLE,
-            "fields": {
-                "Pregunta": f"¿De qué lado se maneja en {country_name}?",
-                "Opciones": f"Izquierda{SEPARATOR}Derecha",
-                "Respuesta": side_label,
-                "Mezclar": "false",
-            },
-            "tags": tags + ["Basico::LadoConduccion"],
-        })
+        notes.append(
+            {
+                "model": MODEL_SINGLE,
+                "fields": {
+                    "Pregunta": f"¿De qué lado se maneja en {country_name}?",
+                    "Opciones": f"Izquierda{SEPARATOR}Derecha",
+                    "Respuesta": side_label,
+                    "Mezclar": "false",
+                },
+                "tags": tags + ["Basico::LadoConduccion"],
+            }
+        )
 
     # 4. Dominio
     if tld:
-        notes.append({
-            "model":  MODEL_BASIC,
-            "fields": {
-                "Anverso": f"""Que pais tiene este dominio?{SEPARATOR}{tld.upper()}""",
-                "Reverso": country_name,
-            },
-            "tags": tags + ["Basico::Dominio"],
-        })
+        notes.append(
+            {
+                "model": MODEL_BASIC,
+                "fields": {
+                    "Anverso": f"""Que pais tiene este dominio?{SEPARATOR}{tld.upper()}""",
+                    "Reverso": country_name,
+                },
+                "tags": tags + ["Basico::Dominio"],
+            }
+        )
 
     # 5. Líneas de ruta
     if cca2:
