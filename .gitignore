@@ -1,6 +1,7 @@
 .idea/*
 Ecoregions2017/*
 venv/*
+*.egg-info/*
 __pycache__/
 
 *.pyc
