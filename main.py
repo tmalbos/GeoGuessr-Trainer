@@ -4,19 +4,17 @@ GeoGuessr Analyzer — Punto de entrada principal.
 
 import os
 
-from src.core import (
-    CookieExpiredError,
-    extract_game_id,
-    fetch_game,
+from src.core.analyzer import parse_and_display
+from src.core.api import CookieExpiredError, extract_game_id, fetch_game
+from src.core.auth import (
     load_cookie,
     prompt_new_cookie,
     refresh_cookie,
 )
-from src.core.analyzer import parse_and_display
 from src.core.eco_enrich import init as eco_init
 from src.core.eco_enrich import is_ready, load_error
 from src.core.stats import available_levels, print_analysis
-from src.db import MONGO_OK
+from src.db.mongo import MONGO_OK
 
 MIN_ROUNDS = 10
 
