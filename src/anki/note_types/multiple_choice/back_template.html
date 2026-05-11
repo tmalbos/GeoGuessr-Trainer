@@ -1,0 +1,56 @@
+<div class="question">{{Pregunta}}</div>
+<div class="options" id="opciones-html"></div>
+
+<script>
+(function() {
+    var indicesCorrectas = ("{{Respuestas}}".match(/\d+/g) || []).map(function(numero) {
+        return parseInt(numero, 10) - 1;
+    });
+
+    var seleccionadas = JSON.parse(sessionStorage.getItem("seleccionadas") || "[]");
+    var orden = JSON.parse(sessionStorage.getItem("orden") || "[]");
+
+    var textoOpciones = `{{Opciones}}`.replace(/<br\s*\/?>/gi, "\\n");
+    var lineasOpciones = textoOpciones.split("\\n").map(function(linea) {
+        return linea.trim();
+    });
+
+    if (orden.length === 0) {
+        orden = lineasOpciones.map(function(_, indice) { return indice; });
+    }
+
+    var cantidadColumnas = Math.min(4, lineasOpciones.length);
+    document.getElementById("opciones-html").style.gridTemplateColumns = `repeat(${cantidadColumnas}, 1fr)`;
+
+    var contenedorOpciones = document.getElementById("opciones-html");
+
+    orden.forEach(function(indice) {
+        var cajaOpcion = document.createElement("div");
+        cajaOpcion.className = "option";
+
+        var esCorrecta = indicesCorrectas.includes(indice);
+        var esSeleccionada = seleccionadas.includes(indice);
+
+        if (esSeleccionada) {
+            cajaOpcion.classList.add("selected");
+        }
+
+        if (esCorrecta) {
+            cajaOpcion.classList.add("correct");
+        } else if (esSeleccionada && !esCorrecta) {
+            cajaOpcion.classList.add("wrong");
+        }
+
+        var casilla = document.createElement("div");
+        casilla.className = "checkbox";
+
+        var contenido = document.createElement("div");
+        contenido.className = "content";
+        contenido.innerHTML = lineasOpciones[indice];
+
+        cajaOpcion.appendChild(casilla);
+        cajaOpcion.appendChild(contenido);
+        contenedorOpciones.appendChild(cajaOpcion);
+    });
+})();
+</script>

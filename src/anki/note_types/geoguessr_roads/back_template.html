@@ -1,0 +1,359 @@
+<h2>{{Pregunta}}</h2>
+<div class="card-back" id="root"><div style="color:#aaa;font-size:13px;">Cargando...</div></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/js-yaml/4.1.0/js-yaml.min.js"></script>
+<script>
+(function() {
+
+  const YAML_RAW = `{{YamlData}}`;
+
+  function cleanAnkiHtml(raw) {
+    const txt = document.createElement('textarea');
+    txt.innerHTML = raw
+      .replace(/<br\s*\/?>/gi, '\n')
+      .replace(/<div>/gi, '\n')
+      .replace(/<\/div>/gi, '')
+      .replace(/<[^>]+>/g, '');
+    return txt.value.replace(/\u00a0/g, ' ').replace(/&nbsp;/g, ' ');
+  }
+
+  function getColorHex(color) {
+    if (color === 'white')                return '#F5F5F5';
+    if (color === 'faded white')          return '#B0B0B0';
+    if (color === 'yellow')               return '#FFD54F';
+    if (color === 'orange-tinted yellow') return '#FFB300';
+    if (color === 'green')                return '#66BB6A';
+    return '#F5F5F5';
+  }
+
+  function normalizeColor(c) {
+    if (!c) return 'white';
+    const u = c.toLowerCase().trim();
+    if (u === 'white')                return 'white';
+    if (u === 'faded white')          return 'faded white';
+    if (u === 'yellow')               return 'yellow';
+    if (u === 'orange-tinted yellow') return 'orange-tinted yellow';
+    if (u === 'green')                return 'green';
+    return u;
+  }
+
+  function normalizePattern(p) {
+    return (p || 'solid').toLowerCase().trim();
+  }
+
+  function getCssBorderStyle(pattern) {
+    return pattern === 'solid' ? 'solid' : 'dashed';
+  }
+
+  function getInnerPositions(innerCount, hasExtra) {
+    const total = innerCount + (hasExtra ? 1 : 0);
+    if (total === 1) return [50];
+    if (total === 2) return [46, 54];
+    if (total === 3) return [44, 50, 56];
+    return [];
+  }
+
+  function normalizeRoad(r) {
+    const inn = r.inner || {};
+    return {
+      outer: {
+        count:   r.outer?.count || 0,
+        color:   normalizeColor(r.outer?.color),
+        pattern: normalizePattern(r.outer?.pattern)
+      },
+      inner: {
+        count:   inn.count || 0,
+        color:   normalizeColor(inn.color),
+        pattern: normalizePattern(inn.pattern),
+        extra:   inn.extra ? {
+          color:   normalizeColor(inn.extra.color),
+          pattern: normalizePattern(inn.extra.pattern)
+        } : null
+      },
+      rule: (r.rule || '').trim()
+    };
+  }
+
+  function roadKey(road) {
+    const o   = road.outer;
+    const inn = road.inner;
+    const ex  = inn.extra;
+    return [
+      o.count,   o.color,   o.pattern,
+      inn.count, inn.color, inn.pattern,
+      ex ? 1 : 0,
+      ex ? ex.color   : '',
+      ex ? ex.pattern : '',
+      road.rule
+    ].join('|');
+  }
+
+  function getPatternBackground(pattern, color) {
+    if (pattern === 'solid') {
+      return color;
+    }
+
+    if (pattern === 'dashed') {
+      return `repeating-linear-gradient(
+        to bottom,
+        ${color} 0px,
+        ${color} 9px,
+        transparent 9px,
+        transparent 16px
+      )`;
+    }
+
+    if (pattern === 'short-dashed') {
+      return `repeating-linear-gradient(
+        to bottom,
+        ${color} 0px,
+        ${color} 4px,
+        transparent 4px,
+        transparent 8px
+      )`;
+    }
+
+    if (pattern === 'squares') {
+      return `repeating-linear-gradient(
+        to bottom,
+        ${color} 0px,
+        ${color} 3px,
+        transparent 3px,
+        transparent 6px
+      )`;
+    }
+
+    return color;
+  }
+
+  function getMiniInnerPositions(innerCount, hasExtra) {
+    const total = innerCount + (hasExtra ? 1 : 0);
+
+    const previewWidth = 75;
+    const center = previewWidth / 2;
+
+    const spacing = 8 / 2;
+
+    if (total === 1) {
+      return [center];
+    }
+
+    if (total === 2) {
+      return [
+        center - spacing / 2,
+        center + spacing / 2
+      ];
+    }
+
+    if (total === 3) {
+      return [
+        center - spacing,
+        center,
+        center + spacing
+      ];
+    }
+
+    return [];
+  }
+
+  function createMiniLine(styles) {
+    const line = document.createElement('div');
+
+    line.className = 'line-mini';
+
+    Object.assign(line.style, styles);
+
+    return line;
+  }
+
+  function renderMiniPreview(road) {
+    const div = document.createElement('div');
+    div.className = 'preview-mini';
+
+    const o = road.outer;
+    const inn = road.inner;
+    const ex = inn.extra;
+
+    // ===== OUTER =====
+
+    if (o.count > 0) {
+      const offsets = o.count === 1
+        ? [3]
+        : [2, 6];
+
+      const background = getPatternBackground(
+        o.pattern,
+        getColorHex(o.color)
+      );
+
+      offsets.forEach(offset => {
+        div.appendChild(createMiniLine({
+          left: offset + 'px',
+          background
+        }));
+      });
+
+      [...offsets].reverse().forEach(offset => {
+        div.appendChild(createMiniLine({
+          right: offset + 'px',
+          background
+        }));
+      });
+    }
+
+    // ===== INNER =====
+
+    const hasExtra = ex !== null;
+
+    const positions =
+      getMiniInnerPositions(
+        inn.count,
+        hasExtra
+      );
+
+    const total =
+      inn.count +
+      (hasExtra ? 1 : 0);
+
+    positions.forEach((p, i) => {
+      let cfg;
+
+      if (total === 1) {
+        cfg = inn.count === 1
+          ? inn
+          : ex;
+      }
+      else if (total === 2) {
+        cfg =
+          (inn.count === 1 && hasExtra)
+            ? (i === 0 ? inn : ex)
+            : inn;
+      }
+      else {
+        cfg =
+          (i === 1)
+            ? ex
+            : inn;
+      }
+
+      div.appendChild(createMiniLine({
+        left: (p - 1.5) + 'px',
+        background: getPatternBackground(
+          cfg.pattern,
+          getColorHex(cfg.color)
+        )
+      }));
+    });
+
+    return div;
+  }
+
+  function describeRoad(road) {
+    const parts = [];
+    const o   = road.outer;
+    const inn = road.inner;
+    const ex  = inn.extra;
+    if (o.count > 0)   parts.push(o.count + ' lateral' + (o.count > 1 ? 'es' : '') + ' · ' + o.pattern + ' · ' + o.color);
+    if (inn.count > 0) parts.push(inn.count + ' interna' + (inn.count > 1 ? 's' : '') + ' · ' + inn.pattern + ' · ' + inn.color);
+    if (ex)            parts.push('1 central · ' + ex.pattern + ' · ' + ex.color);
+    if (road.rule)     parts.push('<em>' + road.rule + '</em>');
+    return parts.join('<br>') || 'vacía';
+  }
+
+  function createRoadCard(road, status) {
+    const card = document.createElement('div');
+    card.className = 'road-card ' + status;
+
+    const badge = document.createElement('div');
+    badge.className = 'status-badge ' + (status === 'correcto' ? 'ok' : status === 'faltante' ? 'miss' : 'fail');
+    badge.textContent = status === 'correcto' ? '✓' : status === 'faltante' ? '?' : '✗';
+    card.appendChild(badge);
+
+    card.appendChild(renderMiniPreview(road));
+
+    const info = document.createElement('div');
+    info.className = 'road-info';
+    info.innerHTML = describeRoad(road);
+    card.appendChild(info);
+
+    return card;
+  }
+
+  function render() {
+    const root = document.getElementById('root');
+
+    let data;
+    try {
+      data = jsyaml.load(cleanAnkiHtml(YAML_RAW));
+    } catch(e) {
+      root.innerHTML = '<div style="color:#F44336;font-size:12px;padding:10px;">Error parseando YAML: ' + e.message + '</div>';
+      return;
+    }
+
+    let correctCombos;
+    try {
+      correctCombos = (data.roads?.lines || []).map(normalizeRoad);
+    } catch(e) {
+      root.innerHTML = '<div style="color:#F44336;font-size:12px;padding:10px;">Error leyendo rutas: ' + e.message + '</div>';
+      return;
+    }
+
+    let userRoads = [];
+    try {
+      const stored = sessionStorage.getItem('geoguessr_roads');
+      userRoads = stored ? JSON.parse(stored).map(normalizeRoad) : [];
+    } catch(e) {}
+
+    const usedIdx     = new Set();
+    const userResults = userRoads.map(ur => {
+      const key = roadKey(ur);
+      const idx = correctCombos.findIndex((c, i) => roadKey(c) === key && !usedIdx.has(i));
+      if (idx !== -1) { usedIdx.add(idx); return { road: ur, status: 'correcto' }; }
+      return { road: ur, status: 'incorrecto' };
+    });
+
+    const missing = correctCombos.filter((_, i) => !usedIdx.has(i));
+    const correct = userResults.filter(r => r.status === 'correcto').length;
+    const total   = correctCombos.length;
+    const pct     = total > 0 ? Math.round((correct / total) * 100) : 0;
+
+    root.innerHTML = '';
+
+    const scoreBar = document.createElement('div');
+    scoreBar.className = 'score-bar';
+    scoreBar.innerHTML =
+      '<div class="score-num ' + (pct === 100 ? 'perfecto' : pct >= 50 ? 'parcial' : 'malo') + '">' + pct + '%</div>'
+      + '<div><div style="font-size:16px;font-weight:bold;color:#f1f1f1">' + correct + '/' + total + '</div><div class="score-label">rutas correctas</div></div>'
+      + '<div class="score-detail">' + (missing.length > 0 ? missing.length + ' faltante' + (missing.length > 1 ? 's' : '') : '¡Perfecto!') + '</div>';
+    root.appendChild(scoreBar);
+
+    if (userResults.length > 0) {
+      const sec = document.createElement('div');
+      sec.innerHTML = '<div class="section-title">Tus rutas</div>';
+      const grid = document.createElement('div');
+      grid.className = 'roads-grid';
+      userResults.forEach(r => grid.appendChild(createRoadCard(r.road, r.status)));
+      sec.appendChild(grid);
+      root.appendChild(sec);
+    } else {
+      const p = document.createElement('p');
+      p.style.cssText = 'color:#aaa;font-size:13px;margin-bottom:14px;text-align:center;';
+      p.textContent = 'No se encontraron rutas guardadas.';
+      root.appendChild(p);
+    }
+
+    if (missing.length > 0) {
+      const sec = document.createElement('div');
+      sec.innerHTML = '<div class="section-title">Rutas que faltaron</div>';
+      const grid = document.createElement('div');
+      grid.className = 'roads-grid';
+      missing.forEach(c => grid.appendChild(createRoadCard(c, 'faltante')));
+      sec.appendChild(grid);
+      root.appendChild(sec);
+    }
+  }
+
+  render();
+  sessionStorage.removeItem('geoguessr_roads');
+})();
+</script>

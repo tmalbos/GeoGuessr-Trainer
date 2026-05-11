@@ -1,0 +1,77 @@
+<div class="question">{{Pregunta}}</div>
+<div class="options" id="opciones-html"></div>
+
+<script>
+(function() {
+    sessionStorage.removeItem("seleccionadas");
+    sessionStorage.removeItem("orden");
+
+    var indicesCorrectas = ("{{Respuestas}}".match(/\d+/g) || []).map(function(numero) {
+        return parseInt(numero, 10) - 1;
+    });
+
+    var textoOpciones = `{{Opciones}}`.replace(/<br\s*\/?>/gi, "\\n");
+    var lineasOpciones = textoOpciones.split("\\n").map(function(linea) {
+        return linea.trim();
+    });
+
+    var arregloOpciones = lineasOpciones.map(function(html, indice) {
+        return {
+            html: html,
+            indiceOriginal: indice,
+            esCorrecta: indicesCorrectas.includes(indice)
+        };
+    });
+
+    var cantidadColumnas = Math.min(4, lineasOpciones.length);
+    document.getElementById("opciones-html").style.gridTemplateColumns = `repeat(${cantidadColumnas}, 1fr)`;
+
+    var campoMezclar = "{{Mezclar}}".trim().toLowerCase();
+
+    if (campoMezclar !== "false") {
+        for (let i = arregloOpciones.length - 1; i > 0; i--) {
+            let j = Math.floor(Math.random() * (i + 1));
+            let temporal = arregloOpciones[i];
+            arregloOpciones[i] = arregloOpciones[j];
+            arregloOpciones[j] = temporal;
+        }
+    }
+
+    var ordenGuardar = arregloOpciones.map(function(opcion) {
+        return opcion.indiceOriginal;
+    });
+    sessionStorage.setItem("orden", JSON.stringify(ordenGuardar));
+
+    var contenedorOpciones = document.getElementById("opciones-html");
+    var indicesSeleccionados = [];
+
+    arregloOpciones.forEach(function(opcion) {
+        var cajaOpcion = document.createElement("div");
+        cajaOpcion.className = "option";
+
+        var casilla = document.createElement("div");
+        casilla.className = "checkbox";
+
+        var contenido = document.createElement("div");
+        contenido.className = "content";
+        contenido.innerHTML = opcion.html;
+
+        cajaOpcion.appendChild(casilla);
+        cajaOpcion.appendChild(contenido);
+
+        cajaOpcion.onclick = function() {
+            var indice = opcion.indiceOriginal;
+            if (indicesSeleccionados.includes(indice)) {
+                indicesSeleccionados = indicesSeleccionados.filter(function(i) { return i !== indice; });
+                cajaOpcion.classList.remove("selected");
+            } else {
+                indicesSeleccionados.push(indice);
+                cajaOpcion.classList.add("selected");
+            }
+            sessionStorage.setItem("seleccionadas", JSON.stringify(indicesSeleccionados));
+        };
+
+        contenedorOpciones.appendChild(cajaOpcion);
+    });
+})();
+</script>

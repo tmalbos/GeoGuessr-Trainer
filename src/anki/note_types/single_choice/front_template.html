@@ -1,0 +1,65 @@
+<div class="question">{{Pregunta}}</div>
+<div class="options" id="opts"></div>
+
+<script>
+(function() {
+    sessionStorage.removeItem("selected");
+    sessionStorage.removeItem("order");
+
+    var correctaIndex = parseInt("{{Respuesta}}") - 1;
+
+    var text = `{{Opciones}}`.replace(/<br\s*\/?>/gi, "\\n");
+
+    var raw = text.split("\\n")
+        .map(s => s.trim());
+
+    var opts = raw.map((html, i) => ({
+        html: html,
+        originalIndex: i,
+        correct: i === correctaIndex
+    }));
+
+    var cols = Math.min(4, raw.length);
+    document.getElementById("opts").style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
+
+    var shuffleField = "{{Mezclar}}".trim().toLowerCase();
+    var shouldShuffle = !(shuffleField === "false");
+
+    // shuffle condicional
+    if (shouldShuffle) {
+        for (let i = opts.length - 1; i > 0; i--) {
+            let j = Math.floor(Math.random() * (i + 1));
+            [opts[i], opts[j]] = [opts[j], opts[i]];
+        }
+    }
+
+    sessionStorage.setItem("order", JSON.stringify(opts.map(o => o.originalIndex)));
+
+    var container = document.getElementById("opts");
+
+    opts.forEach(function(op) {
+        var div = document.createElement("div");
+        div.className = "option";
+
+        var radio = document.createElement("div");
+        radio.className = "radio";
+
+        var content = document.createElement("div");
+        content.className = "content";
+        content.innerHTML = op.html;  // <-- permite imágenes/HTML
+
+        div.appendChild(radio);
+        div.appendChild(content);
+
+        div.onclick = function() {
+            document.querySelectorAll(".option")
+                .forEach(o => o.classList.remove("selected"));
+
+            div.classList.add("selected");
+            sessionStorage.setItem("selected", op.originalIndex);
+        };
+
+        container.appendChild(div);
+    });
+})();
+</script>

@@ -1,0 +1,440 @@
+<h2>{{Pregunta}}</h2>
+
+<div id="plates-wrapper"></div>
+<button class="add-btn" onclick="addPlate()">+ Nueva Matrícula</button>
+
+<script>
+let platesData = [];
+
+const CAR_TYPES = [
+  'Normal', 'Comercial', 'Taxi', 'Moto', 'Militar', 'Gobierno', 'Eléctrico'
+];
+
+const PALETTE = [
+  { label: 'Blanco',          hex: '#FFFFFF' },
+  { label: 'Amarillo',        hex: '#FFFF00' },
+  { label: 'Amarillo pastel', hex: '#FFEE8C' },
+  { label: 'Azul',            hex: '#000080' },
+  { label: 'Verde',           hex: '#06402B' },
+  { label: 'Rojo',            hex: '#8B0000' },
+  { label: 'Negro',           hex: '#000000' },
+];
+
+const PLATE_SHAPES = {
+  estandar: { label: 'Estándar', w: 160, h: 60  },
+  larga:    { label: 'Larga',    w: 190, h: 60  },
+  corta:    { label: 'Corta',    w: 130, h: 60  },
+  alta:     { label: 'Alta',     w: 130, h: 80  },
+};
+
+const STRIP_TOP_BOTTOM_SIZE = 10;
+const STRIP_SIDE_SIZE = 20;
+
+function saveState() {
+  sessionStorage.setItem('geoguessr_plates', JSON.stringify(platesData));
+}
+
+/* ── COLOR PICKERS ── */
+function paletteSwatches(idx, face, field, currentHex, size) {
+  const s = size || 22;
+  return PALETTE.map(c => {
+    const sel = c.hex.toLowerCase() === (currentHex || '').toLowerCase();
+    return `<div title="${c.label}"
+      onclick="setFaceField(${idx},'${face}','${field}','${c.hex}')"
+      style="width:${s}px;height:${s}px;border-radius:2px;background:${c.hex};
+             border:${sel ? '2px solid #4a90e2' : '2px solid #777'};
+             ${sel ? 'box-shadow:0 0 0 2px #4a90e2aa;' : ''}
+             cursor:pointer;flex-shrink:0;"></div>`;
+  }).join('');
+}
+
+function stripSwatches(idx, face, si, currentHex) {
+  return PALETTE.map(c => {
+    const sel = c.hex.toLowerCase() === (currentHex || '').toLowerCase();
+    return `<div title="${c.label}"
+      onclick="setStrip(${idx},'${face}',${si},'color','${c.hex}')"
+      style="width:20px;height:20px;border-radius:3px;background:${c.hex};
+             border:${sel ? '3px solid #4a90e2' : '2px solid #777'};
+             cursor:pointer;flex-shrink:0;"></div>`;
+  }).join('');
+}
+
+/* ── PLATE PREVIEW ── */
+function buildPlatePreview(face, containerId) {
+  const box = document.getElementById(containerId);
+  if (!box) return;
+  const shape = PLATE_SHAPES[face.shape] || PLATE_SHAPES.estandar;
+  box.style.width   = shape.w + 'px';
+  box.style.height  = shape.h + 'px';
+  box.style.background = face.color || '#F5F5F5';
+  box.innerHTML = '';
+
+  let padTop = 2, padBottom = 2, padLeft = 2, padRight = 2;
+
+  (face.strips || []).forEach(s => {
+    if (!s.side || !s.color) return;
+    const div = document.createElement('div');
+    div.style.cssText = `position:absolute;z-index:1;background:${s.color};`;
+    if (s.side === 'top')    { div.style.cssText += `top:0;left:0;right:0;height:${STRIP_TOP_BOTTOM_SIZE}px;`;    padTop    = STRIP_TOP_BOTTOM_SIZE + 2; }
+    if (s.side === 'bottom') { div.style.cssText += `bottom:0;left:0;right:0;height:${STRIP_TOP_BOTTOM_SIZE}px;`; padBottom = STRIP_TOP_BOTTOM_SIZE + 2; }
+    if (s.side === 'left')   { div.style.cssText += `left:0;top:0;bottom:0;width:${STRIP_SIDE_SIZE}px;`;          padLeft   = STRIP_SIDE_SIZE + 2; }
+    if (s.side === 'right')  { div.style.cssText += `right:0;top:0;bottom:0;width:${STRIP_SIDE_SIZE}px;`;         padRight  = STRIP_SIDE_SIZE + 2; }
+    box.appendChild(div);
+  });
+
+  const txt = document.createElement('div');
+  const availH = shape.h - padTop - padBottom;
+  txt.style.cssText = `
+    position:absolute;z-index:2;
+    top:${padTop}px;bottom:${padBottom}px;left:${padLeft}px;right:${padRight}px;
+    display:flex;align-items:center;justify-content:center;
+    font-family:'Courier New',monospace;font-weight:bold;
+    font-size:${Math.max(10, Math.min(availH - 4, 22))}px;
+    letter-spacing:2px;color:${face.letter_color || '#212121'};
+    white-space:normal;overflow:hidden;
+    text-align:center;line-height:1.1;
+  `;
+  txt.textContent = 'ABC 123';
+  box.appendChild(txt);
+}
+
+function updatePreview(idx) {
+  const p = platesData[idx];
+  buildPlatePreview(p.back, `prev-back-${idx}`);
+
+  const frontPreview = document.getElementById(`prev-front-${idx}`);
+  const frontItem = frontPreview?.parentElement?.parentElement;
+
+  const hideFront = (p.front.is_required === false || p.front_same_as_back);
+
+  if (hideFront) {
+    if (frontItem) frontItem.style.display = 'none';
+  } else {
+    if (frontItem) frontItem.style.display = 'flex';
+    if (frontPreview) {
+      frontPreview.style.display = 'block';
+      buildPlatePreview(p.front, `prev-front-${idx}`);
+    }
+  }
+
+  saveState();
+}
+
+/* ── STRIPS ── */
+const SIDE_LABELS = { top: 'Arriba', bottom: 'Abajo', left: 'Izquierda', right: 'Derecha' };
+
+function sidePicker(idx, face, si, current) {
+  return `
+    <div class="strip-picker">
+      ${['top','bottom','left','right'].map(side => {
+        const active = side === current;
+        return `
+          <div class="strip-btn ${side} ${active ? 'active' : ''}"
+               onclick="setStrip(${idx},'${face}',${si},'side','${side}')">
+          </div>
+        `;
+      }).join('')}
+    </div>
+  `;
+}
+
+function renderStrips(idx, face) {
+  const strips = platesData[idx][face].strips || [];
+  const container = document.getElementById(`strips-${idx}-${face}`);
+  if (!container) return;
+  container.innerHTML = '';
+  strips.forEach((s, si) => {
+    const row = document.createElement('div');
+    row.style.cssText = 'display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:2px;';
+    row.innerHTML = `
+      <div class="side-picker";>
+        ${sidePicker(idx, face, si, s.side)}
+      </div>
+      <div style="display:flex;gap:4px;flex-wrap:wrap;">${stripSwatches(idx,face,si,s.color)}</div>
+      <button onclick="removeStrip(${idx},'${face}',${si})"
+        style="background:none;border:none;color:#F44336;cursor:pointer;font-size:14px;line-height:0px;padding:0px;height:16px;display:flex;align-items:center;justify-content:center;margin-left:auto;">✕</button>
+    `;
+    container.appendChild(row);
+  });
+}
+
+function addStrip(idx, face) {
+  platesData[idx][face].strips = platesData[idx][face].strips || [];
+  platesData[idx][face].strips.push({ side: 'top', color: '#212121' });
+  renderStrips(idx, face);
+  updatePreview(idx);
+}
+
+function removeStrip(idx, face, si) {
+  platesData[idx][face].strips.splice(si, 1);
+  renderStrips(idx, face);
+  updatePreview(idx);
+}
+
+function setStrip(idx, face, si, field, val) {
+  platesData[idx][face].strips[si][field] = val;
+  renderStrips(idx, face);
+  updatePreview(idx);
+}
+
+/* ── FRONT TOGGLE ── */
+function toggleFrontSame(idx, checked) {
+  platesData[idx].front_same_as_back = checked;
+  const frontPanel = document.getElementById(`front-panel-${idx}`);
+  if (frontPanel) {
+    frontPanel.style.visibility = (!checked && platesData[idx].front.is_required !== false) ? 'visible' : 'hidden';
+  }
+  updatePreview(idx);
+}
+
+function toggleFrontRequired(idx, checked) {
+  platesData[idx].front.is_required = checked;
+  const frontPanel = document.getElementById(`front-panel-${idx}`);
+  if (frontPanel) {
+    frontPanel.style.visibility = (checked && !platesData[idx].front_same_as_back) ? 'visible' : 'hidden';
+  }
+  // Disable "same as back" checkbox if front not required
+  const sameChk = document.getElementById(`same-chk-${idx}`);
+  const sameLabel = document.getElementById(`same-label-${idx}`);
+
+  if (sameChk) sameChk.disabled = !checked;
+
+  if (sameLabel) {
+    if (!checked) sameLabel.classList.add('disabled');
+    else sameLabel.classList.remove('disabled');
+  }
+
+  updatePreview(idx);
+}
+
+/* ── SHAPE PICKER ── */
+const SHAPE_THUMB = {
+  estandar: { w: 32, h: 12 },
+  larga:    { w: 42, h: 12 },
+  corta:    { w: 22, h: 12 },
+  alta:     { w: 26, h: 16 },
+};
+
+function shapePicker(idx, face, currentShape) {
+  return Object.entries(PLATE_SHAPES).map(([k, v]) => {
+    const sel = k === currentShape;
+    const t = SHAPE_THUMB[k];
+    return `
+      <div title="${v.label}" onclick="setFaceField(${idx},'${face}','shape','${k}')"
+        style="display:flex;flex-direction:column;align-items:center;gap:4px;cursor:pointer;">
+        <div style="
+          width:${t.w}px;height:${t.h}px;
+          border-radius:3px;
+          background:${sel ? '#4a90e2' : '#888'};
+          border:2px solid ${sel ? '#4a90e2' : '#666'};
+          box-shadow:${sel ? '0 0 0 2px #4a90e2aa' : 'none'};
+          transition: background .15s, box-shadow .15s;
+        "></div>
+      </div>
+  `;
+  }).join('');
+}
+
+/* ── FACE FORM ── */
+function faceForm(idx, face) {
+  const p = platesData[idx][face];
+  return `
+    <div class="form-section" id="${face}-section-${idx}">
+      <div class="form-group form-inline form-shape">
+        <label>Forma</label>
+        <div class="shape-row">
+          ${shapePicker(idx, face, p.shape)}
+        </div>
+      </div>
+      <div class="form-group" style="align-items:flex-start;">
+        <label style="padding-top:3px;">Fondo</label>
+        <div style="display:flex;gap:5px;flex-wrap:wrap;">${paletteSwatches(idx,face,'color',p.color)}</div>
+      </div>
+      <div class="form-group" style="align-items:flex-start;">
+        <label style="padding-top:3px;">Letras</label>
+        <div style="display:flex;gap:5px;flex-wrap:wrap;">${paletteSwatches(idx,face,'letter_color',p.letter_color)}</div>
+      </div>
+      <div style="font-size:10px;font-weight:bold;color:#aaa;letter-spacing:.06em;margin-top:2px;">
+          FRANJAS
+      </div>
+      <div id="strips-${idx}-${face}"></div>
+      <button onclick="addStrip(${idx},'${face}')"
+        style="background:#555;color:#eee;border:none;border-radius:4px;padding:3px 8px;font-size:12px;cursor:pointer;align-self:flex-start;">
+        + Franja
+      </button>
+    </div>
+  `;
+}
+
+function setFaceField(idx, face, field, val) {
+  platesData[idx][face][field] = val;
+  const wrapper = document.getElementById(`${face}-section-${idx}`);
+  if (wrapper) {
+    const parent = wrapper.parentElement;
+    parent.innerHTML = faceForm(idx, face);
+    renderStrips(idx, face);
+  }
+  updatePreview(idx);
+}
+
+/* ── BUILD PLATE ROW ── */
+function addPlateFromData(idx) {
+  const wrapper = document.getElementById('plates-wrapper');
+  const p = platesData[idx];
+
+  const rowDiv = document.createElement('div');
+  rowDiv.className = 'plate-row';
+  rowDiv.id = `row-${idx}`;
+
+  /* ── outer card ── */
+  const card = document.createElement('div');
+  card.className = 'plate-card-outer';
+
+  /* ════ HEADER ROW (3 columns) ════ */
+  const header = document.createElement('div');
+  header.className = 'plate-grid-header';
+
+  /* col 1: tipo de vehículo */
+  const col1h = document.createElement('div');
+  col1h.className = 'grid-header-cell';
+  col1h.innerHTML = `
+    <div class="inline-field">
+      <label class="col-label">Tipo de vehículo</label>
+      <select onchange="setCarType(${idx},this.value)" style="padding:4px 8px;font-size:13px;">
+        ${CAR_TYPES.map(t=>`<option value="${t}" ${p.car_type===t?'selected':''}>${t}</option>`).join('')}
+      </select>
+    </div>
+  `;
+
+  /* col 2: tiene placa delantera */
+  const col2h = document.createElement('div');
+  col2h.className = 'grid-header-cell';
+  col2h.innerHTML = `
+    <label class="toggle-label">
+      <input type="checkbox" ${p.front.is_required !== false ? 'checked' : ''}
+        onchange="toggleFrontRequired(${idx},this.checked)">
+      Tiene placa delantera
+    </label>
+  `;
+
+  /* col 3: delantera igual que trasera */
+  const col3h = document.createElement('div');
+  col3h.className = 'grid-header-cell';
+  col3h.innerHTML = `
+    <label class="toggle-label same-as-label" id="same-label-${idx}">
+      <input type="checkbox" id="same-chk-${idx}"
+        ${p.front_same_as_back ? 'checked' : ''}
+        ${p.front.is_required === false ? 'disabled' : ''}
+        onchange="toggleFrontSame(${idx},this.checked)">
+      Delantera igual que trasera
+    </label>
+  `;
+
+  header.appendChild(col1h);
+  header.appendChild(col2h);
+  header.appendChild(col3h);
+  card.appendChild(header);
+
+  /* ── divider ── */
+  const divider = document.createElement('div');
+  divider.className = 'plate-divider';
+  card.appendChild(divider);
+
+  /* ════ BODY ROW (3 columns) ════ */
+  const body = document.createElement('div');
+  body.className = 'plate-grid-body';
+
+  /* col 1: trasera */
+  const col1b = document.createElement('div');
+  col1b.className = 'grid-body-cell';
+  col1b.innerHTML = `<div class="panel-title">TRASERA</div>`;
+  const backFormWrap = document.createElement('div');
+  backFormWrap.innerHTML = faceForm(idx, 'back');
+  col1b.appendChild(backFormWrap);
+
+  /* col 2: delantera */
+  const isRequired = p.front.is_required !== false;
+  const col2b = document.createElement('div');
+  col2b.className = 'grid-body-cell';
+  col2b.id = `front-panel-${idx}`;
+  col2b.style.visibility = (p.front_same_as_back || !isRequired) ? 'hidden' : 'visible';
+  col2b.innerHTML = `<div class="panel-title">DELANTERA</div>`;
+  const frontFormWrap = document.createElement('div');
+  frontFormWrap.innerHTML = faceForm(idx, 'front');
+  col2b.appendChild(frontFormWrap);
+
+  /* col 3: previsualización */
+  const col3b = document.createElement('div');
+  col3b.className = 'grid-body-cell preview-cell';
+  col3b.innerHTML = `
+    <div class="preview-stack">
+      <div class="preview-item">
+        <span class="preview-sublabel">Trasera</span>
+        <div class="preview-duo">
+          <div id="prev-back-${idx}" class="plate-preview"></div>
+        </div>
+      </div>
+      <div class="preview-item">
+        <span class="preview-sublabel">Delantera</span>
+        <div class="preview-duo">
+          <div id="prev-front-${idx}" class="plate-preview"></div>
+        </div>
+      </div>
+    </div>
+  `;
+
+  body.appendChild(col1b);
+  body.appendChild(col2b);
+  body.appendChild(col3b);
+  card.appendChild(body);
+
+  /* ── delete button ── */
+  if (idx > 0) {
+    const delBtn = document.createElement('button');
+    delBtn.className = 'delete-btn-abs';
+    delBtn.innerHTML = `<svg width="24" height="24" viewBox="0 0 24 24" fill="#F44336"><path d="M9 3V4H4V6H5V19C5 20.1 5.9 21 7 21H17C18.1 21 19 20.1 19 19V6H20V4H15V3H9ZM7 6H17V19H7V6ZM9 8V17H11V8H9ZM13 8V17H15V8H13Z"/></svg>`;
+    delBtn.onclick = () => removePlate(idx);
+    header.appendChild(delBtn);
+  }
+
+  rowDiv.appendChild(card);
+  wrapper.appendChild(rowDiv);
+
+  renderStrips(idx, 'back');
+  renderStrips(idx, 'front');
+  updatePreview(idx);
+}
+
+function setCarType(idx, val) {
+  platesData[idx].car_type = val;
+  saveState();
+}
+
+function defaultFace() {
+  return {
+    shape: 'estandar',
+    color: '#FFFFFF',
+    letter_color: '#000000',
+    strips: [],
+    is_required: true
+  };
+}
+
+function addPlate() {
+  platesData.push({
+    car_type: 'Normal',
+    back: defaultFace(),
+    front: defaultFace(),
+    front_same_as_back: true
+  });
+  addPlateFromData(platesData.length - 1);
+}
+
+function removePlate(idx) {
+  platesData.splice(idx, 1);
+  document.getElementById('plates-wrapper').innerHTML = '';
+  platesData.forEach((_, i) => addPlateFromData(i));
+}
+
+addPlate();
+</script>

@@ -1,0 +1,78 @@
+.card {
+    font-family: Arial, sans-serif;
+    font-size: 18px;
+    font-color: #000000;
+    text-align: center;
+    padding: 20px;
+}
+
+.question {
+    font-size: 22px;
+    margin-bottom: 20px;
+    font-weight: bold;
+}
+
+.options {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 12px;
+    max-width: 1100px;
+    margin: 0 auto;
+}
+
+.option {
+    flex: 0 0 calc(22% - 3px);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px;
+    border: 2px solid #777;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: background 0.2s;
+}
+
+.option.selected {
+    border-color: #ADD8E6;
+}
+
+.option.correct {
+    background: #006700;
+    color: white;
+}
+
+.option.wrong {
+    background: #800000;
+    color: white;
+}
+
+.radio {
+    width: 16px;
+    height: 16px;
+    border: 2px solid #777;
+    border-radius: 50%;
+    flex-shrink: 0;
+    position: relative;
+}
+
+.option.selected .radio::after {
+    content: "";
+    width: 8px;
+    height: 8px;
+    background: #ADD8E6;
+    border-radius: 50%;
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+}
+
+.content {
+    text-align: left;
+}
+
+.content img {
+    max-width: 100%;
+    height: auto;
+}

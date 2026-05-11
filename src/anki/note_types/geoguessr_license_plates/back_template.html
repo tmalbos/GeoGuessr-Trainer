@@ -1,0 +1,273 @@
+<div class="card-back" id="root"><div style="color:#aaa;font-size:13px;">Cargando...</div></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/js-yaml/4.1.0/js-yaml.min.js"></script>
+<script>
+(function () {
+
+  const YAML_RAW = `{{YamlData}}`;
+
+  const CAR_TYPES = {
+    normal: 'Normal',
+    commercial: 'Comercial',
+    taxi: 'Taxi',
+    motorcycle: 'Moto',
+    military: 'Militar',
+    government: 'Gobierno',
+    electric: 'Eléctrico'
+  };
+
+  const CAR_TYPE_REVERSE = Object.fromEntries(
+    Object.entries(CAR_TYPES).map(([k, v]) => [v.toLowerCase(), k])
+  );
+
+  const PALETTE = [
+    { label: 'Blanco',          hex: '#FFFFFF' },
+    { label: 'Amarillo',        hex: '#FFFF00' },
+    { label: 'Amarillo pastel', hex: '#FFEE8C' },
+    { label: 'Azul',            hex: '#000080' },
+    { label: 'Verde',           hex: '#06402B' },
+    { label: 'Rojo',            hex: '#8B0000' },
+    { label: 'Negro',           hex: '#000000' },
+  ];
+
+  const PLATE_SHAPES = {
+    estandar: { w: 110,  h: 30 },
+    larga:    { w: 125, h: 30 },
+    corta:    { w: 95,  h: 30 },
+    alta:     { w: 95,  h: 45 },
+  };
+
+  const STRIP_TOP_BOTTOM_SIZE_MINI = 5;
+  const STRIP_SIDE_SIZE_MINI = 10;
+
+  function cleanAnkiHtml(raw) {
+    const t = document.createElement('textarea');
+    t.innerHTML = raw
+      .replace(/<br\s*\/?>/gi, '\n')
+      .replace(/<div>/gi, '\n')
+      .replace(/<\/div>/gi, '')
+      .replace(/<[^>]+>/g, '');
+    return t.value.replace(/\u00a0/g, ' ').replace(/&nbsp;/g, ' ');
+  }
+
+  /* Normalize hex: snap any close color to palette entry */
+  function normHex(h) {
+    if (!h) return '#FFFFFF';
+    const up = h.toUpperCase().trim();
+    /* exact match first */
+    const exact = PALETTE.find(c => c.hex.toUpperCase() === up);
+    if (exact) return exact.hex;
+    return h;
+  }
+
+  function faceKey(face) {
+    if (!face) return 'none';
+    const strips = (face.strips || [])
+      .map(s => `${s.side}:${normHex(s.color)}`)
+      .sort().join(';');
+    return [face.shape || 'estandar', normHex(face.color), normHex(face.letter_color), strips].join('|');
+  }
+
+  function plateKey(plate) {
+    const same = plate.front_same_as_back ?? false;
+    const back = plate.back;
+    const front = same ? plate.back : plate.front;
+
+    const rawType = (plate.car_type || 'normal').toLowerCase();
+    const normalizedType = CAR_TYPE_REVERSE[rawType] || rawType;
+
+    return `${normalizedType}__${faceKey(front)}__${faceKey(back)}`;
+  }
+
+  /* ── BUILD MINI PLATE ── */
+  function buildMiniPlate(face) {
+    const shape = PLATE_SHAPES[face.shape] || PLATE_SHAPES.estandar;
+    const div = document.createElement('div');
+    div.style.cssText = `position:relative;width:${shape.w}px;height:${shape.h}px;
+      background:${face.color||'#F5F5F5'};border-radius:3px;overflow:hidden;
+      border:1.5px solid #888;box-sizing:border-box;flex-shrink:0;`;
+
+    let padTop = 2, padBottom = 2, padLeft = 4, padRight = 4;
+
+    (face.strips || []).forEach(s => {
+      if (!s.side || !s.color) return;
+      const strip = document.createElement('div');
+      strip.style.cssText = `position:absolute;z-index:1;background:${s.color};`;
+      if (s.side === 'top')    { strip.style.cssText += `top:0;left:0;right:0;height:${STRIP_TOP_BOTTOM_SIZE_MINI}px;`;    padTop    = STRIP_TOP_BOTTOM_SIZE_MINI + 2; }
+      if (s.side === 'bottom') { strip.style.cssText += `bottom:0;left:0;right:0;height:${STRIP_TOP_BOTTOM_SIZE_MINI}px;`; padBottom = STRIP_TOP_BOTTOM_SIZE_MINI + 2; }
+      if (s.side === 'left')   { strip.style.cssText += `left:0;top:0;bottom:0;width:${STRIP_SIDE_SIZE_MINI}px;`;    padLeft   = STRIP_SIDE_SIZE_MINI + 4; }
+      if (s.side === 'right')  { strip.style.cssText += `right:0;top:0;bottom:0;width:${STRIP_SIDE_SIZE_MINI}px;`;   padRight  = STRIP_SIDE_SIZE_MINI + 4; }
+      div.appendChild(strip);
+    });
+
+    const txt = document.createElement('div');
+    const availH = shape.h - padTop - padBottom;
+    txt.style.cssText = `position:absolute;z-index:2;
+      top:${padTop}px;bottom:${padBottom}px;left:${padLeft}px;right:${padRight}px;
+      display:flex;align-items:center;justify-content:center;
+      font-family:'Courier New',monospace;font-weight:bold;
+      font-size:${Math.max(7, Math.min(availH - 2, 13))}px;
+      letter-spacing:1px;color:${(face && face.letter_color) ? face.letter_color : '#212121'};
+      white-space:nowrap;overflow:hidden;`;
+    txt.textContent = 'ABC 123';
+    div.appendChild(txt);
+    return div;
+  }
+
+  function capitalize(str) {
+    if (!str) return '–';
+    return str.charAt(0).toUpperCase() + str.slice(1);
+  }
+
+  /* ── PLATE CARD ── */
+  function createPlateCard(plate, status) {
+    const card = document.createElement('div');
+    card.className = `plate-card ${status}`;
+
+    const badge = document.createElement('div');
+    badge.className = `status-badge ${status==='correcto'?'ok':status==='faltante'?'miss':'fail'}`;
+    badge.textContent = status==='correcto' ? '✓' : status==='faltante' ? '?' : '✗';
+    card.appendChild(badge);
+
+    const same = plate.front_same_as_back ?? false;
+    const backFace = plate.back;
+    const frontFace = same ? plate.back : plate.front;
+
+    const previews = document.createElement('div');
+    previews.style.cssText = 'display:flex;gap:8px;align-items:center;';
+
+    const fWrap = document.createElement('div');
+    fWrap.style.cssText = 'display:flex;flex-direction:column;align-items:center;gap:3px;';
+    fWrap.innerHTML = '<span style="font-size:9px;color:#aaa;">DEL</span>';
+    fWrap.appendChild(buildMiniPlate(frontFace));
+    previews.appendChild(fWrap);
+
+    const bWrap = document.createElement('div');
+    bWrap.style.cssText = 'display:flex;flex-direction:column;align-items:center;gap:3px;';
+    bWrap.innerHTML = '<span style="font-size:9px;color:#aaa;">TRA</span>';
+    bWrap.appendChild(buildMiniPlate(backFace));
+    previews.appendChild(bWrap);
+
+    card.appendChild(previews);
+
+    const info = document.createElement('div');
+    info.className = 'plate-card-label';
+    const rawType = (plate.car_type || 'normal').toLowerCase();
+    const normalizedType = CAR_TYPE_REVERSE[rawType] || rawType;
+    info.textContent = capitalize(CAR_TYPES[normalizedType] || plate.car_type);
+    card.appendChild(info);
+
+    return card;
+  }
+
+  /* ── EXPAND YAML ── */
+  function buildCombinations(data) {
+    return (data.license_plates || []).map(entry => {
+      const normFace = f => {
+					const SHAPE_MAP = {
+          standard: 'estandar',
+          short: 'corta',
+          wide: 'larga',
+          tall: 'alta'
+        };
+        if (!f) return null;
+        return {
+          shape: SHAPE_MAP[f.shape] || f.shape || 'estandar',
+          color: normHex(f.color),
+          letter_color: normHex(f.letter_color),
+          strips: (f.strips ? (Array.isArray(f.strips) ? f.strips : [f.strips]) : [])
+            .map(s => ({ side: s.side, color: normHex(s.color) }))
+        };
+      };
+      const front = normFace(entry.front) || {};
+      const back  = entry.back ? normFace(entry.back) : null;
+
+      const same = !back;
+
+      const baseFace = {
+        shape: 'estandar',
+        color: '#FFFFFF',
+        letter_color: '#000000',
+        strips: []
+      };
+
+      const safeFront = { ...baseFace, ...front };
+      const safeBack  = same ? safeFront : { ...baseFace, ...(back || {}) };
+
+      return {
+        car_type: Array.isArray(entry.car_type) ? entry.car_type[0] : (entry.car_type || 'normal'),
+        front: safeFront,
+        back: safeBack,
+        front_same_as_back: same
+      };
+    });
+  }
+
+  /* ── RENDER ── */
+  function render() {
+    const root = document.getElementById('root');
+
+    let data;
+    try { data = jsyaml.load(cleanAnkiHtml(YAML_RAW)); }
+    catch (e) { root.innerHTML = `<div style="color:#F44336;font-size:12px;padding:10px;">Error YAML: ${e.message}</div>`; return; }
+
+    let correctPlates;
+    try { correctPlates = buildCombinations(data); }
+    catch (e) { root.innerHTML = `<div style="color:#F44336;font-size:12px;padding:10px;">Error combinaciones: ${e.message}</div>`; return; }
+
+    let userPlates = [];
+    try { const s = sessionStorage.getItem('geoguessr_plates'); userPlates = s ? JSON.parse(s) : []; } catch(e) {}
+
+    const usedIdx = new Set();
+    const userResults = userPlates.map(up => {
+      const key = plateKey(up);
+      const idx = correctPlates.findIndex((c, i) => plateKey(c) === key && !usedIdx.has(i));
+      if (idx !== -1) { usedIdx.add(idx); return { plate: up, status: 'correcto' }; }
+      return { plate: up, status: 'incorrecto' };
+    });
+
+    const missing = correctPlates.filter((_, i) => !usedIdx.has(i));
+    const correct = userResults.filter(r => r.status === 'correcto').length;
+    const total   = correctPlates.length;
+    const pct     = total > 0 ? Math.round((correct / total) * 100) : 0;
+
+    root.innerHTML = '';
+
+    const scoreBar = document.createElement('div');
+    scoreBar.className = 'score-bar';
+    scoreBar.innerHTML = `
+      <div class="score-num ${pct===100?'perfecto':pct>=50?'parcial':'malo'}">${pct}%</div>
+      <div>
+        <div style="font-size:16px;font-weight:bold;color:#f1f1f1">${correct}/${total}</div>
+        <div class="score-label">matrículas correctas</div>
+      </div>
+      <div class="score-detail">${missing.length > 0 ? `${missing.length} faltante${missing.length>1?'s':''}` : '¡Perfecto!'}</div>
+    `;
+    root.appendChild(scoreBar);
+
+    if (userResults.length > 0) {
+      const sec = document.createElement('div');
+      sec.innerHTML = '<div class="section-title">Tus matrículas</div>';
+      const grid = document.createElement('div'); grid.className = 'plates-grid';
+      userResults.forEach(r => grid.appendChild(createPlateCard(r.plate, r.status)));
+      sec.appendChild(grid); root.appendChild(sec);
+    } else {
+      const p = document.createElement('p');
+      p.style.cssText = 'color:#aaa;font-size:13px;margin-bottom:14px;text-align:center;';
+      p.textContent = 'No se encontraron matrículas guardadas.';
+      root.appendChild(p);
+    }
+
+    if (missing.length > 0) {
+      const sec = document.createElement('div');
+      sec.innerHTML = '<div class="section-title">Matrículas que faltaron</div>';
+      const grid = document.createElement('div'); grid.className = 'plates-grid';
+      missing.forEach(c => grid.appendChild(createPlateCard(c, 'faltante')));
+      sec.appendChild(grid); root.appendChild(sec);
+    }
+  }
+
+  render();
+  sessionStorage.removeItem('geoguessr_plates');
+})();
+</script>

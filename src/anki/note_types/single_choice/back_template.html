@@ -1,0 +1,50 @@
+<div class="question">{{Pregunta}}</div>
+<div class="options" id="opts"></div>
+
+<script>
+(function() {
+    var correctaIndex = parseInt("{{Respuesta}}") - 1;
+    var selected = parseInt(sessionStorage.getItem("selected"));
+
+    var text = `{{Opciones}}`.replace(/<br\s*\/?>/gi, "\\n");
+
+    var raw = text.split("\\n")
+        .map(s => s.trim());
+
+    var cols = Math.min(4, raw.length);
+    document.getElementById("opts").style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
+
+    var order = JSON.parse(sessionStorage.getItem("order") || "[]");
+
+    var container = document.getElementById("opts");
+
+    order.forEach(function(i) {
+        var div = document.createElement("div");
+        div.className = "option";
+
+        if (i === selected) {
+            div.classList.add("selected");
+        }
+
+        if (i === correctaIndex) {
+            div.classList.add("correct");
+        }
+
+        if (i === selected && i !== correctaIndex) {
+            div.classList.add("wrong");
+        }
+
+        var radio = document.createElement("div");
+        radio.className = "radio";
+
+        var content = document.createElement("div");
+        content.className = "content";
+        content.innerHTML = raw[i];
+
+        div.appendChild(radio);
+        div.appendChild(content);
+
+        container.appendChild(div);
+    });
+})();
+</script>
