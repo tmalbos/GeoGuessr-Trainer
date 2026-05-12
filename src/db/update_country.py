@@ -10,7 +10,7 @@ from pymongo import MongoClient
 MONGO_URI = "mongodb://localhost:27017"
 DB_NAME = "geoguessr"
 COLLECTION_NAME = "geo_signals"
-DATA_DIR = Path("./db/data")
+DATA_DIR = Path("./src/db/data")
 
 
 def _remove_accents(text: str) -> str:
