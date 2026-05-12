@@ -4,481 +4,484 @@
 <button class="add-btn" onclick="addRoad()">+ Nueva Ruta</button>
 
 <script>
-let roadsData = [];
+(function() {
+  sessionStorage.removeItem('geoguessr_roads');
+    let roadsData = [];
 
-function saveState() {
-  sessionStorage.setItem('geoguessr_roads', JSON.stringify(roadsData));
-}
-
-const INNER_COLORS = ['white', 'faded white', 'yellow', 'orange-tinted yellow'];
-const EXTRA_COLORS = ['white', 'yellow', 'green'];
-const OUTER_COLORS = ['white', 'yellow', 'red'];
-
-const INNER_PATTERNS = ['solid', 'dashed', 'short-dashed'];
-const EXTRA_PATTERNS = ['solid', 'dashed'];
-const OUTER_PATTERNS = ['solid', 'dashed', 'short-dashed', 'squares'];
-
-const RULES = ['whole-country', 'region-dependant', 'urban', 'rural'];
-
-const RULE_LABELS = {
-  'whole-country': 'Nacional',
-  'region-dependant': 'Regional',
-  'urban': 'Urbano',
-  'rural': 'Rural'
-};
-
-function getColorHex(color) {
-  if (color === 'white') return '#F5F5F5';
-  if (color === 'faded white') return '#B0B0B0';
-  if (color === 'yellow') return '#FFD54F';
-  if (color === 'orange-tinted yellow') return '#FFB300';
-  if (color === 'green') return '#66BB6A';
-  if (color === 'red') return '#EF5350';
-  return '#F5F5F5';
-}
-
-function getPatternBackground(pattern, color) {
-  if (pattern === 'solid') {
-    return color;
-  }
-
-  if (pattern === 'dashed') {
-    return `repeating-linear-gradient(
-      to bottom,
-      ${color} 0px,
-      ${color} 20px,
-      transparent 20px,
-      transparent 40px
-    )`;
-  }
-
-  if (pattern === 'short-dashed') {
-    return `repeating-linear-gradient(
-      to bottom,
-      ${color} 0px,
-      ${color} 15px,
-      transparent 15px,
-      transparent 25px
-    )`;
-  }
-
-  if (pattern === 'squares') {
-    return `repeating-linear-gradient(
-      to bottom,
-      ${color} 0px,
-      ${color} 6px,
-      transparent 6px,
-      transparent 12px
-    )`;
-  }
-
-  return color;
-}
-
-function getInnerPositions(innerCount, hasExtra) {
-  const total = innerCount + (hasExtra ? 1 : 0);
-
-  const preview = document.querySelector('.preview-box');
-
-  const center = preview.offsetWidth / 2;
-
-  const spacing = 10;
-
-  if (total === 1) {
-    return [center];
-  }
-
-  if (total === 2) {
-    return [
-      center - spacing / 2,
-      center + spacing / 2
-    ];
-  }
-
-  if (total === 3) {
-    return [
-      center - spacing,
-      center,
-      center + spacing
-    ];
-  }
-
-  return [];
-}
-
-function patternPicker(index, path, patternList, selected) {
-  return `
-    <div class="pattern-picker">
-      ${patternList.map(pattern => `
-        <button
-          type="button"
-          class="pattern-btn"
-          data-index="${index}"
-          data-path="${path}"
-          data-pattern="${pattern}"
-          onclick="setPattern(this)"
-        >
-          <div class="
-            pattern-line
-            pattern-${pattern}
-            ${selected === pattern ? 'pattern-active' : ''}
-          "></div>
-        </button>
-      `).join('')}
-    </div>
-  `;
-}
-
-function setPattern(el) {
-  const index = parseInt(el.dataset.index);
-  const path = el.dataset.path;
-  const pattern = el.dataset.pattern;
-
-  const parts = path.split('.');
-
-  let obj = roadsData[index];
-
-  for (let i = 0; i < parts.length - 1; i++) {
-    obj = obj[parts[i]];
-  }
-
-  obj[parts[parts.length - 1]] = pattern;
-
-  el.parentElement
-    .querySelectorAll('.pattern-line')
-    .forEach(line => line.classList.remove('pattern-active'));
-
-  el.querySelector('.pattern-line')
-    .classList.add('pattern-active');
-
-  updatePreview(index);
-}
-
-function createLine(styles) {
-  const line = document.createElement('div');
-  line.className = 'line';
-  Object.assign(line.style, styles);
-  return line;
-}
-
-function updatePreview(index) {
-  const road = roadsData[index];
-  const preview = document.getElementById('preview-' + index);
-
-  if (!preview) return;
-
-  preview.innerHTML = '';
-
-  // ===== OUTER =====
-
-  if (road.outer.count > 0) {
-    const offsets = road.outer.count === 1
-      ? [6]
-      : [4, 14];
-
-    const background = getPatternBackground(
-      road.outer.pattern,
-      getColorHex(road.outer.color)
-    );
-
-    offsets.forEach(offset => {
-      preview.appendChild(createLine({
-        left: offset + 'px',
-        background
-      }));
-    });
-
-    [...offsets].reverse().forEach(offset => {
-      preview.appendChild(createLine({
-        right: offset + 'px',
-        background
-      }));
-    });
-  }
-
-  // ===== INNER =====
-
-  const hasExtra = road.inner.extra !== null;
-  const positions = getInnerPositions(road.inner.count, hasExtra);
-  const total = road.inner.count + (hasExtra ? 1 : 0);
-
-  positions.forEach((p, i) => {
-    let cfg;
-
-    if (total === 1) {
-      cfg = road.inner.count === 1
-        ? road.inner
-        : road.inner.extra;
-    } else if (total === 2) {
-      cfg = (road.inner.count === 1 && hasExtra)
-        ? (i === 0 ? road.inner : road.inner.extra)
-        : road.inner;
-    } else {
-      cfg = (i === 1)
-        ? road.inner.extra
-        : road.inner;
+    function saveState() {
+      sessionStorage.setItem('geoguessr_roads', JSON.stringify(roadsData));
     }
 
-    preview.appendChild(createLine({
-      left: (p - 2) + 'px',
-      background: getPatternBackground(
-        cfg.pattern,
-        getColorHex(cfg.color)
-      )
-    }));
-  });
+    const INNER_COLORS = ['white', 'faded white', 'yellow', 'orange-tinted yellow'];
+    const EXTRA_COLORS = ['white', 'yellow', 'green'];
+    const OUTER_COLORS = ['white', 'yellow', 'red'];
 
-  saveState();
-}
+    const INNER_PATTERNS = ['solid', 'dashed', 'short-dashed'];
+    const EXTRA_PATTERNS = ['solid', 'dashed'];
+    const OUTER_PATTERNS = ['solid', 'dashed', 'short-dashed', 'squares'];
 
-function colorPicker(index, path, colorList, selected) {
-  return colorList.map(c => {
-    const isSel = selected === c;
+    const RULES = ['whole-country', 'region-dependant', 'urban', 'rural'];
 
-    return '<div class="color-option' + (isSel ? ' color-selected' : '') + '"'
-      + ' title="' + c + '"'
-      + ' style="background:' + getColorHex(c) + '"'
-      + ' data-index="' + index + '"'
-      + ' data-path="' + path + '"'
-      + ' data-color="' + c + '"'
-      + ' onclick="setColor(this)"></div>';
-  }).join('');
-}
+    const RULE_LABELS = {
+      'whole-country': 'Nacional',
+      'region-dependant': 'Regional',
+      'urban': 'Urbano',
+      'rural': 'Rural'
+    };
 
-function setColor(el) {
-  const index = parseInt(el.dataset.index);
-  const path = el.dataset.path;
-  const color = el.dataset.color;
+    function getColorHex(color) {
+      if (color === 'white') return '#F5F5F5';
+      if (color === 'faded white') return '#B0B0B0';
+      if (color === 'yellow') return '#FFD54F';
+      if (color === 'orange-tinted yellow') return '#FFB300';
+      if (color === 'green') return '#66BB6A';
+      if (color === 'red') return '#EF5350';
+      return '#F5F5F5';
+    }
 
-  const parts = path.split('.');
+    function getPatternBackground(pattern, color) {
+      if (pattern === 'solid') {
+        return color;
+      }
 
-  let obj = roadsData[index];
+      if (pattern === 'dashed') {
+        return `repeating-linear-gradient(
+          to bottom,
+          ${color} 0px,
+          ${color} 20px,
+          transparent 20px,
+          transparent 40px
+        )`;
+      }
 
-  for (let i = 0; i < parts.length - 1; i++) {
-    obj = obj[parts[i]];
-  }
+      if (pattern === 'short-dashed') {
+        return `repeating-linear-gradient(
+          to bottom,
+          ${color} 0px,
+          ${color} 15px,
+          transparent 15px,
+          transparent 25px
+        )`;
+      }
 
-  obj[parts[parts.length - 1]] = color;
+      if (pattern === 'squares') {
+        return `repeating-linear-gradient(
+          to bottom,
+          ${color} 0px,
+          ${color} 6px,
+          transparent 6px,
+          transparent 12px
+        )`;
+      }
 
-  el.parentElement
-    .querySelectorAll('.color-option')
-    .forEach(o => o.classList.remove('color-selected'));
+      return color;
+    }
 
-  el.classList.add('color-selected');
+    function getInnerPositions(innerCount, hasExtra) {
+      const total = innerCount + (hasExtra ? 1 : 0);
 
-  updatePreview(index);
-}
+      const preview = document.querySelector('.preview-box');
 
-function handleInput(index, path, value) {
-  const parts = path.split('.');
+      const center = preview.offsetWidth / 2;
 
-  let obj = roadsData[index];
+      const spacing = 10;
 
-  for (let i = 0; i < parts.length - 1; i++) {
-    obj = obj[parts[i]];
-  }
+      if (total === 1) {
+        return [center];
+      }
 
-  const key = parts[parts.length - 1];
+      if (total === 2) {
+        return [
+          center - spacing / 2,
+          center + spacing / 2
+        ];
+      }
 
-  obj[key] = (key === 'count')
-    ? (parseInt(value) || 0)
-    : value;
+      if (total === 3) {
+        return [
+          center - spacing,
+          center,
+          center + spacing
+        ];
+      }
 
-  updatePreview(index);
-}
+      return [];
+    }
 
-function toggleExtra(index) {
-  roadsData[index].inner.extra =
-    roadsData[index].inner.extra === null
-      ? { pattern: 'solid', color: 'white' }
-      : null;
-
-  rebuildRoads();
-}
-
-function createForm(index, label, colorList, patternList, pathPrefix) {
-  let obj = roadsData[index];
-
-  pathPrefix.split('.').forEach(p => {
-    obj = obj[p];
-  });
-
-  const pp = pathPrefix + '.';
-
-  const patOptions = patternList.map(p =>
-    '<option value="' + p + '"' +
-    (obj.pattern === p ? ' selected' : '') +
-    '>' + p + '</option>'
-  ).join('');
-
-  return `
-    <div class="form-section">
-      <h4>${label}</h4>
-
-      <div class="form-group">
-        <label>Color</label>
-        <div style="display:flex;gap:4px;flex-wrap:wrap;">
-          ${colorPicker(index, pp + 'color', colorList, obj.color)}
+    function patternPicker(index, path, patternList, selected) {
+      return `
+        <div class="pattern-picker">
+          ${patternList.map(pattern => `
+            <button
+              type="button"
+              class="pattern-btn"
+              data-index="${index}"
+              data-path="${path}"
+              data-pattern="${pattern}"
+              onclick="setPattern(this)"
+            >
+              <div class="
+                pattern-line
+                pattern-${pattern}
+                ${selected === pattern ? 'pattern-active' : ''}
+              "></div>
+            </button>
+          `).join('')}
         </div>
-      </div>
+      `;
+    }
 
-      <div class="form-group">
-        <label>Cantidad</label>
-        <input
-          type="number"
-          min="0"
-          max="2"
-          value="${obj.count}"
-          style="width:50px;"
-          onchange="handleInput(${index}, '${pp}count', this.value)"
-        >
-      </div>
+    function createLine(styles) {
+      const line = document.createElement('div');
+      line.className = 'line';
+      Object.assign(line.style, styles);
+      return line;
+    }
 
-      ${patternPicker(index, pp + 'pattern', patternList, obj.pattern)}
-    </div>
-  `;
-}
+    function updatePreview(index) {
+      const road = roadsData[index];
+      const preview = document.getElementById('preview-' + index);
 
-function createExtraForm(index) {
-  const extra = roadsData[index].inner.extra;
+      if (!preview) return;
 
-  if (extra === null) {
-    return `
-      <div class="extra-section">
-        <button onclick="toggleExtra(${index})" class="extra-add-btn">
-          + Extra
-        </button>
-      </div>
-    `;
-  }
+      preview.innerHTML = '';
 
-  const patOptions = EXTRA_PATTERNS.map(p =>
-    '<option value="' + p + '"' +
-    (extra.pattern === p ? ' selected' : '') +
-    '>' + p + '</option>'
-  ).join('');
+      // ===== OUTER =====
 
-  return `
-    <div class="form-section">
-      <div class="extra-header">
-        <h4>Extra</h4>
+      if (road.outer.count > 0) {
+        const offsets = road.outer.count === 1
+          ? [6]
+          : [4, 14];
 
-        <button
-          onclick="toggleExtra(${index})"
-          class="extra-remove-btn"
-        >
-          ✕
-        </button>
-      </div>
+        const background = getPatternBackground(
+          road.outer.pattern,
+          getColorHex(road.outer.color)
+        );
 
-      <div class="form-group">
-        <label>Color</label>
+        offsets.forEach(offset => {
+          preview.appendChild(createLine({
+            left: offset + 'px',
+            background
+          }));
+        });
 
-        <div style="display:flex;gap:4px;flex-wrap:wrap;">
-          ${colorPicker(index, 'inner.extra.color', EXTRA_COLORS, extra.color)}
+        [...offsets].reverse().forEach(offset => {
+          preview.appendChild(createLine({
+            right: offset + 'px',
+            background
+          }));
+        });
+      }
+
+      // ===== INNER =====
+
+      const hasExtra = road.inner.extra !== null;
+      const positions = getInnerPositions(road.inner.count, hasExtra);
+      const total = road.inner.count + (hasExtra ? 1 : 0);
+
+      positions.forEach((p, i) => {
+        let cfg;
+
+        if (total === 1) {
+          cfg = road.inner.count === 1
+            ? road.inner
+            : road.inner.extra;
+        } else if (total === 2) {
+          cfg = (road.inner.count === 1 && hasExtra)
+            ? (i === 0 ? road.inner : road.inner.extra)
+            : road.inner;
+        } else {
+          cfg = (i === 1)
+            ? road.inner.extra
+            : road.inner;
+        }
+
+        preview.appendChild(createLine({
+          left: (p - 2) + 'px',
+          background: getPatternBackground(
+            cfg.pattern,
+            getColorHex(cfg.color)
+          )
+        }));
+      });
+
+      saveState();
+    }
+
+    function colorPicker(index, path, colorList, selected) {
+      return colorList.map(c => {
+        const isSel = selected === c;
+
+        return '<div class="color-option' + (isSel ? ' color-selected' : '') + '"'
+          + ' title="' + c + '"'
+          + ' style="background:' + getColorHex(c) + '"'
+          + ' data-index="' + index + '"'
+          + ' data-path="' + path + '"'
+          + ' data-color="' + c + '"'
+          + ' onclick="setColor(this)"></div>';
+      }).join('');
+    }
+
+    function createForm(index, label, colorList, patternList, pathPrefix) {
+      let obj = roadsData[index];
+
+      pathPrefix.split('.').forEach(p => {
+        obj = obj[p];
+      });
+
+      const pp = pathPrefix + '.';
+
+      const patOptions = patternList.map(p =>
+        '<option value="' + p + '"' +
+        (obj.pattern === p ? ' selected' : '') +
+        '>' + p + '</option>'
+      ).join('');
+
+      return `
+        <div class="form-section">
+          <h4>${label}</h4>
+
+          <div class="form-group">
+            <label>Color</label>
+            <div style="display:flex;gap:4px;flex-wrap:wrap;">
+              ${colorPicker(index, pp + 'color', colorList, obj.color)}
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label>Cantidad</label>
+            <input
+              type="number"
+              min="0"
+              max="2"
+              value="${obj.count}"
+              style="width:50px;"
+              onchange="handleInput(${index}, '${pp}count', this.value)"
+            >
+          </div>
+
+          ${patternPicker(index, pp + 'pattern', patternList, obj.pattern)}
         </div>
-      </div>
+      `;
+    }
 
-      ${patternPicker(index, 'inner.extra.pattern', EXTRA_PATTERNS, extra.pattern)}
-    </div>
-  `;
-}
+    function createExtraForm(index) {
+      const extra = roadsData[index].inner.extra;
 
-function createRuleForm(index) {
-  const options = RULES.map(r =>
-    '<option value="' + r + '"' +
-    (roadsData[index].rule === r ? ' selected' : '') +
-    '>' + RULE_LABELS[r] + '</option>'
-  ).join('');
+      if (extra === null) {
+        return `
+          <div class="extra-section">
+            <button onclick="toggleExtra(${index})" class="extra-add-btn">
+              + Extra
+            </button>
+          </div>
+        `;
+      }
 
-  return `
-    <span class="rule-label">Distribución</span>
+      const patOptions = EXTRA_PATTERNS.map(p =>
+        '<option value="' + p + '"' +
+        (extra.pattern === p ? ' selected' : '') +
+        '>' + p + '</option>'
+      ).join('');
 
-    <select onchange="handleInput(${index}, 'rule', this.value)">
-      ${options}
-    </select>
-  `;
-}
+      return `
+        <div class="form-section">
+          <div class="extra-header">
+            <h4>Extra</h4>
 
-function addRoadFromData(index) {
-  const wrapper = document.getElementById('roads-wrapper');
+            <button
+              onclick="toggleExtra(${index})"
+              class="extra-remove-btn"
+            >
+              ✕
+            </button>
+          </div>
 
-  const rowDiv = document.createElement('div');
-  rowDiv.className = 'road-row';
+          <div class="form-group">
+            <label>Color</label>
 
-  const spacer = document.createElement('div');
-  spacer.className = 'spacer';
+            <div style="display:flex;gap:4px;flex-wrap:wrap;">
+              ${colorPicker(index, 'inner.extra.color', EXTRA_COLORS, extra.color)}
+            </div>
+          </div>
 
-  const roadDiv = document.createElement('div');
-  roadDiv.className = 'road-container';
+          ${patternPicker(index, 'inner.extra.pattern', EXTRA_PATTERNS, extra.pattern)}
+        </div>
+      `;
+    }
 
-  roadDiv.innerHTML =
-    '<div class="rule-header">' + createRuleForm(index) + '</div>' +
-    '<div class="road-body">' +
-      createForm(index, 'Laterales', OUTER_COLORS, OUTER_PATTERNS, 'outer') +
-      createForm(index, 'Internas', INNER_COLORS, INNER_PATTERNS, 'inner') +
-      createExtraForm(index) +
-    '</div>' +
-    '<div class="preview-box" id="preview-' + index + '"></div>';
+    function createRuleForm(index) {
+      const options = RULES.map(r =>
+        '<option value="' + r + '"' +
+        (roadsData[index].rule === r ? ' selected' : '') +
+        '>' + RULE_LABELS[r] + '</option>'
+      ).join('');
 
-  rowDiv.appendChild(spacer);
-  rowDiv.appendChild(roadDiv);
+      return `
+        <span class="rule-label">Distribución</span>
 
-  if (index > 0) {
-    const deleteBtn = document.createElement('button');
+        <select onchange="handleInput(${index}, 'rule', this.value)">
+          ${options}
+        </select>
+      `;
+    }
 
-    deleteBtn.className = 'delete-btn';
+    function addRoadFromData(index) {
+      const wrapper = document.getElementById('roads-wrapper');
 
-    deleteBtn.innerHTML =
-      '<svg width="28" height="28" viewBox="0 0 24 24" fill="#F44336">' +
-      '<path d="M9 3V4H4V6H5V19C5 20.1 5.9 21 7 21H17C18.1 21 19 20.1 19 19V6H20V4H15V3H9ZM7 6H17V19H7V6ZM9 8V17H11V8H9ZM13 8V17H15V8H13Z"/>' +
-      '</svg>';
+      const rowDiv = document.createElement('div');
+      rowDiv.className = 'road-row';
 
-    deleteBtn.onclick = () => removeRoad(index);
+      const spacer = document.createElement('div');
+      spacer.className = 'spacer';
 
-    rowDiv.appendChild(deleteBtn);
-  } else {
-    const slot = document.createElement('div');
-    slot.className = 'delete-slot';
-    rowDiv.appendChild(slot);
-  }
+      const roadDiv = document.createElement('div');
+      roadDiv.className = 'road-container';
 
-  wrapper.appendChild(rowDiv);
+      roadDiv.innerHTML =
+        '<div class="rule-header">' + createRuleForm(index) + '</div>' +
+        '<div class="road-body">' +
+          createForm(index, 'Laterales', OUTER_COLORS, OUTER_PATTERNS, 'outer') +
+          createForm(index, 'Internas', INNER_COLORS, INNER_PATTERNS, 'inner') +
+          createExtraForm(index) +
+        '</div>' +
+        '<div class="preview-box" id="preview-' + index + '"></div>';
 
-  requestAnimationFrame(() => updatePreview(index));
-}
+      rowDiv.appendChild(spacer);
+      rowDiv.appendChild(roadDiv);
 
-function rebuildRoads() {
-  document.getElementById('roads-wrapper').innerHTML = '';
+      if (index > 0) {
+        const deleteBtn = document.createElement('button');
 
-  roadsData.forEach((_, i) => addRoadFromData(i));
-}
+        deleteBtn.className = 'delete-btn';
 
-function addRoad() {
-  roadsData.push({
-    outer: {
-      color: 'white',
-      count: 1,
-      pattern: 'solid'
-    },
+        deleteBtn.innerHTML =
+          '<svg width="28" height="28" viewBox="0 0 24 24" fill="#F44336">' +
+          '<path d="M9 3V4H4V6H5V19C5 20.1 5.9 21 7 21H17C18.1 21 19 20.1 19 19V6H20V4H15V3H9ZM7 6H17V19H7V6ZM9 8V17H11V8H9ZM13 8V17H15V8H13Z"/>' +
+          '</svg>';
 
-    inner: {
-      color: 'yellow',
-      count: 1,
-      pattern: 'solid',
-      extra: null
-    },
+        deleteBtn.onclick = () => removeRoad(index);
 
-    rule: 'whole-country'
-  });
+        rowDiv.appendChild(deleteBtn);
+      } else {
+        const slot = document.createElement('div');
+        slot.className = 'delete-slot';
+        rowDiv.appendChild(slot);
+      }
 
-  addRoadFromData(roadsData.length - 1);
-}
+      wrapper.appendChild(rowDiv);
 
-function removeRoad(index) {
-  roadsData.splice(index, 1);
-  rebuildRoads();
-}
+      requestAnimationFrame(() => updatePreview(index));
+    }
 
-addRoad();
+    function rebuildRoads() {
+      document.getElementById('roads-wrapper').innerHTML = '';
+
+      roadsData.forEach((_, i) => addRoadFromData(i));
+    }
+
+    window.addRoad = function() {
+      roadsData.push({
+        outer: {
+          color: 'white',
+          count: 1,
+          pattern: 'solid'
+        },
+
+        inner: {
+          color: 'yellow',
+          count: 1,
+          pattern: 'solid',
+          extra: null
+        },
+
+        rule: 'whole-country'
+      });
+
+      addRoadFromData(roadsData.length - 1);
+    };
+
+    window.setPattern = function(el) {
+      const index = parseInt(el.dataset.index);
+      const path = el.dataset.path;
+      const pattern = el.dataset.pattern;
+
+      const parts = path.split('.');
+
+      let obj = roadsData[index];
+
+      for (let i = 0; i < parts.length - 1; i++) {
+        obj = obj[parts[i]];
+      }
+
+      obj[parts[parts.length - 1]] = pattern;
+
+      el.parentElement
+        .querySelectorAll('.pattern-line')
+        .forEach(line => line.classList.remove('pattern-active'));
+
+      el.querySelector('.pattern-line')
+        .classList.add('pattern-active');
+
+      updatePreview(index);
+    };
+
+    window.setColor = function(el) {
+      const index = parseInt(el.dataset.index);
+      const path = el.dataset.path;
+      const color = el.dataset.color;
+
+      const parts = path.split('.');
+
+      let obj = roadsData[index];
+
+      for (let i = 0; i < parts.length - 1; i++) {
+        obj = obj[parts[i]];
+      }
+
+      obj[parts[parts.length - 1]] = color;
+
+      el.parentElement
+        .querySelectorAll('.color-option')
+        .forEach(o => o.classList.remove('color-selected'));
+
+      el.classList.add('color-selected');
+
+      updatePreview(index);
+    };
+
+    window.toggleExtra = function(index) {
+      roadsData[index].inner.extra =
+        roadsData[index].inner.extra === null
+          ? { pattern: 'solid', color: 'white' }
+          : null;
+
+      rebuildRoads();
+    };
+
+    window.removeRoad = function(index) {
+      roadsData.splice(index, 1);
+      rebuildRoads();
+    };
+
+    window.handleInput = function(index, path, value) {
+      const parts = path.split('.');
+
+      let obj = roadsData[index];
+
+      for (let i = 0; i < parts.length - 1; i++) {
+        obj = obj[parts[i]];
+      }
+
+      const key = parts[parts.length - 1];
+
+      obj[key] = (key === 'count')
+        ? (parseInt(value) || 0)
+        : value;
+
+      updatePreview(index);
+    };
+
+    window.addRoad();
+})();
 </script>
