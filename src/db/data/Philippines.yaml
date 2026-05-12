@@ -1,20 +1,24 @@
 roads:
   lines:
   - inner:
-      color: yellow
-      count: 2
+      color: orange-tinted yellow
+      count: 1
       pattern: solid
-      extra: null
+      extra:
+        color: white
+        pattern: dashed
     outer:
       color: white
       count: 1
       pattern: solid
     rule: whole-country
   - inner:
-      color: yellow
-      count: 1
-      pattern: dashed
-      extra: null
+      color: orange-tinted yellow
+      count: 2
+      pattern: solid
+      extra:
+        color: white
+        pattern: solid
     outer:
       color: white
       count: 1
@@ -27,7 +31,7 @@ license_plates:
       color: "#FFFFFF"
       strips: null
       letter_color: "#000000"
-      shape: short
+      shape: normal
     back: null
   - car_type: normal
     front:
@@ -36,14 +40,6 @@ license_plates:
       strips:
         color: "#06402B"
         side: bottom
-      letter_color: "#000000"
-      shape: short
-    back: null
-  - car_type: normal
-    front:
-      is_required: false
-      color: "#FFFFFF"
-      strips: null
       letter_color: "#06402B"
-      shape: short
+      shape: normal
     back: null

@@ -20,6 +20,18 @@ roads:
       count: 1
       pattern: solid
     rule: whole-country
+  - inner: null
+    outer:
+      color: white
+      count: 1
+      pattern: solid
+    rule: whole-country
+  - inner: null
+    outer:
+      color: red
+      count: 1
+      pattern: solid
+    rule: urban
 license_plates:
   - car_type: normal
     front:
@@ -27,23 +39,5 @@ license_plates:
       color: "#FFFFFF"
       strips: null
       letter_color: "#000000"
-      shape: short
-    back: null
-  - car_type: normal
-    front:
-      is_required: false
-      color: "#FFFFFF"
-      strips:
-        color: "#06402B"
-        side: bottom
-      letter_color: "#000000"
-      shape: short
-    back: null
-  - car_type: normal
-    front:
-      is_required: false
-      color: "#FFFFFF"
-      strips: null
-      letter_color: "#06402B"
       shape: short
     back: null
