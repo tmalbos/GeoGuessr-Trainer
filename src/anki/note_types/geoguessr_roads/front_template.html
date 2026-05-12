@@ -12,7 +12,7 @@ function saveState() {
 
 const INNER_COLORS = ['white', 'faded white', 'yellow', 'orange-tinted yellow'];
 const EXTRA_COLORS = ['white', 'yellow', 'green'];
-const OUTER_COLORS = ['white', 'yellow'];
+const OUTER_COLORS = ['white', 'yellow', 'red'];
 
 const INNER_PATTERNS = ['solid', 'dashed', 'short-dashed'];
 const EXTRA_PATTERNS = ['solid', 'dashed'];
@@ -33,6 +33,7 @@ function getColorHex(color) {
   if (color === 'yellow') return '#FFD54F';
   if (color === 'orange-tinted yellow') return '#FFB300';
   if (color === 'green') return '#66BB6A';
+  if (color === 'red') return '#EF5350';
   return '#F5F5F5';
 }
 
