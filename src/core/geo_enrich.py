@@ -9,11 +9,15 @@ Fuentes:
   - Latitud: hemisferio
 """
 
+import threading
+import time
+
 import requests
 
 from src.core.eco_enrich import lookup as eco_lookup
 from src.core.regions import get_override
 
+_nominatim_lock = threading.Semaphore(1)
 _session = requests.Session()
 _session.headers.update({"User-Agent": "GeoGuessr-Analyzer/1.0"})
 
@@ -31,44 +35,43 @@ def _hemisphere(lat: float) -> str:
 
 
 def _nominatim(lat: float, lon: float) -> dict:
-    """
-    Llama a Nominatim con zoom=10 (nivel ciudad).
-    Devuelve dict con: country_code, country, state, city
-    """
-    try:
-        r = _session.get(
-            "https://nominatim.openstreetmap.org/reverse",
-            params={
-                "lat": lat,
-                "lon": lon,
-                "format": "json",
-                "zoom": 10,
-                "accept-language": "es",
-            },
-            timeout=8,
-        )
-        data = r.json()
-        addr = data.get("address", {})
+    with _nominatim_lock:
+        try:
+            r = _session.get(
+                "https://nominatim.openstreetmap.org/reverse",
+                params={
+                    "lat": lat,
+                    "lon": lon,
+                    "format": "json",
+                    "zoom": 10,
+                    "accept-language": "es",
+                },
+                timeout=8,
+            )
+            data = r.json()
+            addr = data.get("address", {})
 
-        country_code = addr.get("country_code", "").upper()
-        country = addr.get("country", "")
-        state = addr.get("state") or addr.get("region") or addr.get("county") or ""
-        city = (
-            addr.get("city")
-            or addr.get("town")
-            or addr.get("village")
-            or addr.get("municipality")
-            or ""
-        )
+            country_code = addr.get("country_code", "").upper()
+            country = addr.get("country", "")
+            state = addr.get("state") or addr.get("region") or addr.get("county") or ""
+            city = (
+                addr.get("city")
+                or addr.get("town")
+                or addr.get("village")
+                or addr.get("municipality")
+                or ""
+            )
 
-        return {
-            "country_code": country_code,
-            "country": country,
-            "state": state,
-            "city": city,
-        }
-    except Exception:
-        return {"country_code": "", "country": "", "state": "", "city": ""}
+            return {
+                "country_code": country_code,
+                "country": country,
+                "state": state,
+                "city": city,
+            }
+        except Exception:
+            return {"country_code": "", "country": "", "state": "", "city": ""}
+        finally:
+            time.sleep(1)
 
 
 def _rest_countries(country_code: str) -> dict:

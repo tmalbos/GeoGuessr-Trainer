@@ -64,3 +64,10 @@ def save_game(game: dict):
         )
 
     print(f"\n  💾 Guardado en MongoDB — game_id: {game_doc['game_id']}")
+
+
+def game_exists(game_id: str) -> bool:
+    if not MONGO_OK:
+        return False
+
+    return _db[COL_GAMES].count_documents({"game_id": game_id}, limit=1) > 0

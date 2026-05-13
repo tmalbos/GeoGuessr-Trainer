@@ -4,8 +4,7 @@ GeoGuessr Analyzer — Punto de entrada principal.
 
 import os
 
-from src.core.analyzer import parse_and_display
-from src.core.api import CookieExpiredError, extract_game_id, fetch_game
+from src.core.api import CookieExpiredError
 from src.core.auth import (
     load_cookie,
     prompt_new_cookie,
@@ -14,6 +13,7 @@ from src.core.auth import (
 from src.core.eco_enrich import init as eco_init
 from src.core.eco_enrich import is_ready, load_error
 from src.core.stats import available_levels, print_analysis
+from src.core.sync import sync_from_feed
 from src.db.mongo import MONGO_OK
 
 MIN_ROUNDS = 10
@@ -31,31 +31,18 @@ def menu_insert():
         if not cookie:
             return
 
-    raw = input("\nPegá el link o game ID de tu partida:\n> ").strip()
-    game_id = extract_game_id(raw)
-    if not game_id:
-        print("❌ Link o ID inválido.")
-        return
-
-    print(f"\n🔍 Buscando juego: {game_id} ...")
     try:
-        game_data = fetch_game(game_id, cookie)
+        sync_from_feed(cookie)
     except CookieExpiredError:
+        print("\n🔄 Cookie expirada, intentando renovar...")
         new_cookie = refresh_cookie()
-        if new_cookie and game_id:
-            # reintenta con la cookie nueva
+        if new_cookie:
             try:
-                game_data = fetch_game(game_id, new_cookie)
-                if game_data:
-                    parse_and_display(game_data, game_id)
+                sync_from_feed(new_cookie)
             except CookieExpiredError:
                 print("\n❌ No se pudo renovar la cookie.")
-        return
 
-    if game_data:
-        parse_and_display(game_data, game_id)
-
-    # Volver al menú automáticamente sin pedir Enter
+    input("\n  Presioná Enter para continuar...")
     clear()
 
 
@@ -106,7 +93,7 @@ def main():
         levels = available_levels(MIN_ROUNDS) if MONGO_OK else []
 
         print()
-        print("  [1] Insertar partida")
+        print("  [1] Sincronizar partidas")
         if levels:
             print("  [2] Análisis de datos")
         print("  [3] Cambiar cookie")
@@ -131,5 +118,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-# 1FuBcJtqwwU8Z5Ht
