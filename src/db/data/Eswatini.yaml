@@ -1,0 +1,35 @@
+roads:
+  lines:
+  - inner:
+      color: white
+      count: 1
+      pattern: dashed
+      extra: null
+    outer:
+      color: yellow
+      count: 1
+      pattern: solid
+    rule: whole-country
+  - inner:
+      color: white
+      count: 2
+      pattern: solid
+      extra:
+        color: white
+        pattern: dashed
+    outer:
+      color: yellow
+      count: 1
+      pattern: solid
+    rule: whole-country
+license_plates:
+  - car_type: normal
+    front:
+      is_required: true
+      color: "#FFFFFF"
+      strips:
+        - color: "#06402B"
+          side: bottom
+      letter_color: "#000000"
+      shape: short
+    back: null
