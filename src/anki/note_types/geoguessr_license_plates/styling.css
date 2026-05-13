@@ -29,7 +29,7 @@ select, input[type="text"], input[type="number"], input[type="color"] {
   box-shadow: 0 3px 10px rgba(0,0,0,0.3);
   overflow: hidden;
   width: 100%;
-  max-width: 1100px;
+  max-width: 1200px;
 }
 
 /* ══ 3-COLUMN GRID ══ */
