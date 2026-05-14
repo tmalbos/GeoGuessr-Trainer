@@ -1,0 +1,587 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>Bollard Card – Front</title>
+</head>
+<body>
+
+<h2 id="question">{{Pregunta}}</h2>
+<div id="bollards-wrapper"></div>
+<button class="add-btn" onclick="addBollard()">+ Nuevo bolardo</button>
+
+<script>
+(function () {
+  sessionStorage.removeItem('geoguessr_bollards');
+
+  const SHAPES = [
+    { id: 'cylindrical' },
+    { id: 'triangular' },
+    { id: 'square' },
+    { id: 'flat' },
+    { id: 'wedge' },
+    { id: 'hollow_curved' },
+    { id: 'half_circle' },
+    { id: 'octagonal' },
+    { id: 'cuboidal' },
+    { id: 'bowling_pin' },
+    { id: 'tapered' },
+    { id: 'baton' },
+  ];
+
+  const SIZES = ['small', 'thin', 'wide'];
+  const SIZE_LABELS = { small: 'Pequeño', thin: 'Delgado', wide: 'Ancho' };
+
+  const MOUNTINGS = ['standard', 'stick'];
+  const MOUNTING_LABELS = { standard: 'Estándar', stick: 'Poste' };
+
+  const BODY_COLORS = [
+    { id: 'white',  hex: '#FFFFFF' },
+    // { id: 'black',  hex: '#1a1a1a' },
+    // { id: 'yellow', hex: '#FFD700' },
+    // { id: 'orange', hex: '#FF6600' },
+    // { id: 'red',    hex: '#CC0000' },
+    // { id: 'brown',  hex: '#5C2E00' },
+    // { id: 'grey',   hex: '#888888' },
+  ];
+
+  const TOP_STYLES = ['flat','pointed','nipple_cap','snow_pole','thin_flat','rounded'];
+  const TOP_STYLE_LABELS = { flat:'Plana', pointed:'Punta', nipple_cap:'Botón', snow_pole:'Poste nieve', thin_flat:'Plana fina', rounded:'Redondeada' };
+  const TOP_COLORS = [
+    { id: 'black', hex: '#1a1a1a' },
+    { id: 'red',   hex: '#CC0000' },
+    { id: 'white', hex: '#FFFFFF' },
+  ];
+
+  const STRIPE_COLORS = [
+    { id: 'black',  hex: '#1a1a1a' },
+    { id: 'red',    hex: '#CC0000' },
+    { id: 'orange', hex: '#FF6600' },
+    { id: 'white',  hex: '#FFFFFF' },
+    { id: 'yellow', hex: '#FFD700' },
+    { id: 'grey',   hex: '#888888' },
+  ];
+  const STRIPE_POSITIONS = ['top','middle','bottom'];
+  const STRIPE_ORIENTATIONS = ['horizontal','diagonal'];
+
+  const REFLECTOR_COLORS = [
+    { id: 'white',    hex: '#FFFFFF' },
+    { id: 'grey',     hex: '#999999' },
+    { id: 'dark_red', hex: '#660000' },
+    { id: 'dark_grey',hex: '#444444' },
+    { id: 'yellow',   hex: '#FFD700' },
+    { id: 'orange',   hex: '#FF6600' },
+    { id: 'red',      hex: '#CC0000' },
+    { id: 'blue',     hex: '#0044AA' },
+    { id: 'green',    hex: '#006400' },
+    { id: 'silver',   hex: '#C0C0C0' },
+  ];
+  const REFLECTOR_SHAPES = ['circular','rectangular','octagonal','square','diamond'];
+  const REFLECTOR_PLACES = ['front','back','band'];
+  const REFLECTOR_POSITIONS = ['top','middle','bottom'];
+
+  /* ── STATE ── */
+  function getState() { return JSON.parse(sessionStorage.getItem('geoguessr_bollards') || '[]'); }
+  function saveState(d) { sessionStorage.setItem('geoguessr_bollards', JSON.stringify(d)); }
+
+  function defaultBollard() {
+    return {
+      shape: 'cylindrical',
+      color: 'white',
+      size: null,
+      mounting: null,
+      top: null,
+      stripes: [],
+      reflectors: [],
+      markings: [],
+    };
+  }
+
+  /* ── PREVIEW CANVAS ── */
+  function drawBollard(canvas, b) {
+    const ctx = canvas.getContext('2d');
+    const W = canvas.width, H = canvas.height;
+    ctx.clearRect(0, 0, W, H);
+
+    const colorMap = Object.fromEntries(BODY_COLORS.map(c => [c.id, c.hex]));
+    const baseColor = colorMap[b.color] || '#CCCCCC';
+
+    const cx = W / 2;
+    const bw = b.size === 'wide' ? 44 : b.size === 'thin' ? 18 : 30;
+    const bh = b.mounting === 'stick' ? 90 : 70;
+    const bx = cx - bw / 2;
+    const by = H - bh - 8;
+
+    /* body */
+    ctx.fillStyle = baseColor;
+    if (b.shape === 'cylindrical' || b.shape === 'bowling_pin' || b.shape === 'baton' || b.shape === 'tapered') {
+      ctx.beginPath();
+      if (b.shape === 'tapered') {
+        ctx.moveTo(bx + 6, by);
+        ctx.lineTo(bx + bw - 6, by);
+        ctx.lineTo(bx + bw, by + bh);
+        ctx.lineTo(bx, by + bh);
+        ctx.closePath();
+      } else if (b.shape === 'bowling_pin') {
+        ctx.moveTo(bx + 6, by);
+        ctx.lineTo(bx + bw - 6, by);
+        ctx.quadraticCurveTo(bx + bw + 4, by + bh * 0.5, bx + bw, by + bh);
+        ctx.lineTo(bx, by + bh);
+        ctx.quadraticCurveTo(bx - 4, by + bh * 0.5, bx + 6, by);
+      } else {
+        ctx.roundRect(bx, by, bw, bh, 4);
+      }
+      ctx.fill();
+      ctx.strokeStyle = '#0005';
+      ctx.lineWidth = 1;
+      ctx.stroke();
+    } else if (b.shape === 'flat' || b.shape === 'wedge') {
+      const ww = b.shape === 'wedge' ? bw * 1.4 : bw;
+      ctx.fillRect(cx - ww / 2, by, ww, bh * 0.4);
+      ctx.strokeStyle = '#0005'; ctx.lineWidth = 1;
+      ctx.strokeRect(cx - ww / 2, by, ww, bh * 0.4);
+    } else if (b.shape === 'half_circle') {
+      ctx.beginPath();
+      ctx.arc(cx, by + bh, bw / 2, Math.PI, 0);
+      ctx.closePath();
+      ctx.fill();
+      ctx.strokeStyle = '#0005'; ctx.lineWidth = 1; ctx.stroke();
+    } else if (b.shape === 'hollow_curved') {
+      ctx.beginPath();
+      ctx.arc(cx, by + bh, bw / 2, Math.PI, 0);
+      ctx.closePath();
+      ctx.strokeStyle = baseColor; ctx.lineWidth = 7; ctx.stroke();
+      ctx.strokeStyle = '#0005'; ctx.lineWidth = 1; ctx.stroke();
+    } else if (b.shape === 'triangular') {
+      ctx.beginPath();
+      ctx.moveTo(cx, by);
+      ctx.lineTo(bx + bw, by + bh);
+      ctx.lineTo(bx, by + bh);
+      ctx.closePath();
+      ctx.fill();
+      ctx.strokeStyle = '#0005'; ctx.lineWidth = 1; ctx.stroke();
+    } else {
+      /* square, octagonal, cuboidal → rectangle */
+      ctx.fillRect(bx, by, bw, bh);
+      ctx.strokeStyle = '#0005'; ctx.lineWidth = 1;
+      ctx.strokeRect(bx, by, bw, bh);
+    }
+
+    /* stripes */
+    const stripeColorMap = Object.fromEntries(STRIPE_COLORS.map(c => [c.id, c.hex]));
+    (b.stripes || []).forEach(s => {
+      const sc = stripeColorMap[s.color] || '#FFF';
+      const sy = s.position === 'top' ? by + 6 : s.position === 'middle' ? by + bh / 2 - 3 : by + bh - 12;
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(bx, by, bw, bh);
+      ctx.clip();
+      ctx.fillStyle = sc;
+      if (s.orientation === 'diagonal') {
+        ctx.save();
+        ctx.translate(cx, sy + 3);
+        ctx.rotate(Math.PI / 4);
+        ctx.fillRect(-bw, -3, bw * 2, 6);
+        ctx.restore();
+      } else {
+        ctx.fillRect(bx, sy, bw, 6);
+      }
+      ctx.restore();
+    });
+
+    /* reflectors */
+    const refColorMap = Object.fromEntries(REFLECTOR_COLORS.map(c => [c.id, c.hex]));
+    (b.reflectors || []).forEach(r => {
+      const rc = refColorMap[r.color] || '#FFF';
+      const ry = r.position === 'top' ? by + 8 : r.position === 'bottom' ? by + bh - 14 : by + bh / 2 - 4;
+      ctx.fillStyle = rc;
+      ctx.strokeStyle = '#0006';
+      ctx.lineWidth = 0.5;
+      if (r.shape === 'circular') {
+        ctx.beginPath(); ctx.arc(cx, ry + 4, 5, 0, Math.PI * 2);
+        ctx.fill(); ctx.stroke();
+      } else if (r.shape === 'diamond') {
+        ctx.beginPath();
+        ctx.moveTo(cx, ry); ctx.lineTo(cx + 6, ry + 4);
+        ctx.lineTo(cx, ry + 8); ctx.lineTo(cx - 6, ry + 4);
+        ctx.closePath(); ctx.fill(); ctx.stroke();
+      } else {
+        ctx.fillRect(cx - 6, ry, 12, 8);
+        ctx.strokeRect(cx - 6, ry, 12, 8);
+      }
+    });
+
+    /* top */
+    if (b.top) {
+      const topColorMap = Object.fromEntries(TOP_COLORS.map(c => [c.id, c.hex]));
+      const tc = topColorMap[b.top.color] || baseColor;
+      ctx.fillStyle = tc;
+      ctx.strokeStyle = '#0005'; ctx.lineWidth = 1;
+      if (b.top.style === 'pointed') {
+        ctx.beginPath();
+        ctx.moveTo(cx, by - 14);
+        ctx.lineTo(bx + bw, by);
+        ctx.lineTo(bx, by);
+        ctx.closePath();
+        ctx.fill(); ctx.stroke();
+      } else if (b.top.style === 'rounded' || b.top.style === 'nipple_cap') {
+        ctx.beginPath();
+        ctx.arc(cx, by, bw / 2, Math.PI, 0);
+        ctx.closePath();
+        ctx.fill(); ctx.stroke();
+      } else if (b.top.style === 'snow_pole') {
+        ctx.fillRect(cx - 2, by - 16, 4, 16);
+        ctx.strokeRect(cx - 2, by - 16, 4, 16);
+      } else {
+        /* flat / thin_flat */
+        ctx.fillRect(bx - 2, by - (b.top.style === 'thin_flat' ? 3 : 5), bw + 4, b.top.style === 'thin_flat' ? 3 : 5);
+        ctx.strokeRect(bx - 2, by - (b.top.style === 'thin_flat' ? 3 : 5), bw + 4, b.top.style === 'thin_flat' ? 3 : 5);
+      }
+    }
+
+    /* base */
+    ctx.fillStyle = '#666';
+    ctx.fillRect(cx - bw / 2 - 4, H - 8, bw + 8, 8);
+  }
+
+  function updatePreview(idx) {
+    const data = getState();
+    const b = data[idx];
+    const canvas = document.getElementById(`canvas-${idx}`);
+    if (canvas) drawBollard(canvas, b);
+  }
+
+  /* ── RENDER HELPERS ── */
+  function colorSwatches(idx, field, palette, current) {
+    return palette.map(c => {
+      const sel = c.id === current;
+      return `<div class="swatch ${sel ? 'selected' : ''}"
+        style="background:${c.hex};"
+        title="${c.id}"
+        onclick="setBollardField(${idx},'${field}','${c.id}')"></div>`;
+    }).join('');
+  }
+
+  function chips(idx, field, options, labels, current) {
+    return options.map(o => `
+      <span class="toggle-chip ${current === o ? 'selected' : ''}"
+        onclick="toggleChip(${idx},'${field}','${o}')">${labels[o]}</span>
+    `).join('');
+  }
+
+  function chipsMaybe(idx, field, options, labels, current) {
+    /* toggleable: clicking selected deselects */
+    return options.map(o => `
+      <span class="toggle-chip ${current === o ? 'selected' : ''}"
+        onclick="toggleChipOff(${idx},'${field}','${o}')">${labels[o]}</span>
+    `).join('');
+  }
+
+  /* ── SHAPE THUMBNAIL SVG ── */
+  function shapeSVG(id, selected) {
+    const s = selected ? '#4a90e2' : '#888';
+    const svgs = {
+      cylindrical:   `<rect x="8" y="4" width="16" height="28" rx="3" fill="${s}"/>`,
+      triangular:    `<polygon points="16,4 28,32 4,32" fill="${s}"/>`,
+      square:        `<rect x="8" y="4" width="16" height="28" fill="${s}"/>`,
+      flat:          `<rect x="4" y="16" width="24" height="10" fill="${s}"/>`,
+      wedge:         `<polygon points="4,26 28,26 24,16 8,16" fill="${s}"/>`,
+      hollow_curved: `<path d="M4 32 A12 12 0 0 1 28 32" stroke="${s}" stroke-width="5" fill="none"/>`,
+      half_circle:   `<path d="M4 32 A12 12 0 0 1 28 32 Z" fill="${s}"/>`,
+      octagonal:     `<polygon points="12,4 20,4 28,12 28,24 20,32 12,32 4,24 4,12" fill="${s}"/>`,
+      cuboidal:      `<rect x="6" y="4" width="20" height="28" fill="${s}"/>`,
+      bowling_pin:   `<ellipse cx="16" cy="10" rx="5" ry="6" fill="${s}"/><rect x="13" y="16" width="6" height="16" rx="3" fill="${s}"/>`,
+      tapered:       `<polygon points="11,4 21,4 26,32 6,32" fill="${s}"/>`,
+      baton:         `<rect x="13" y="4" width="6" height="28" rx="3" fill="${s}"/>`,
+    };
+    const border = selected ? `style="outline:2px solid #4a90e2;outline-offset:2px;border-radius:3px;"` : '';
+    return `<div class="shape-thumb" onclick="setBollardField(${-1},'shape','${id}')" ${border}>
+      <svg width="32" height="36" viewBox="0 0 32 36">${svgs[id]||''}</svg>
+    </div>`;
+  }
+
+  /* ── FULL FORM ── */
+  function buildForm(idx) {
+    const data = getState();
+    const b = data[idx];
+
+    /* SHAPE */
+    const shapeRow = SHAPES.map(s => {
+      const sel = b.shape === s.id;
+      const color = sel ? '#4a90e2' : '#888';
+      const svgs = {
+        cylindrical:   `<rect x="8" y="4" width="16" height="28" rx="3" fill="${color}"/>`,
+        triangular:    `<polygon points="16,4 28,32 4,32" fill="${color}"/>`,
+        square:        `<rect x="8" y="4" width="16" height="28" fill="${color}"/>`,
+        flat:          `<rect x="4" y="16" width="24" height="10" fill="${color}"/>`,
+        wedge:         `<polygon points="4,26 28,26 24,16 8,16" fill="${color}"/>`,
+        hollow_curved: `<path d="M4 32 A12 12 0 0 1 28 32" stroke="${color}" stroke-width="5" fill="none"/>`,
+        half_circle:   `<path d="M4 32 A12 12 0 0 1 28 32 Z" fill="${color}"/>`,
+        octagonal:     `<polygon points="12,4 20,4 28,12 28,24 20,32 12,32 4,24 4,12" fill="${color}"/>`,
+        cuboidal:      `<rect x="6" y="4" width="20" height="28" fill="${color}"/>`,
+        bowling_pin:   `<ellipse cx="16" cy="10" rx="5" ry="6" fill="${color}"/><rect x="13" y="16" width="6" height="16" rx="3" fill="${color}"/>`,
+        tapered:       `<polygon points="11,4 21,4 26,32 6,32" fill="${color}"/>`,
+        baton:         `<rect x="13" y="4" width="6" height="28" rx="3" fill="${color}"/>`,
+      };
+      const outline = sel ? 'outline:2px solid #4a90e2;outline-offset:1px;border-radius:3px;' : '';
+      return `<div class="shape-thumb" onclick="setBollardField(${idx},'shape','${s.id}')" style="${outline}cursor:pointer;" title="${s.label}">
+        <svg width="28" height="32" viewBox="0 0 32 36">${svgs[s.id]||''}</svg>
+      </div>`;
+    }).join('');
+
+    /* STRIPES */
+    const stripesHtml = (b.stripes || []).map((s, si) => `
+      <div class="list-item">
+        <span style="font-size:10px;color:#aaa;width:50px;flex-shrink:0;">Color</span>
+        <div class="swatch-row">${STRIPE_COLORS.map(c => `<div class="swatch ${c.id===s.color?'selected':''}" style="background:${c.hex};" title="${c.id}" onclick="setSubField(${idx},'stripes',${si},'color','${c.id}')"></div>`).join('')}</div>
+        <br style="width:100%">
+        <span style="font-size:10px;color:#aaa;width:50px;flex-shrink:0;">Pos.</span>
+        <div class="toggle-row">${STRIPE_POSITIONS.map(p=>`<span class="toggle-chip ${s.position===p?'selected':''}" onclick="setSubField(${idx},'stripes',${si},'position','${p}')">${p}</span>`).join('')}</div>
+        <br style="width:100%">
+        <span style="font-size:10px;color:#aaa;width:50px;flex-shrink:0;">Orient.</span>
+        <div class="toggle-row">${STRIPE_ORIENTATIONS.map(o=>`<span class="toggle-chip ${s.orientation===o?'selected':''}" onclick="setSubField(${idx},'stripes',${si},'orientation','${o}')">${o}</span>`).join('')}</div>
+        <button class="remove-sub-btn" onclick="removeSub(${idx},'stripes',${si})">✕</button>
+      </div>
+    `).join('');
+
+    /* REFLECTORS */
+    const refHtml = (b.reflectors || []).map((r, ri) => `
+      <div class="list-item">
+        <span style="font-size:10px;color:#aaa;width:50px;flex-shrink:0;">Color</span>
+        <div class="swatch-row">${REFLECTOR_COLORS.map(c => `<div class="swatch ${c.id===r.color?'selected':''}" style="background:${c.hex};width:18px;height:18px;" title="${c.id}" onclick="setSubField(${idx},'reflectors',${ri},'color','${c.id}')"></div>`).join('')}</div>
+        <br style="width:100%">
+        <span style="font-size:10px;color:#aaa;width:50px;flex-shrink:0;">Forma</span>
+        <div class="toggle-row">${REFLECTOR_SHAPES.map(s=>`<span class="toggle-chip ${r.shape===s?'selected':''}" style="font-size:10px;" onclick="setSubField(${idx},'reflectors',${ri},'shape','${s}')">${s}</span>`).join('')}</div>
+        <br style="width:100%">
+        <span style="font-size:10px;color:#aaa;width:50px;flex-shrink:0;">Lugar</span>
+        <div class="toggle-row">${REFLECTOR_PLACES.map(p=>`<span class="toggle-chip ${r.place===p?'selected':''}" onclick="setSubField(${idx},'reflectors',${ri},'place','${p}')">${p}</span>`).join('')}</div>
+        <br style="width:100%">
+        <span style="font-size:10px;color:#aaa;width:50px;flex-shrink:0;">Pos.</span>
+        <div class="toggle-row">${REFLECTOR_POSITIONS.map(p=>`<span class="toggle-chip ${r.position===p?'selected':''}" onclick="setSubField(${idx},'reflectors',${ri},'position','${p}')">${p}</span>`).join('')}</div>
+        <button class="remove-sub-btn" onclick="removeSub(${idx},'reflectors',${ri})">✕</button>
+      </div>
+    `).join('');
+
+    /* TOP SECTION */
+    const hasTop = !!b.top;
+    const topHtml = hasTop ? `
+      <div class="list-item" style="flex-direction:column;align-items:flex-start;">
+        <div style="display:flex;gap:5px;flex-wrap:wrap;width:100%;">
+          <span style="font-size:10px;color:#aaa;width:50px;flex-shrink:0;">Estilo</span>
+          <div class="toggle-row">${TOP_STYLES.map(s=>`<span class="toggle-chip ${b.top.style===s?'selected':''}" style="font-size:10px;" onclick="setTopField(${idx},'style','${s}')">${TOP_STYLE_LABELS[s]}</span>`).join('')}</div>
+        </div>
+        <div style="display:flex;gap:5px;flex-wrap:wrap;margin-top:5px;width:100%;">
+          <span style="font-size:10px;color:#aaa;width:50px;flex-shrink:0;">Color</span>
+          <div class="swatch-row">${TOP_COLORS.map(c=>`<div class="swatch ${b.top.color===c.id?'selected':''}" style="background:${c.hex};" title="${c.id}" onclick="setTopField(${idx},'color','${c.id}')"></div>`).join('')}</div>
+        </div>
+        <button class="remove-sub-btn" onclick="removeTop(${idx})" style="align-self:flex-end;">✕</button>
+      </div>
+    ` : `<button class="add-sub-btn" onclick="addTop(${idx})">+ Añadir cima</button>`;
+
+    return `
+      <div class="form-section" id="form-${idx}">
+        <div class="form-group">
+          <label>Forma</label>
+          <div class="shape-grid">${shapeRow}</div>
+        </div>
+
+        <div class="form-group">
+          <label>Color</label>
+          <div class="swatch-row">${colorSwatches(idx,'color',BODY_COLORS,b.color)}</div>
+        </div>
+
+        <div class="form-group">
+          <label>Tamaño</label>
+          <div class="toggle-row">
+            ${SIZES.map(o=>`<span class="toggle-chip ${b.size===o?'selected':''}" onclick="toggleOptChip(${idx},'size','${o}')">${SIZE_LABELS[o]}</span>`).join('')}
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label>Montaje</label>
+          <div class="toggle-row">
+            ${MOUNTINGS.map(o=>`<span class="toggle-chip ${b.mounting===o?'selected':''}" onclick="toggleOptChip(${idx},'mounting','${o}')">${MOUNTING_LABELS[o]}</span>`).join('')}
+          </div>
+        </div>
+
+        <div class="subsection-label">CIMA</div>
+        ${topHtml}
+
+        <div class="subsection-label">FRANJAS</div>
+        <div id="stripes-${idx}">${stripesHtml}</div>
+        <button class="add-sub-btn" onclick="addSub(${idx},'stripes')">+ Franja</button>
+
+        <div class="subsection-label">REFLECTORES</div>
+        <div id="reflectors-${idx}">${refHtml}</div>
+        <button class="add-sub-btn" onclick="addSub(${idx},'reflectors')">+ Reflector</button>
+      </div>
+    `;
+  }
+
+  /* ── BUILD ROW ── */
+  function addBollardFromData(idx) {
+    const wrapper = document.getElementById('bollards-wrapper');
+    const data = getState();
+
+    const rowDiv = document.createElement('div');
+    rowDiv.className = 'bollard-row';
+    rowDiv.id = `row-${idx}`;
+
+    const card = document.createElement('div');
+    card.className = 'bollard-card-outer';
+
+    /* header */
+    const header = document.createElement('div');
+    header.className = 'bollard-grid-header';
+    header.innerHTML = `
+      <div class="grid-header-cell">
+        <span class="col-label">Bolardo #${idx + 1}</span>
+      </div>
+      <div class="grid-header-cell"></div>
+      <div class="grid-header-cell">
+        <span class="col-label">Vista previa</span>
+      </div>
+    `;
+
+    if (idx > 0) {
+      const delBtn = document.createElement('button');
+      delBtn.className = 'delete-btn-abs';
+      delBtn.innerHTML = `<svg width="22" height="22" viewBox="0 0 24 24" fill="#F44336"><path d="M9 3V4H4V6H5V19C5 20.1 5.9 21 7 21H17C18.1 21 19 20.1 19 19V6H20V4H15V3H9ZM7 6H17V19H7V6ZM9 8V17H11V8H9ZM13 8V17H15V8H13Z"/></svg>`;
+      delBtn.onclick = () => removeBollard(idx);
+      header.appendChild(delBtn);
+    }
+
+    card.appendChild(header);
+
+    const divider = document.createElement('div');
+    divider.className = 'plate-divider';
+    card.appendChild(divider);
+
+    /* body */
+    const body = document.createElement('div');
+    body.className = 'bollard-grid-body';
+
+    const col1 = document.createElement('div');
+    col1.className = 'grid-body-cell';
+    col1.id = `col1-${idx}`;
+    col1.innerHTML = buildForm(idx);
+
+    /* empty middle col */
+    const col2 = document.createElement('div');
+    col2.className = 'grid-body-cell';
+
+    const col3 = document.createElement('div');
+    col3.className = 'grid-body-cell preview-cell';
+    col3.innerHTML = `
+      <div class="bollard-preview-wrap">
+        <canvas id="canvas-${idx}" class="bollard-canvas" width="80" height="130"></canvas>
+      </div>
+    `;
+
+    body.appendChild(col1);
+    body.appendChild(col2);
+    body.appendChild(col3);
+    card.appendChild(body);
+
+    rowDiv.appendChild(card);
+    wrapper.appendChild(rowDiv);
+
+    updatePreview(idx);
+  }
+
+  /* ── PUBLIC FUNCTIONS ── */
+  window.addBollard = function () {
+    const data = getState();
+    data.push(defaultBollard());
+    saveState(data);
+    addBollardFromData(data.length - 1);
+  };
+
+  window.removeBollard = function (idx) {
+    const data = getState();
+    data.splice(idx, 1);
+    saveState(data);
+    document.getElementById('bollards-wrapper').innerHTML = '';
+    data.forEach((_, i) => addBollardFromData(i));
+  };
+
+  window.setBollardField = function (idx, field, val) {
+    const data = getState();
+    data[idx][field] = val;
+    saveState(data);
+    const col = document.getElementById(`col1-${idx}`);
+    if (col) col.innerHTML = buildForm(idx);
+    updatePreview(idx);
+  };
+
+  window.toggleOptChip = function (idx, field, val) {
+    const data = getState();
+    data[idx][field] = data[idx][field] === val ? null : val;
+    saveState(data);
+    const col = document.getElementById(`col1-${idx}`);
+    if (col) col.innerHTML = buildForm(idx);
+    updatePreview(idx);
+  };
+
+  window.addSub = function (idx, field) {
+    const data = getState();
+    if (field === 'stripes') data[idx].stripes.push({ color: 'white', position: 'middle', orientation: 'horizontal', count: 1 });
+    if (field === 'reflectors') data[idx].reflectors.push({ color: 'white', shape: 'circular', place: 'front', position: 'middle', count: 1 });
+    saveState(data);
+    const col = document.getElementById(`col1-${idx}`);
+    if (col) col.innerHTML = buildForm(idx);
+    updatePreview(idx);
+  };
+
+  window.removeSub = function (idx, field, si) {
+    const data = getState();
+    data[idx][field].splice(si, 1);
+    saveState(data);
+    const col = document.getElementById(`col1-${idx}`);
+    if (col) col.innerHTML = buildForm(idx);
+    updatePreview(idx);
+  };
+
+  window.setSubField = function (idx, field, si, key, val) {
+    const data = getState();
+    data[idx][field][si][key] = val;
+    saveState(data);
+    const col = document.getElementById(`col1-${idx}`);
+    if (col) col.innerHTML = buildForm(idx);
+    updatePreview(idx);
+  };
+
+  window.addTop = function (idx) {
+    const data = getState();
+    data[idx].top = { style: 'flat', color: 'black' };
+    saveState(data);
+    const col = document.getElementById(`col1-${idx}`);
+    if (col) col.innerHTML = buildForm(idx);
+    updatePreview(idx);
+  };
+
+  window.removeTop = function (idx) {
+    const data = getState();
+    data[idx].top = null;
+    saveState(data);
+    const col = document.getElementById(`col1-${idx}`);
+    if (col) col.innerHTML = buildForm(idx);
+    updatePreview(idx);
+  };
+
+  window.setTopField = function (idx, key, val) {
+    const data = getState();
+    if (!data[idx].top) data[idx].top = { style: 'flat', color: 'black' };
+    data[idx].top[key] = val;
+    saveState(data);
+    const col = document.getElementById(`col1-${idx}`);
+    if (col) col.innerHTML = buildForm(idx);
+    updatePreview(idx);
+  };
+
+  /* init */
+  window.addBollard();
+})();
+</script>
+</body>
+</html>

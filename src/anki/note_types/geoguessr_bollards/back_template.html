@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>Bollard Card – Back</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/js-yaml/4.1.0/js-yaml.min.js"></script>
+</head>
+<body>
+<div id="root"><div style="color:#aaa;font-size:13px;">Cargando...</div></div>
+
+<script>
+(function () {
+  const YAML_RAW = `{{YamlData}}`;
+
+  const BODY_COLORS = {
+    white: '#FFFFFF', black: '#1a1a1a', yellow: '#FFD700',
+    orange: '#FF6600', red: '#CC0000', brown: '#5C2E00', grey: '#888888'
+  };
+  const STRIPE_COLORS = {
+    black: '#1a1a1a', red: '#CC0000', orange: '#FF6600',
+    white: '#FFFFFF', yellow: '#FFD700', grey: '#888888'
+  };
+  const REFLECTOR_COLORS = {
+    white: '#FFFFFF', grey: '#999999', dark_red: '#660000',
+    dark_grey: '#444444', yellow: '#FFD700', orange: '#FF6600',
+    red: '#CC0000', blue: '#0044AA', green: '#006400', silver: '#C0C0C0'
+  };
+  const TOP_COLORS = { black: '#1a1a1a', red: '#CC0000', white: '#FFFFFF' };
+
+  /* ── MINI BOLLARD CANVAS ── */
+  function drawMini(canvas, b) {
+    const ctx = canvas.getContext('2d');
+    const W = canvas.width, H = canvas.height;
+    ctx.clearRect(0, 0, W, H);
+
+    const baseColor = BODY_COLORS[b.color] || '#CCCCCC';
+    const cx = W / 2;
+    const bw = b.size === 'wide' ? 28 : b.size === 'thin' ? 12 : 20;
+    const bh = b.mounting === 'stick' ? 55 : 45;
+    const bx = cx - bw / 2;
+    const by = H - bh - 5;
+
+    ctx.fillStyle = baseColor;
+    const shape = b.shape || 'cylindrical';
+
+    if (shape === 'tapered') {
+      ctx.beginPath();
+      ctx.moveTo(bx + 4, by); ctx.lineTo(bx + bw - 4, by);
+      ctx.lineTo(bx + bw, by + bh); ctx.lineTo(bx, by + bh);
+      ctx.closePath(); ctx.fill();
+    } else if (shape === 'triangular') {
+      ctx.beginPath();
+      ctx.moveTo(cx, by); ctx.lineTo(bx + bw, by + bh); ctx.lineTo(bx, by + bh);
+      ctx.closePath(); ctx.fill();
+    } else if (shape === 'flat' || shape === 'wedge') {
+      ctx.fillRect(bx, by + bh * 0.5, bw, bh * 0.5);
+    } else if (shape === 'half_circle') {
+      ctx.beginPath();
+      ctx.arc(cx, by + bh, bw / 2, Math.PI, 0);
+      ctx.closePath(); ctx.fill();
+    } else if (shape === 'hollow_curved') {
+      ctx.beginPath();
+      ctx.arc(cx, by + bh, bw / 2, Math.PI, 0);
+      ctx.strokeStyle = baseColor; ctx.lineWidth = 4; ctx.stroke();
+    } else if (shape === 'bowling_pin') {
+      ctx.beginPath();
+      ctx.ellipse(cx, by + 8, 5, 7, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.fillRect(cx - 4, by + 15, 8, bh - 15);
+    } else {
+      ctx.beginPath();
+      ctx.roundRect(bx, by, bw, bh, shape === 'cylindrical' ? 3 : 0);
+      ctx.fill();
+    }
+
+    ctx.strokeStyle = '#0004'; ctx.lineWidth = 0.8;
+    if (shape !== 'hollow_curved') { ctx.beginPath(); ctx.roundRect(bx, by, bw, bh, 2); ctx.stroke(); }
+
+    /* stripes */
+    (b.stripes || []).forEach(s => {
+      const sc = STRIPE_COLORS[s.color] || '#FFF';
+      const sy = s.position === 'top' ? by + 4 : s.position === 'middle' ? by + bh / 2 - 2 : by + bh - 8;
+      ctx.save();
+      ctx.beginPath(); ctx.rect(bx, by, bw, bh); ctx.clip();
+      ctx.fillStyle = sc;
+      if (s.orientation === 'diagonal') {
+        ctx.save(); ctx.translate(cx, sy + 2); ctx.rotate(Math.PI / 4);
+        ctx.fillRect(-bw, -2, bw * 2, 4); ctx.restore();
+      } else {
+        ctx.fillRect(bx, sy, bw, 4);
+      }
+      ctx.restore();
+    });
+
+    /* reflectors */
+    (b.reflectors || []).forEach(r => {
+      const rc = REFLECTOR_COLORS[r.color] || '#FFF';
+      const ry2 = r.position === 'top' ? by + 5 : r.position === 'bottom' ? by + bh - 9 : by + bh / 2 - 3;
+      ctx.fillStyle = rc;
+      ctx.beginPath(); ctx.arc(cx, ry2 + 3, 3, 0, Math.PI * 2); ctx.fill();
+    });
+
+    /* top */
+    if (b.top) {
+      const tc = TOP_COLORS[b.top.color] || baseColor;
+      ctx.fillStyle = tc;
+      if (b.top.style === 'pointed') {
+        ctx.beginPath();
+        ctx.moveTo(cx, by - 8); ctx.lineTo(bx + bw, by); ctx.lineTo(bx, by);
+        ctx.closePath(); ctx.fill();
+      } else if (b.top.style === 'rounded' || b.top.style === 'nipple_cap') {
+        ctx.beginPath(); ctx.arc(cx, by, bw / 2, Math.PI, 0); ctx.closePath(); ctx.fill();
+      } else if (b.top.style === 'snow_pole') {
+        ctx.fillRect(cx - 1.5, by - 10, 3, 10);
+      } else {
+        ctx.fillRect(bx - 1, by - 3, bw + 2, 3);
+      }
+    }
+
+    /* base */
+    ctx.fillStyle = '#666';
+    ctx.fillRect(cx - bw / 2 - 3, H - 5, bw + 6, 5);
+  }
+
+  /* ── KEY for comparison ── */
+  function normB(b) {
+    return JSON.stringify({
+      shape: b.shape || 'cylindrical',
+      color: b.color || 'white',
+      size: b.size || null,
+      mounting: b.mounting || null,
+      top: b.top ? { style: b.top.style || 'flat', color: b.top.color || null } : null,
+      stripes: (b.stripes || []).map(s => ({
+        color: s.color, position: s.position, orientation: s.orientation
+      })).sort((a,b)=>JSON.stringify(a)<JSON.stringify(b)?-1:1),
+      reflectors: (b.reflectors || []).map(r => ({
+        color: r.color, shape: r.shape, place: r.place, position: r.position || null
+      })).sort((a,b)=>JSON.stringify(a)<JSON.stringify(b)?-1:1),
+    });
+  }
+
+  function shapeLabel(s) {
+    const m = {
+      cylindrical:'Cilíndrico', triangular:'Triangular', square:'Cuadrado',
+      flat:'Plano', wedge:'Cuña', hollow_curved:'Curvo hueco',
+      half_circle:'Semicirc.', octagonal:'Octogonal', cuboidal:'Cúbico',
+      bowling_pin:'Bolo', tapered:'Cónico', baton:'Bastón'
+    };
+    return m[s] || s;
+  }
+
+  function createCard(b, status) {
+    const card = document.createElement('div');
+    card.className = `bollard-card ${status}`;
+
+    const badge = document.createElement('div');
+    badge.className = `status-badge ${status==='correcto'?'ok':status==='faltante'?'miss':'fail'}`;
+    badge.textContent = status==='correcto'?'✓':status==='faltante'?'?':'✗';
+    card.appendChild(badge);
+
+    const canvas = document.createElement('canvas');
+    canvas.width = 60; canvas.height = 90;
+    card.appendChild(canvas);
+
+    const label = document.createElement('div');
+    label.className = 'bollard-card-label';
+    label.textContent = shapeLabel(b.shape);
+    card.appendChild(label);
+
+    requestAnimationFrame(() => drawMini(canvas, b));
+    return card;
+  }
+
+  /* ── RENDER ── */
+  function render() {
+    const root = document.getElementById('root');
+
+    let data;
+    try { data = jsyaml.load(YAML_RAW); } catch(e) {
+      root.innerHTML = `<div style="color:#F44336;padding:10px;">Error YAML: ${e.message}</div>`; return;
+    }
+
+    const correctBollards = (data.bollards || []);
+
+    let userBollards = [];
+    try { const s = sessionStorage.getItem('geoguessr_bollards'); userBollards = s ? JSON.parse(s) : []; } catch(e) {}
+
+    const usedIdx = new Set();
+    const userResults = userBollards.map(ub => {
+      const key = normB(ub);
+      const idx = correctBollards.findIndex((c, i) => normB(c) === key && !usedIdx.has(i));
+      if (idx !== -1) { usedIdx.add(idx); return { b: ub, status: 'correcto' }; }
+      return { b: ub, status: 'incorrecto' };
+    });
+
+    const missing = correctBollards.filter((_, i) => !usedIdx.has(i));
+    const correct = userResults.filter(r => r.status === 'correcto').length;
+    const total = correctBollards.length;
+    const pct = total > 0 ? Math.round((correct / total) * 100) : 0;
+
+    root.innerHTML = '';
+
+    const scoreBar = document.createElement('div');
+    scoreBar.className = 'score-bar';
+    scoreBar.innerHTML = `
+      <div class="score-num ${pct===100?'perfecto':pct>=50?'parcial':'malo'}">${pct}%</div>
+      <div>
+        <div style="font-size:16px;font-weight:bold;color:#f1f1f1">${correct}/${total}</div>
+        <div class="score-label">bolardos correctos</div>
+      </div>
+      <div class="score-detail">${missing.length > 0 ? `${missing.length} faltante${missing.length>1?'s':''}` : '¡Perfecto!'}</div>
+    `;
+    root.appendChild(scoreBar);
+
+    if (userResults.length > 0) {
+      const sec = document.createElement('div');
+      sec.innerHTML = '<div class="section-title">Tus bolardos</div>';
+      const grid = document.createElement('div'); grid.className = 'bollards-grid';
+      userResults.forEach(r => grid.appendChild(createCard(r.b, r.status)));
+      sec.appendChild(grid); root.appendChild(sec);
+    } else {
+      const p = document.createElement('p');
+      p.style.cssText = 'color:#aaa;font-size:13px;margin-bottom:14px;text-align:center;';
+      p.textContent = 'No se encontraron bolardos guardados.';
+      root.appendChild(p);
+    }
+
+    if (missing.length > 0) {
+      const sec = document.createElement('div');
+      sec.innerHTML = '<div class="section-title">Bolardos que faltaron</div>';
+      const grid = document.createElement('div'); grid.className = 'bollards-grid';
+      missing.forEach(c => grid.appendChild(createCard(c, 'faltante')));
+      sec.appendChild(grid); root.appendChild(sec);
+    }
+  }
+
+  render();
+})();
+</script>
+</body>
+</html>

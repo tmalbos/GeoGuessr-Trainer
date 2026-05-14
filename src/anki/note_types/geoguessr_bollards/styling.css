@@ -1,0 +1,355 @@
+.card {
+  font-family: 'Segoe UI', Arial, sans-serif;
+  font-size: 16px;
+  text-align: center;
+  background-color: #2b2f3a;
+  color: #f1f1f1;
+  padding: 20px;
+}
+
+select, input[type="text"], input[type="number"] {
+  background: #555;
+  color: white;
+  border: 1px solid #666;
+  border-radius: 4px;
+  padding: 3px 6px;
+  font-size: 12px;
+}
+
+/* ══ OUTER WRAPPER ══ */
+.bollard-row {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 16px;
+}
+
+.bollard-card-outer {
+  position: relative;
+  background: #3a3f4b;
+  border-radius: 10px;
+  box-shadow: 0 3px 10px rgba(0,0,0,0.3);
+  overflow: visible;
+  width: 100%;
+  max-width: 1100px;
+}
+
+/* ══ 3-COLUMN GRID ══ */
+.bollard-grid-header,
+.bollard-grid-body {
+  display: grid;
+  grid-template-columns: 1fr 1fr 220px;
+}
+
+/* ── HEADER ── */
+.bollard-grid-header {
+  position: relative;
+  padding: 12px 0 10px;
+  align-items: center;
+}
+
+.grid-header-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 0 16px;
+}
+
+.col-label {
+  font-size: 11px;
+  font-weight: bold;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: #aaa;
+}
+
+.inline-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.plate-divider {
+  height: 1px;
+  background: rgba(255,255,255,0.12);
+  margin: 0 15px;
+}
+
+/* ── BODY ── */
+.bollard-grid-body {
+  padding: 14px 0;
+  align-items: flex-start;
+}
+
+.grid-body-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 0 14px;
+}
+
+.panel-title {
+  font-size: 10px;
+  font-weight: bold;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #aaa;
+  text-align: center;
+  margin-bottom: 4px;
+}
+
+/* ── FORM SECTION ── */
+.form-section {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  text-align: left;
+  background: #444a57;
+  padding: 10px;
+  border-radius: 6px;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.2);
+}
+
+.form-group {
+  display: flex;
+  align-items: flex-start;
+  gap: 5px;
+}
+
+.form-group label {
+  font-size: 11px;
+  font-weight: bold;
+  width: 72px;
+  flex-shrink: 0;
+  padding-top: 3px;
+  color: #ccc;
+}
+
+.subsection-label {
+  font-size: 10px;
+  font-weight: bold;
+  color: #aaa;
+  letter-spacing: .06em;
+  margin-top: 2px;
+}
+
+/* ── SWATCHES ── */
+.swatch-row {
+  display: flex;
+  gap: 5px;
+  flex-wrap: wrap;
+}
+
+.swatch {
+  width: 22px;
+  height: 22px;
+  border-radius: 3px;
+  border: 2px solid #777;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: box-shadow .1s;
+}
+.swatch.selected {
+  border-color: #4a90e2;
+  box-shadow: 0 0 0 2px #4a90e2aa;
+}
+
+/* ── SHAPE PICKER ── */
+.shape-grid {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: flex-end;
+}
+
+.shape-thumb {
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+}
+
+.shape-thumb span {
+  font-size: 9px;
+  color: #aaa;
+}
+
+/* ── CHIPS ── */
+.toggle-row {
+  display: flex;
+  gap: 5px;
+  flex-wrap: wrap;
+}
+
+.toggle-chip {
+  padding: 2px 8px;
+  font-size: 11px;
+  border-radius: 12px;
+  background: #555;
+  border: 1px solid #666;
+  cursor: pointer;
+  color: #ccc;
+  transition: background .12s;
+}
+.toggle-chip.selected {
+  background: #4a90e2;
+  border-color: #4a90e2;
+  color: #fff;
+}
+
+/* ── LIST ITEMS (franjas, reflectores) ── */
+.list-item {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex-wrap: wrap;
+  margin-bottom: 3px;
+  background: #3a3f4b;
+  border-radius: 5px;
+  padding: 5px 7px;
+}
+
+.add-sub-btn {
+  background: #555;
+  color: #eee;
+  border: none;
+  border-radius: 4px;
+  padding: 3px 8px;
+  font-size: 11px;
+  cursor: pointer;
+  align-self: flex-start;
+}
+.add-sub-btn:hover { background: #666; }
+
+.remove-sub-btn {
+  background: none;
+  border: none;
+  color: #F44336;
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 1;
+  padding: 0;
+  margin-left: auto;
+}
+
+/* ── PREVIEW ── */
+.preview-cell {
+  align-items: center;
+  justify-content: center;
+}
+
+.bollard-preview-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+
+/* ── ADD / DELETE BUTTONS ── */
+button.add-btn {
+  background-color: #4a90e2;
+  color: white;
+  border: none;
+  padding: 10px 20px;
+  font-size: 15px;
+  border-radius: 4px;
+  cursor: pointer;
+  margin-top: 10px;
+}
+button.add-btn:hover { background-color: #357ABD; }
+
+.delete-btn-abs {
+  position: absolute;
+  top: 4px;
+  right: 12px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 2px;
+  opacity: 0.7;
+  transition: opacity 0.15s;
+}
+.delete-btn-abs:hover { opacity: 1; }
+
+/* ══ BACK CARD ══ */
+.card-back {
+  font-family: 'Segoe UI', Arial, sans-serif;
+  font-size: 14px;
+  background: #2b2f3a;
+  color: #f1f1f1;
+  padding: 20px;
+}
+
+.section-title {
+  font-size: 11px;
+  font-weight: bold;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #aaa;
+  margin-bottom: 10px;
+  padding-bottom: 5px;
+  border-bottom: 1px solid rgba(255,255,255,0.1);
+}
+
+.bollards-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 18px;
+  justify-content: center;
+}
+
+.bollard-card {
+  background: #3a3f4b;
+  border-radius: 8px;
+  padding: 10px 14px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  border: 2px solid transparent;
+  position: relative;
+  min-width: 90px;
+}
+.bollard-card.correcto   { border-color: #4CAF50; }
+.bollard-card.incorrecto { border-color: #F44336; }
+.bollard-card.faltante   { border: 2px dashed #FF9800; opacity: 0.85; }
+
+.bollard-card-label { font-size: 11px; color: #bbb; text-align: center; }
+
+.status-badge {
+  position: absolute;
+  top: -9px;
+  right: -7px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: bold;
+  border: 2px solid #2b2f3a;
+}
+.status-badge.ok   { background: #4CAF50; color: white; }
+.status-badge.fail { background: #F44336; color: white; }
+.status-badge.miss { background: #FF9800; color: white; }
+
+/* ── SCORE BAR ── */
+.score-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: #3a3f4b;
+  border-radius: 8px;
+  padding: 12px 16px;
+  margin-bottom: 18px;
+}
+.score-num { font-size: 28px; font-weight: bold; }
+.score-num.perfecto { color: #4CAF50; }
+.score-num.parcial  { color: #FFD54F; }
+.score-num.malo     { color: #F44336; }
+.score-label  { font-size: 12px; color: #aaa; }
+.score-detail { font-size: 13px; color: #ccc; margin-left: auto; }
