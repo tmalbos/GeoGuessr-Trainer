@@ -47,38 +47,6 @@ roads:
       - region-dependant
       - urban
       - rural
-signs:
-  stop:
-    shape:
-      - octagon
-      - circle
-      - inverted_triangle
-    background_color: hex
-    text:
-      value:
-        type: string
-        max_length: 10
-      color: hex
-    border:
-      has_border: boolean
-      thickness:
-        - slim
-        - standard
-        - thick
-      color: hex
-poles: # list
-  shape:
-    - round
-    - octogonal
-    - wobbly
-    - square
-    - holed
-    - concave
-  material:
-    - wood
-    - concrete
-    - metal
-    - fiberglass
 license_plates: # list
   car_type:
     - normal
@@ -119,76 +87,99 @@ license_plates: # list
       - short
       - tall
       - standard
-terrain:
-  biome: string
-  dominant_relief: string
-  coverage_pct:
-    type: float
-    min: 0.0
-    max: 100.0
-chevrons: # Optional
-  background_color: hex
-  arrow_color: hex
-  border_color: hex_or_null
 bollards: # list
-  color: hex
-  shape:
-    - cylindrical
-    - rectangular
-    - diamond
-    - mushroom
-    - flexible-post
-  material:
-    - metal
-    - plastic
-    - concrete
-    - rubber
-    - wood
-  height:
-    - low
-    - standard
-    - high
-  top:
-    color: hex_or_null
+  - regions:
+      - string
     shape:
-      - flat
-      - dome
-      - pointed
-      - reflector-cap
-  reflectors: # Optional
-    place:
-      - front
-      - side
-      - back
-    position:
-      - top
-      - middle
-      - bottom
-    color: hex_or_null
-    shape:
-      - circle
+      - cylindrical
+      - triangular
       - square
-      - rectangle
-      - diamond
-      - none
-    orientation:
-      - horizontal
-      - vertical
-    size:
+      - flat
+      - wedge
+      - hollow_curved
+      - half_circle
+      - octagonal
+      - cuboidal
+      - bowling_pin
+      - tapered
+      - baton
+    size: # Optional
       - small
+      - thin
+      - wide
+    mounting: # Optional
       - standard
-      - big
-  stripes: # Optional
-    position:
-      - top
-      - middle
-      - bottom
-      - multiple
-    color: hex_or_null
-    orientation:
-      - horizontal
-      - diagonal
-    size:
-      - slim
-      - standard
-      - thick
+      - stick
+    color:
+      - white
+      - black
+      - yellow
+      - orange
+      - red
+      - brown
+      - grey
+    top: # Optional
+      style:
+        - flat
+        - pointed
+        - nipple_cap
+        - snow_pole
+        - thin_flat
+        - rounded
+      color: # Optional
+        - black
+        - red
+        - white
+    stripes: # Optional
+      - color:
+          - black
+          - red
+          - orange
+          - white
+          - yellow
+          - grey
+        position:
+          - top
+          - middle
+          - bottom
+        orientation:
+          - horizontal
+          - diagonal
+        count: integer
+    reflectors: # Optional
+      - color:
+          - white
+          - grey
+          - dark_red
+          - dark_grey
+          - yellow
+          - orange
+          - red
+          - blue
+          - green
+          - silver
+        shape:
+          - circular
+          - rectangular
+          - octagonal
+          - square
+          - diamond
+        place:
+          - front
+          - back
+          - band
+        position: # Optional
+          - top
+          - middle
+          - bottom
+        offset: # Optional
+          - center
+          - left
+          - right
+        count: integer # Optional
+        bolt_count: integer # Optional
+    markings: # Optional
+      - type:
+          - text
+          - number
+          - crown
