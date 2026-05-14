@@ -57,14 +57,15 @@
 
   function normalizeRoad(r) {
     const inn = r.inner || {};
+    const innerCount = inn.count || 0;
     return {
       outer: {
         count:   r.outer?.count || 0,
         color:   normalizeColor(r.outer?.color),
         pattern: normalizePattern(r.outer?.pattern)
       },
-      inner: {
-        count:   inn.count || 0,
+      inner: innerCount === 0 ? null : {
+        count:   innerCount,
         color:   normalizeColor(inn.color),
         pattern: normalizePattern(inn.pattern),
         extra:   inn.extra ? {
@@ -79,10 +80,12 @@
   function roadKey(road) {
     const o   = road.outer;
     const inn = road.inner;
-    const ex  = inn.extra;
+    const ex  = inn?.extra;
     return [
-      o.count,   o.color,   o.pattern,
-      inn.count, inn.color, inn.pattern,
+      o.count, o.color, o.pattern,
+      inn ? inn.count : 0,
+      inn ? inn.color : '',
+      inn ? inn.pattern : '',
       ex ? 1 : 0,
       ex ? ex.color   : '',
       ex ? ex.pattern : '',
@@ -174,7 +177,7 @@
 
     const o = road.outer;
     const inn = road.inner;
-    const ex = inn.extra;
+    const ex = inn?.extra ?? null;
 
     // ===== OUTER =====
 
@@ -205,47 +208,49 @@
 
     // ===== INNER =====
 
-    const hasExtra = ex !== null;
+    if (inn) {
+      const hasExtra = ex !== null;
 
-    const positions =
-      getMiniInnerPositions(
-        inn.count,
-        hasExtra
-      );
+      const positions =
+        getMiniInnerPositions(
+          inn.count,
+          hasExtra
+        );
 
-    const total =
-      inn.count +
-      (hasExtra ? 1 : 0);
+      const total =
+        inn.count +
+        (hasExtra ? 1 : 0);
 
-    positions.forEach((p, i) => {
-      let cfg;
+      positions.forEach((p, i) => {
+        let cfg;
 
-      if (total === 1) {
-        cfg = inn.count === 1
-          ? inn
-          : ex;
-      }
-      else if (total === 2) {
-        cfg =
-          (inn.count === 1 && hasExtra)
-            ? (i === 0 ? inn : ex)
-            : inn;
-      }
-      else {
-        cfg =
-          (i === 1)
-            ? ex
-            : inn;
-      }
+        if (total === 1) {
+          cfg = inn.count === 1
+            ? inn
+            : ex;
+        }
+        else if (total === 2) {
+          cfg =
+            (inn.count === 1 && hasExtra)
+              ? (i === 0 ? inn : ex)
+              : inn;
+        }
+        else {
+          cfg =
+            (i === 1)
+              ? ex
+              : inn;
+        }
 
-      div.appendChild(createMiniLine({
-        left: (p - 1.5) + 'px',
-        background: getPatternBackground(
-          cfg.pattern,
-          getColorHex(cfg.color)
-        )
-      }));
-    });
+        div.appendChild(createMiniLine({
+          left: (p - 1.5) + 'px',
+          background: getPatternBackground(
+            cfg.pattern,
+            getColorHex(cfg.color)
+          )
+        }));
+      });
+    }
 
     return div;
   }
@@ -254,9 +259,9 @@
     const parts = [];
     const o   = road.outer;
     const inn = road.inner;
-    const ex  = inn.extra;
+    const ex  = inn?.extra ?? null;
     if (o.count > 0)   parts.push(o.count + ' lateral' + (o.count > 1 ? 'es' : '') + ' · ' + o.pattern + ' · ' + o.color);
-    if (inn.count > 0) parts.push(inn.count + ' interna' + (inn.count > 1 ? 's' : '') + ' · ' + inn.pattern + ' · ' + inn.color);
+    if (inn && inn.count > 0) parts.push(inn.count + ' interna' + (inn.count > 1 ? 's' : '') + ' · ' + inn.pattern + ' · ' + inn.color);
     if (ex)            parts.push('1 central · ' + ex.pattern + ' · ' + ex.color);
     if (road.rule)     parts.push('<em>' + road.rule + '</em>');
     return parts.join('<br>') || 'vacía';
