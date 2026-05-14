@@ -1,0 +1,27 @@
+import yaml
+
+from .base import Note
+
+
+class RoadsNote(Note):
+    def __init__(self, country_data: dict):
+        Note.__init__(self, country_data)
+        self.MODEL = "GeoGuessr Roads"
+        self.roads = country_data.get("roads")
+
+    def model(self) -> str:
+        return self.MODEL
+
+    def fields(self) -> dict | None:
+        if not self.roads:
+            return None
+
+        raw = yaml.dump({"roads": self.roads}, allow_unicode=True, sort_keys=False).strip()
+
+        return {
+            "Pregunta": f"¿Cómo son las líneas de las rutas de {self.country_name}?",
+            "YamlData": f"<pre>{raw}</pre>",
+        }
+
+    def tags(self) -> list[str]:
+        return ["Basico::Rutas::Lineas"]

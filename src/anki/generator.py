@@ -3,7 +3,9 @@ generator.py — Orquesta la generación de tarjetas Anki para una partida.
 """
 
 from src.anki.anki_connect import add_note, ensure_deck, is_running, note_exists
-from src.anki.cards import DECK, build_notes
+from src.anki.cards import build_notes
+
+DECK = "GeoGuessr"
 
 
 def _wait_for_anki():
