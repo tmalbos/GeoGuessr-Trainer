@@ -39,7 +39,7 @@ license_plates:
       color: "#000000"
       strips: null
       letter_color: "#FFFFFF"
-      shape: normal
+      shape: standard
     back: null
   - car_type: normal
     front:
@@ -49,5 +49,5 @@ license_plates:
         color: "#000080"
         side: top
       letter_color: "#000000"
-      shape: normal
+      shape: standard
     back: null

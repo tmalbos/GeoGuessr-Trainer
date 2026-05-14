@@ -17,7 +17,7 @@ license_plates:
       color: "#FFFFFF"
       strips: null
       letter_color: "#5C2E00"
-      shape: normal
+      shape: standard
     back: null
   - car_type: normal
     front:
@@ -25,5 +25,5 @@ license_plates:
       color: "#FFFFFF"
       strips: null
       letter_color: "#06402B"
-      shape: normal
+      shape: standard
     back: null
