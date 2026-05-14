@@ -81,14 +81,26 @@
     const o   = road.outer;
     const inn = road.inner;
     const ex  = inn?.extra;
+
+    let innerStr, extraStr;
+
+    if (inn && inn.count === 1 && ex) {
+      const a = inn.color + '/' + inn.pattern;
+      const b = ex.color  + '/' + ex.pattern;
+      const [first, second] = [a, b].sort();
+      innerStr = first;
+      extraStr = second;
+    } else {
+      innerStr = inn ? inn.color + '/' + inn.pattern: '';
+      extraStr = ex ? (ex.color + '/' + ex.pattern) : '';
+    }
+
     return [
       o.count, o.color, o.pattern,
       inn ? inn.count : 0,
-      inn ? inn.color : '',
-      inn ? inn.pattern : '',
+      innerStr,
       ex ? 1 : 0,
-      ex ? ex.color   : '',
-      ex ? ex.pattern : '',
+      extraStr,
       road.rule
     ].join('|');
   }
