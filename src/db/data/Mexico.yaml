@@ -36,11 +36,11 @@ signs:
     background_color: "#FF0000"
     text:
       value: "ALTO"
-      color: "#FFFFFF"
+      color: white
     border:
       has_border: true
       thickness: standard
-      color: "#FFFFFF"
+      color: white
 poles:
   - shape: octogonal
     material: concrete
@@ -48,43 +48,43 @@ license_plates:
   - car_type: normal
     front:
       is_required: true
-      color: "#FFFFFF"
+      color: white
       strips: null
-      letter_color: "#000000"
+      letter_color: black
       shape: short
     back: null
 chevrons: null
 bollards:
-  - color: "#FFFFFF"
+  - color: white
     shape: cylindrical
     material: concrete
     height: standard
     top:
-      color: "#FFFFFF"
+      color: white
       shape: dome
     reflectors:
       - place: front
         position: top
-        color: "#FFFF00"
+        color: yellow
         shape: rectangle
         orientation: horizontal
         size: big
     stripes:
       position: bottom
-      color: "#000000"
+      color: black
       orientation: horizontal
       size: thick
-  - color: "#FFFFFF"
+  - color: white
     shape: cylindrical
     material: concrete
     height: standard
     top:
-      color: "#FFFFFF"
+      color: white
       shape: dome
     reflectors: null
     stripes:
       position: bottom
-      color: "#000000"
+      color: black
       orientation: horizontal
       size: thick
 

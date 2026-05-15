@@ -24,28 +24,28 @@ license_plates:
   - car_type: normal
     front:
       is_required: true
-      color: "#FFFFFF"
+      color: white
       strips:
-        - color: "#000080"
+        - color: blue
           side: left
-        - color: "#000080"
+        - color: blue
           side: right
-      letter_color: "#000000"
+      letter_color: black
       shape: wide
     back: null
   - car_type: normal
     front:
       is_required: true
-      color: "#FFFFFF"
+      color: white
       strips:
-        - color: "#000080"
+        - color: blue
           side: left
-      letter_color: "#000000"
+      letter_color: black
       shape: wide
     back:
-      color: "#FFFF00"
+      color: yellow
       strips:
-        - color: "#000080"
+        - color: blue
           side: left
-      letter_color: "#000000"
+      letter_color: black
       shape: wide

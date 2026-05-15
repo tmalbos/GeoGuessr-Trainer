@@ -90,30 +90,84 @@ license_plates: # list
     - electric
   front:
     is_required: boolean
-    color: hex
+    color: # TODO: Simplify to only the colors that are needed
+      - white
+      - yellow
+      - pastel yellow
+      - blue
+      - green
+      - orange
+      - brown
+      - red
+      - black
     strips: # Optional
-      color: hex
+      color:
+        - white
+        - yellow
+        - pastel yellow
+        - blue
+        - green
+        - orange
+        - brown
+        - red
+        - black
       side:
         - left
         - right
         - top
         - bottom
-    letter_color: hex
+    letter_color:
+      - white
+      - yellow
+      - pastel yellow
+      - blue
+      - green
+      - orange
+      - brown
+      - red
+      - black
     shape:
       - wide
       - short
       - tall
       - standard
   back: # Optional if same as front
-    color: hex
+    color:
+      - white
+      - yellow
+      - pastel yellow
+      - blue
+      - green
+      - orange
+      - brown
+      - red
+      - black
     strips: # Optional
-      color: hex
+      color:
+        - white
+        - yellow
+        - pastel yellow
+        - blue
+        - green
+        - orange
+        - brown
+        - red
+        - black
       side:
         - left
         - right
         - top
         - bottom
-    letter_color: hex
+    letter_color:
+      - white
+      - yellow
+      - pastel yellow
+      - blue
+      - green
+      - orange
+      - brown
+      - red
+      - black
     shape:
       - wide
       - short

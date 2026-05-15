@@ -26,10 +26,10 @@ license_plates:
   - car_type: normal
     front:
       is_required: true
-      color: "#FFFFFF"
+      color: white
       strips:
-        - color: "#06402B"
+        - color: green
           side: bottom
-      letter_color: "#000000"
+      letter_color: black
       shape: short
     back: null

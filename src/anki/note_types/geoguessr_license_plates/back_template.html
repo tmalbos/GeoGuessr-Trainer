@@ -21,15 +21,15 @@
   );
 
   const PALETTE = [
-    { label: 'Blanco',          hex: '#FFFFFF' },
-    { label: 'Amarillo',        hex: '#FFFF00' },
-    { label: 'Amarillo pastel', hex: '#FFEE8C' },
-    { label: 'Azul',            hex: '#000080' },
-    { label: 'Verde',           hex: '#06402B' },
-    { label: 'Naranja',         hex: '#FF6600' },
-    { label: 'Marron',          hex: '#5C2E00' },
-    { label: 'Rojo',            hex: '#8B0000' },
-    { label: 'Negro',           hex: '#000000' },
+    { label: 'white',          hex: '#FFFFFF' },
+    { label: 'yellow',         hex: '#FFFF00' },
+    { label: 'pastel yellow',  hex: '#FFEE8C' },
+    { label: 'blue',           hex: '#000080' },
+    { label: 'green',          hex: '#06402B' },
+    { label: 'orange',         hex: '#FF6600' },
+    { label: 'brown',          hex: '#5C2E00' },
+    { label: 'red',            hex: '#8B0000' },
+    { label: 'black',          hex: '#000000' },
   ];
 
   const PLATE_SHAPES = {
@@ -52,13 +52,13 @@
     return t.value.replace(/\u00a0/g, ' ').replace(/&nbsp;/g, ' ');
   }
 
-  /* Normalize hex: snap any close color to palette entry */
   function normHex(h) {
     if (!h) return '#FFFFFF';
-    const up = h.toUpperCase().trim();
-    /* exact match first */
-    const exact = PALETTE.find(c => c.hex.toUpperCase() === up);
-    if (exact) return exact.hex;
+    const lower = h.toLowerCase().trim();
+    const byLabel = PALETTE.find(c => c.label === lower);
+    if (byLabel) return byLabel.hex;
+    const byHex = PALETTE.find(c => c.hex.toLowerCase() === lower);
+    if (byHex) return byHex.hex;
     return h;
   }
 
@@ -81,7 +81,6 @@
     return `${normalizedType}__${faceKey(front)}__${faceKey(back)}`;
   }
 
-  /* ── BUILD MINI PLATE ── */
   function buildMiniPlate(face) {
     const shape = PLATE_SHAPES[face.shape] || PLATE_SHAPES.estandar;
     const div = document.createElement('div');
@@ -121,7 +120,6 @@
     return str.charAt(0).toUpperCase() + str.slice(1);
   }
 
-  /* ── PLATE CARD ── */
   function createPlateCard(plate, status) {
     const card = document.createElement('div');
     card.className = `plate-card ${status}`;
@@ -162,11 +160,10 @@
     return card;
   }
 
-  /* ── EXPAND YAML ── */
   function buildCombinations(data) {
     return (data.license_plates || []).map(entry => {
       const normFace = f => {
-					const SHAPE_MAP = {
+        const SHAPE_MAP = {
           standard: 'estandar',
           short: 'corta',
           wide: 'larga',
@@ -205,7 +202,6 @@
     });
   }
 
-  /* ── RENDER ── */
   function render() {
     const root = document.getElementById('root');
 

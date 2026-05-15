@@ -36,11 +36,11 @@ signs:
     background_color: "#FF0000"
     text:
       value: "BERHENTI"
-      color: "#FFFFFF"
+      color: white
     border:
       has_border: true
       thickness: standard
-      color: "#FFFFFF"
+      color: white
 poles:
   - shape: round
     material: wood
@@ -48,32 +48,32 @@ license_plates:
   - car_type: normal
     front:
       is_required: true
-      color: "#000000"
+      color: black
       strips: null
-      letter_color: "#FFFFFF"
+      letter_color: white
       shape: standard
     back: null
   - car_type: electric
     front:
       is_required: true
-      color: "#FFFFFF"
+      color: white
       strips:
         color: "#00AA00"
         side: bottom
-      letter_color: "#000000"
+      letter_color: black
       shape: standard
     back: null
 chevrons:
   background_color: "#FFA500"
-  arrow_color: "#000000"
+  arrow_color: black
   border_color: null
 bollards:
-  - color: "#FFFFFF"
+  - color: white
     shape: rectangular
     material: concrete
     height: standard
     top:
-      color: "#FFFFFF"
+      color: white
       shape: flat
     reflectors:
       - place: front
