@@ -1,0 +1,49 @@
+roads:
+  lines:
+  - inner:
+      color: faded white
+      count: 2
+      pattern: solid
+      extra: null
+    outer:
+      color: white
+      count: 1
+      pattern: solid
+    rule: whole-country
+  - inner:
+      color: yellow
+      count: 2
+      pattern: solid
+      extra: null
+    outer:
+      color: white
+      count: 1
+      pattern: solid
+    rule: whole-country
+license_plates:
+  - car_type: normal
+    front:
+      is_required: true
+      color: "#FFFFFF"
+      strips:
+        - color: "#000080"
+          side: left
+      letter_color: "#000000"
+      shape: wide
+    back: null
+  - car_type: normal
+    front:
+      is_required: true
+      color: "#FFFFFF"
+      strips: null
+      letter_color: "#000000"
+      shape: wide
+    back: null
+  - car_type: taxi
+    front:
+      is_required: true
+      color: "#FFFF00"
+      strips: null
+      letter_color: "#000000"
+      shape: wide
+    back: null
