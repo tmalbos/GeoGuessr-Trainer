@@ -1,6 +1,7 @@
 from src.core.analyzer import parse_and_display
 from src.core.api import GeoguessrClient
-from src.db.mongo import game_exists
+from src.core.config import COL_GAMES
+from src.db.mongo import find_documents
 
 USER_ID = "68daf785000ba2a268744f99"
 
@@ -16,12 +17,24 @@ def sync_from_feed(ncfa_cookie: str) -> None:
 
     print(f"   {len(entries)} partida(s) encontradas en el feed.\n")
 
+    saved = find_documents(
+        COL_GAMES,
+        {"challenge_token": {"$in": [e["challenge_token"] for e in entries]}},
+        {"challenge_token": 1, "_id": 0},
+    )
+    saved_tokens = {doc["challenge_token"] for doc in saved}
+
     inserted, skipped, not_found, errors = [], [], [], []
 
     for entry in entries:
         challenge_token = entry["challenge_token"]
         is_daily = entry["is_daily"]
         date_str = entry["date_str"]
+
+        if challenge_token in saved_tokens:
+            print(f"  🔁 [{challenge_token}] Ya existe en la base de datos.")
+            skipped.append(challenge_token)
+            continue
 
         if is_daily:
             game_token = client.fetch_daily_game_token(date_str, USER_ID)
@@ -35,11 +48,6 @@ def sync_from_feed(ncfa_cookie: str) -> None:
             not_found.append(challenge_token)
             continue
 
-        if game_exists(game_token):
-            print(f"  🔁 [{game_token}] Ya existe en la base de datos.")
-            skipped.append(game_token)
-            continue
-
         print(f"  🔍 [{game_token}] Procesando...")
         try:
             game_data = client.fetch_game(game_token)
@@ -51,6 +59,9 @@ def sync_from_feed(ncfa_cookie: str) -> None:
             print(f"  ❌ [{game_token}] Error inesperado: {e}")
             errors.append((game_token, str(e)))
             continue
+
+        game_data["challenge_token"] = challenge_token
+        game_data["is_daily"] = is_daily
 
         parse_and_display(game_data, game_token)
         inserted.append(game_token)

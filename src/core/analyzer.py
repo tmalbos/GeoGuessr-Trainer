@@ -94,6 +94,8 @@ def parse_and_display(game_data: dict, game_id: str):
     save_game(
         {
             "game_id": game_id,
+            "challenge_token": game_data.get("challenge_token"),
+            "is_daily": game_data.get("is_daily"),
             "played_at": played_at,
             "map_name": map_name,
             "total_score": total_score,

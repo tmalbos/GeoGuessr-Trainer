@@ -26,6 +26,16 @@ def _parse_datetime(value: str | None) -> datetime | None:
         return None
 
 
+def find_documents(collection: str, query: dict, projection: dict | None = None) -> list[dict]:
+    """Returns the documents from a collection that match the query"""
+    if not MONGO_OK:
+        return []
+
+    cursor = _db[collection].find(query, projection or {})
+
+    return list(cursor)
+
+
 def save_game(game: dict):
     if not MONGO_OK:
         return
@@ -34,6 +44,8 @@ def save_game(game: dict):
 
     game_doc = {
         "game_id": game["game_id"],
+        "challenge_token": game.get("challenge_token"),
+        "is_daily": game.get("is_daily"),
         "map_name": game["map_name"],
         "played_at": _parse_datetime(game.get("played_at")),
         "total_score": game["total_score"],
@@ -64,10 +76,3 @@ def save_game(game: dict):
         )
 
     print(f"\n  💾 Guardado en MongoDB — game_id: {game_doc['game_id']}")
-
-
-def game_exists(game_id: str) -> bool:
-    if not MONGO_OK:
-        return False
-
-    return _db[COL_GAMES].count_documents({"game_id": game_id}, limit=1) > 0
