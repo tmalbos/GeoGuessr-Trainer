@@ -1,86 +1,105 @@
-from src.core.analyzer import parse_and_display
+"""
+sync.py — Pipeline async: fetch → enrich+save → anki
+"""
+
+import asyncio
+
+from src.core.analyzer import process_game
 from src.core.api import GeoguessrClient
 from src.core.config import COL_GAMES
 from src.db.mongo import find_documents
 
 USER_ID = "68daf785000ba2a268744f99"
 
+_SENTINEL = None
 
-def sync_from_feed(ncfa_cookie: str) -> None:
+
+async def _fetch_worker(client: GeoguessrClient, entries: list[dict], queue: asyncio.Queue):
+    """Resuelve game tokens y encola (entry, game_data)."""
+    for entry in entries:
+        challenge_token = entry["challenge_token"]
+        is_daily = entry["is_daily"]
+        date_str = entry["date_str"]
+
+        if is_daily:
+            game_token = await client.fetch_daily_game_token(date_str, USER_ID)
+        else:
+            game_token = await client.fetch_game_token(challenge_token)
+
+        if not game_token:
+            print(f"  ⚠️  [{challenge_token}] Sin game token.")
+            continue
+
+        try:
+            game_data = await client.fetch_game(game_token)
+        except ValueError as e:
+            print(f"  ❌ [{game_token}] No encontrado: {e}")
+            continue
+        except Exception as e:
+            print(f"  ❌ [{game_token}] Error inesperado: {e}")
+            continue
+
+        game_data["challenge_token"] = challenge_token
+        game_data["is_daily"] = is_daily
+        await queue.put((game_token, game_data))
+
+    await queue.put(_SENTINEL)
+
+
+async def _process_worker(queue: asyncio.Queue, anki_errors: list[str]):
+    """Consume la queue, enriquece, guarda y genera cards."""
+    while True:
+        item = await queue.get()
+        if item is _SENTINEL:
+            break
+        game_token, game_data = item
+        print(f"  🔍 [{game_token}] Procesando...")
+        errors = await process_game(game_data, game_token)
+        anki_errors.extend(errors)
+
+
+async def sync_from_feed(ncfa_cookie: str) -> None:
     client = GeoguessrClient(ncfa_cookie)
 
     print("\n🌍 Obteniendo feed...")
-    entries = client.fetch_feed_entries()
+    entries = await client.fetch_feed_entries()
     if not entries:
         print("⚠️  No se encontraron partidas en el feed.")
+        await client.aclose()
         return
 
     print(f"   {len(entries)} partida(s) encontradas en el feed.\n")
 
-    saved = find_documents(
+    saved = await find_documents(
         COL_GAMES,
         {"challenge_token": {"$in": [e["challenge_token"] for e in entries]}},
         {"challenge_token": 1, "_id": 0},
     )
     saved_tokens = {doc["challenge_token"] for doc in saved}
 
-    inserted, skipped, not_found, errors = [], [], [], []
-
+    new_entries = []
     for entry in entries:
-        challenge_token = entry["challenge_token"]
-        is_daily = entry["is_daily"]
-        date_str = entry["date_str"]
-
-        if challenge_token in saved_tokens:
-            print(f"  🔁 [{challenge_token}] Ya existe en la base de datos.")
-            skipped.append(challenge_token)
-            continue
-
-        if is_daily:
-            game_token = client.fetch_daily_game_token(date_str, USER_ID)
+        if entry["challenge_token"] in saved_tokens:
+            print(f"  🔁 [{entry['challenge_token']}] Ya existe en la base de datos.")
         else:
-            game_token = client.fetch_game_token(challenge_token)
+            new_entries.append(entry)
 
-        if not game_token:
-            print(
-                f"  ⚠️  [{challenge_token}] Sin game token — {'diario' if is_daily else 'challenge'} sin resultados."
-            )
-            not_found.append(challenge_token)
-            continue
+    if not new_entries:
+        print("\n  ✅ Todo al día, no hay partidas nuevas.")
+        await client.aclose()
+        return
 
-        print(f"  🔍 [{game_token}] Procesando...")
-        try:
-            game_data = client.fetch_game(game_token)
-        except ValueError as e:
-            print(f"  ❌ [{game_token}] No encontrado: {e}")
-            not_found.append(game_token)
-            continue
-        except Exception as e:
-            print(f"  ❌ [{game_token}] Error inesperado: {e}")
-            errors.append((game_token, str(e)))
-            continue
+    queue: asyncio.Queue = asyncio.Queue(maxsize=4)
+    anki_errors: list[str] = []
 
-        game_data["challenge_token"] = challenge_token
-        game_data["is_daily"] = is_daily
+    await asyncio.gather(
+        _fetch_worker(client, new_entries, queue),
+        _process_worker(queue, anki_errors),
+    )
 
-        parse_and_display(game_data, game_token)
-        inserted.append(game_token)
+    await client.aclose()
 
-    _print_summary(inserted, skipped, not_found, errors)
-
-
-def _print_summary(
-    inserted: list[str],
-    skipped: list[str],
-    not_found: list[str],
-    errors: list[tuple[str, str]],
-) -> None:
-    print("\n─────────────────────────────")
-    print(f"  ✅ Insertadas    : {len(inserted)}")
-    print(f"  🔁 Ya existían   : {len(skipped)}")
-    print(f"  🔍 No encontradas: {len(not_found)}")
-    print(f"  ❌ Errores       : {len(errors)}")
-    if errors:
-        for token, msg in errors:
-            print(f"      · {token}: {msg}")
-    print("─────────────────────────────")
+    if anki_errors:
+        print("\n  ⚠️  Errores de Anki:")
+        for err in anki_errors:
+            print(f"      · {err}")

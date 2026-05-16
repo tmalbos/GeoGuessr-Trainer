@@ -2,19 +2,16 @@
 GeoGuessr Analyzer — Punto de entrada principal.
 """
 
+import asyncio
 import os
 
+from src.anki.generator import wait_for_anki
 from src.core.api import CookieExpiredError
-from src.core.auth import (
-    load_cookie,
-    prompt_new_cookie,
-    refresh_cookie,
-)
+from src.core.auth import load_cookie, prompt_new_cookie, refresh_cookie
 from src.core.eco_enrich import init as eco_init
 from src.core.eco_enrich import is_ready, load_error
 from src.core.stats import available_levels, print_analysis
 from src.core.sync import sync_from_feed
-from src.db.mongo import MONGO_OK
 
 MIN_ROUNDS = 10
 
@@ -23,7 +20,7 @@ def clear():
     os.system("cls" if os.name == "nt" else "clear")
 
 
-def menu_insert():
+async def menu_insert():
     cookie = load_cookie()
     if not cookie:
         print("\n⚠️  No hay cookie guardada. Ingresá una primero.")
@@ -31,14 +28,17 @@ def menu_insert():
         if not cookie:
             return
 
+    if not await wait_for_anki():
+        return
+
     try:
-        sync_from_feed(cookie)
+        await sync_from_feed(cookie)
     except CookieExpiredError:
         print("\n🔄 Cookie expirada, intentando renovar...")
         new_cookie = refresh_cookie()
         if new_cookie:
             try:
-                sync_from_feed(new_cookie)
+                await sync_from_feed(new_cookie)
             except CookieExpiredError:
                 print("\n❌ No se pudo renovar la cookie.")
 
@@ -46,7 +46,7 @@ def menu_insert():
     clear()
 
 
-def menu_analysis(levels: list[tuple]):
+async def menu_analysis(levels: list[tuple]):
     options = {str(i + 1): lv for i, lv in enumerate(levels)}
 
     while True:
@@ -62,7 +62,7 @@ def menu_analysis(levels: list[tuple]):
         if choice in options:
             level, label, _ = options[choice]
             clear()
-            print_analysis(level)
+            await print_analysis(level)
             input("\n  Presioná Enter para continuar...")
         else:
             print("  Opción no válida.")
@@ -74,14 +74,20 @@ def menu_change_cookie():
     clear()
 
 
-def main():
+async def main():
     clear()
     eco_init()
+
+    from src.db.mongo import check_connection
+
+    mongo_live = await asyncio.wait_for(check_connection(), timeout=2.0)
+
     print("\n🌍  GeoGuessr Analyzer")
     print("─" * 30)
-    if not MONGO_OK:
+
+    if not mongo_live:
         print("  ℹ️  MongoDB no disponible — los datos no se guardarán.")
-        print("     Instalá pymongo y asegurate de tener Mongo corriendo.\n")
+        print("     Instalá motor y asegurate de tener Mongo corriendo.\n")
 
     err = load_error()
     if err is None and not is_ready():
@@ -90,7 +96,7 @@ def main():
         print(f"  ⚠️  Ecoregiones no disponibles: {err}")
 
     while True:
-        levels = available_levels(MIN_ROUNDS) if MONGO_OK else []
+        levels = await available_levels(MIN_ROUNDS) if mongo_live else []
 
         print()
         print("  [1] Sincronizar partidas")
@@ -101,9 +107,9 @@ def main():
         choice = input("\n> ").strip()
 
         if choice == "1":
-            menu_insert()
+            await menu_insert()
         elif choice == "2" and levels:
-            menu_analysis(levels)
+            await menu_analysis(levels)
             clear()
         elif choice == "3":
             menu_change_cookie()
@@ -117,4 +123,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())

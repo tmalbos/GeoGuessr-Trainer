@@ -1,5 +1,7 @@
+import asyncio
+
 from src.anki.generator import generate_cards_for_game
-from src.core.geo_enrich import enrich_parallel
+from src.core.geo_enrich import enrich_all
 from src.db.mongo import save_game
 
 
@@ -11,12 +13,15 @@ def fmt_time(seconds: int | None) -> str:
 
 
 def fmt_location(geo: dict) -> str:
-    """Formatea ubicación como 'state, country, subregion' omitiendo vacíos."""
     parts = [geo.get("state"), geo.get("country"), geo.get("subregion")]
     return ", ".join(p for p in parts if p) or "Desconocido"
 
 
-def parse_and_display(game_data: dict, game_id: str):
+async def process_game(game_data: dict, game_id: str) -> list[str]:
+    """
+    Enriquece, muestra, guarda y genera cards para una partida.
+    Devuelve lista de errores de Anki.
+    """
     rounds_raw = game_data.get("rounds", [])
     player_data = game_data.get("player", {})
     guesses = player_data.get("guesses", [])
@@ -25,14 +30,16 @@ def parse_and_display(game_data: dict, game_id: str):
 
     if not rounds_raw:
         print("\n⚠️  No se encontraron rondas en este juego.")
-        return
+        return []
 
     real_coords = [(rnd["lat"], rnd["lng"]) for rnd in rounds_raw]
     guess_coords = [(g.get("lat"), g.get("lng")) for g in guesses]
 
-    print("  Enriqueciendo datos geográficos...", end="\r")
-    real_enriched = enrich_parallel(real_coords)
-    guess_enriched = enrich_parallel(guess_coords)
+    print(f"  [{game_id}] Enriqueciendo datos geográficos...")
+    real_enriched, guess_enriched = await asyncio.gather(
+        enrich_all(real_coords),
+        enrich_all(guess_coords),
+    )
 
     print("\n" + "═" * 65)
     print(f"  RESULTADOS — {map_name}")
@@ -91,7 +98,7 @@ def parse_and_display(game_data: dict, game_id: str):
     )
     print("═" * 65 + "\n")
 
-    save_game(
+    await save_game(
         {
             "game_id": game_id,
             "challenge_token": game_data.get("challenge_token"),
@@ -104,5 +111,5 @@ def parse_and_display(game_data: dict, game_id: str):
         }
     )
 
-    print("\n  🃏 Generando tarjetas Anki...")
-    generate_cards_for_game(rounds_to_save)
+    print("  🃏 Generando tarjetas Anki...")
+    return await generate_cards_for_game(rounds_to_save)

@@ -7,13 +7,13 @@ import random
 import statistics
 from collections import defaultdict
 
-from src.db.mongo import MONGO_OK, _db
+from src.db.mongo import MONGO_OK, aggregate
 
 MIN_ZONE_ROUNDS = 10
 BOOTSTRAP_SAMPLES = 1000
-LOW_CONFIDENCE_WINDOW = 10  # "ahora"   — para detectar progreso
-MEDIUM_CONFIDENCE_WINDOW = 30  # "reciente" — baseline de comparación
-HIGH_CONFIDENCE_WINDOW = 100  # "estable"  — para calcular nivel real
+LOW_CONFIDENCE_WINDOW = 10
+MEDIUM_CONFIDENCE_WINDOW = 30
+HIGH_CONFIDENCE_WINDOW = 100
 
 GEO_LEVELS = [
     ("general", "General"),
@@ -26,7 +26,6 @@ GEO_LEVELS = [
     ("ecoregion", "Ecorregión"),
 ]
 
-# nivel inmediatamente más granular para confusiones secundarias
 _CHILD_LEVEL = {
     "general": None,
     "hemisphere": "continent",
@@ -39,15 +38,8 @@ _CHILD_LEVEL = {
 }
 
 
-# ─── fórmula GeoGuessr ───────────────────────────────────────────────────────
-
-
 def _dist_to_score(km: float) -> int:
-    """score = 5000 × exp(-0.000673 × d_km)  — calibrado con datos reales"""
     return int(5000 * math.exp(-0.000673 * km) + 0.5)
-
-
-# ─── etiquetas de nivel ──────────────────────────────────────────────────────
 
 
 def _score_label(score: int) -> str:
@@ -61,7 +53,6 @@ def _score_label(score: int) -> str:
         return "Excepcional"
     if score <= 4857:
         return "Elite"
-
     return "Inhumano"
 
 
@@ -71,18 +62,13 @@ def _arrow(now_val, prev_val, lower_is_better=True) -> str:
     better = now_val < prev_val if lower_is_better else now_val > prev_val
     worse = now_val > prev_val if lower_is_better else now_val < prev_val
     delta = abs(now_val - prev_val) / (prev_val or 1)
-
     if delta < 0.05:
         return "→"
     if better:
         return "↑"
     if worse:
         return "↓"
-
     return "→"
-
-
-# ─── helpers estadísticos ────────────────────────────────────────────────────
 
 
 def _median(values):
@@ -115,15 +101,13 @@ def _bootstrap_ci(values):
     medians = sorted(
         statistics.median(random.choices(values, k=len(values))) for _ in range(BOOTSTRAP_SAMPLES)
     )
-    return round(medians[int(alpha * BOOTSTRAP_SAMPLES)], 1), round(
-        medians[int((1 - alpha) * BOOTSTRAP_SAMPLES)], 1
+    return (
+        round(medians[int(alpha * BOOTSTRAP_SAMPLES)], 1),
+        round(medians[int((1 - alpha) * BOOTSTRAP_SAMPLES)], 1),
     )
 
 
-# ─── carga ───────────────────────────────────────────────────────────────────
-
-
-def _load_rounds() -> list[dict]:
+async def _load_rounds() -> list[dict]:
     if not MONGO_OK:
         return []
     pipeline = [
@@ -140,14 +124,11 @@ def _load_rounds() -> list[dict]:
         {"$project": {"_id": 0, "game": 0}},
         {"$sort": {"played_at": 1, "round_number": 1}},
     ]
-    return list(_db["rounds"].aggregate(pipeline))
+    return await aggregate("rounds", pipeline)
 
 
-# ─── available_levels ────────────────────────────────────────────────────────
-
-
-def available_levels(min_rounds: int) -> list[tuple]:
-    rounds = _load_rounds()
+async def available_levels(min_rounds: int) -> list[tuple]:
+    rounds = await _load_rounds()
     if not rounds:
         return []
     total = len(rounds)
@@ -167,14 +148,7 @@ def available_levels(min_rounds: int) -> list[tuple]:
     return result
 
 
-# ─── confusiones ─────────────────────────────────────────────────────────────
-
-
 def _confusion(zone_rounds: list[dict], level: str, top_n: int = 5) -> list[dict]:
-    """
-    Confusiones dentro de un nivel, sobre las últimas HIGH_CONFIDENCE_WINDOW
-    rondas YA FILTRADAS por zona. La dirección importa: (real → guess).
-    """
     recent = zone_rounds[-MEDIUM_CONFIDENCE_WINDOW:]
     pairs: dict[tuple, list] = defaultdict(list)
     for r in recent:
@@ -199,9 +173,6 @@ def _confusion(zone_rounds: list[dict], level: str, top_n: int = 5) -> list[dict
     return sorted(rows, key=lambda x: -x["impact"])[:top_n]
 
 
-# ─── stats por zona ──────────────────────────────────────────────────────────
-
-
 def _zone_stats(rounds: list[dict], level: str | None) -> dict[str, dict]:
     groups: dict[str, list] = defaultdict(list)
     for r in rounds:
@@ -215,7 +186,6 @@ def _zone_stats(rounds: list[dict], level: str | None) -> dict[str, dict]:
             continue
 
         w_high = zrounds[-HIGH_CONFIDENCE_WINDOW:]
-        zrounds[-MEDIUM_CONFIDENCE_WINDOW:]
         w_low = zrounds[-LOW_CONFIDENCE_WINDOW:]
         w_before = (
             zrounds[-MEDIUM_CONFIDENCE_WINDOW:-LOW_CONFIDENCE_WINDOW]
@@ -240,38 +210,26 @@ def _zone_stats(rounds: list[dict], level: str | None) -> dict[str, dict]:
         std_low = _stddev(d_low)
         std_before = _stddev(d_before)
 
-        # scores derivados de distancia usando la fórmula de GeoGuessr
-        # nivel/consistencia → HIGH;  progreso (flechas) → LOW vs MEDIUM
         score_high = _dist_to_score(med_high) if med_high is not None else None
-        _dist_to_score(med_low) if med_low is not None else None
-        _dist_to_score(med_before) if med_before is not None else None
         p90_score_high = _dist_to_score(p90_high) if p90_high is not None else None
-        _dist_to_score(p90_low) if p90_low is not None else None
-        _dist_to_score(p90_before) if p90_before is not None else None
         std_score_high = (
             _dist_to_score((med_high or 0) + (std_high or 0)) if std_high is not None else None
         )
-        _dist_to_score((med_low or 0) + (std_low or 0)) if std_low is not None else None
-        _dist_to_score((med_before or 0) + (std_before or 0)) if std_before is not None else None
 
         ci = _bootstrap_ci(d_high)
 
         result[zone] = {
             "total": len(zrounds),
             "window": len(w_high),
-            # nivel actual (HIGH para el label, LOW vs MEDIUM para la flecha)
             "score_high": score_high,
             "level_label": _score_label(score_high) if score_high is not None else "—",
             "level_arrow": _arrow(med_low, med_before, lower_is_better=True),
-            # peores rondas
             "p90_label": _score_label(p90_score_high) if p90_score_high is not None else "—",
             "p90_arrow": _arrow(p90_low, p90_before, lower_is_better=True),
             "p90_now_km": p90_high,
-            # consistencia
             "cons_label": _score_label(std_score_high) if std_score_high is not None else "—",
             "cons_arrow": _arrow(std_low, std_before, lower_is_better=True),
             "std_now_km": std_high,
-            # IC sobre HIGH
             "ci_lo": ci[0] if ci else None,
             "ci_hi": ci[1] if ci else None,
         }
@@ -279,11 +237,8 @@ def _zone_stats(rounds: list[dict], level: str | None) -> dict[str, dict]:
     return result
 
 
-# ─── display ─────────────────────────────────────────────────────────────────
-
-
-def print_analysis(level: str):
-    rounds = _load_rounds()
+async def print_analysis(level: str):
+    rounds = await _load_rounds()
     if not rounds:
         print("\n⚠️  Sin datos.")
         return
@@ -291,7 +246,6 @@ def print_analysis(level: str):
     geo_level = None if level == "general" else level
     child_level = _CHILD_LEVEL.get(level)
 
-    # Agrupar rondas por zona (mismo agrupamiento que _zone_stats)
     groups: dict[str, list] = defaultdict(list)
     for r in rounds:
         key = (
@@ -336,26 +290,20 @@ def print_analysis(level: str):
         )
         print(f"  Nivel actual     : {s['level_label']} {s['level_arrow']}{ci_str}")
         print(
-            f"  Peores rondas    : {s['p90_label']} {s['p90_arrow']}  "
-            f"(en tu 10% peor, equivale a {_fmt(s['p90_now_km'])} km de error)"
+            f"  Peores rondas    : {s['p90_label']} {s['p90_arrow']}  (en tu 10% peor, equivale a {_fmt(s['p90_now_km'])} km de error)"
         )
         print(
-            f"  Consistencia     : {s['cons_label']} {s['cons_arrow']}  "
-            f"(tu variación típica equivale a ±{_fmt(s['std_now_km'])} km)"
+            f"  Consistencia     : {s['cons_label']} {s['cons_arrow']}  (tu variación típica equivale a ±{_fmt(s['std_now_km'])} km)"
         )
 
-        # Confusión principal: rondas donde real=zona, confundidas con otra zona del mismo nivel
         if geo_level:
             main_conf = _confusion(zone_rounds, geo_level, top_n=1)
             if main_conf:
                 c = main_conf[0]
                 print(
-                    f"  Confusión clave  : confundís {c['real']} → {c['guess']}  "
-                    f"({c['freq']}x, ~{_fmt(c['avg_km'])} km de penalidad)"
+                    f"  Confusión clave  : confundís {c['real']} → {c['guess']}  ({c['freq']}x, ~{_fmt(c['avg_km'])} km de penalidad)"
                 )
 
-        # Confusiones secundarias: dentro de la zona actual, a nivel hijo
-        # Filtramos rondas donde el nivel padre coincide con la zona actual
         if child_level and geo_level:
             child_rounds = [
                 r for r in zone_rounds if (r.get("real_geo") or {}).get(geo_level, "") == zone

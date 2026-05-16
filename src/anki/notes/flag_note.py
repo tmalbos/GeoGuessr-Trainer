@@ -1,13 +1,12 @@
+import asyncio
 import base64
+import concurrent.futures
 
-import requests
+import httpx
 
 from src.anki.anki_connect import _invoke
 
 from .base import Note
-
-_session = requests.Session()
-_session.headers.update({"User-Agent": "GeoGuessr-Anki/1.0"})
 
 
 class FlagNote(Note):
@@ -18,19 +17,19 @@ class FlagNote(Note):
         self.flag_url = country_data.get("flags", {}).get("png")
         self.cca2 = country_data["cca2"].lower()
 
-    def _download_flag(self) -> str | None:
-        """Downloads the flag and stores it in Anki media"""
+    async def _download_flag(self) -> str | None:
         if not self.flag_url:
             return None
 
-        r = _session.get(self.flag_url, timeout=10)
+        async with httpx.AsyncClient() as client:
+            r = await client.get(self.flag_url, timeout=10)
 
         if r.status_code != 200:
             return None
 
         data_b64 = base64.b64encode(r.content).decode()
         filename = f"flag_{self.cca2}.png"
-        _invoke("storeMediaFile", filename=filename, data=data_b64)
+        await _invoke("storeMediaFile", filename=filename, data=data_b64)
 
         return filename
 
@@ -38,7 +37,9 @@ class FlagNote(Note):
         return self.MODEL
 
     def fields(self) -> dict | None:
-        filename = self._download_flag()
+        with concurrent.futures.ThreadPoolExecutor() as pool:
+            future = pool.submit(asyncio.run, self._download_flag())
+            filename = future.result()
 
         if not filename:
             return None

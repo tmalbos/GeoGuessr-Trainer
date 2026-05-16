@@ -3,13 +3,12 @@ from datetime import datetime
 from src.core.config import COL_GAMES, COL_ROUNDS, MONGO_DB, MONGO_URI
 
 try:
-    from pymongo import MongoClient
+    from motor.motor_asyncio import AsyncIOMotorClient
 
-    _client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=2000)
-    _client.server_info()
+    _client = AsyncIOMotorClient(MONGO_URI, serverSelectionTimeoutMS=2000)
     _db = _client[MONGO_DB]
     MONGO_OK = True
-except Exception:
+except ImportError:
     _db = None
     MONGO_OK = False
 
@@ -26,17 +25,33 @@ def _parse_datetime(value: str | None) -> datetime | None:
         return None
 
 
-def find_documents(collection: str, query: dict, projection: dict | None = None) -> list[dict]:
-    """Returns the documents from a collection that match the query"""
+async def check_connection() -> bool:
+    """Verifica que mongo esté disponible. Llamar una vez al arrancar."""
+    if not MONGO_OK:
+        return False
+    try:
+        await _client.admin.command("ping")
+        return True
+    except Exception:
+        return False
+
+
+async def find_documents(
+    collection: str, query: dict, projection: dict | None = None
+) -> list[dict]:
     if not MONGO_OK:
         return []
-
     cursor = _db[collection].find(query, projection or {})
+    return await cursor.to_list(length=None)
 
-    return list(cursor)
+
+async def aggregate(collection: str, pipeline: list) -> list[dict]:
+    if not MONGO_OK:
+        return []
+    return await _db[collection].aggregate(pipeline).to_list(length=None)
 
 
-def save_game(game: dict):
+async def save_game(game: dict):
     if not MONGO_OK:
         return
 
@@ -52,7 +67,7 @@ def save_game(game: dict):
         "avg_distance": game["avg_distance"],
     }
 
-    _db[COL_GAMES].update_one(
+    await _db[COL_GAMES].update_one(
         {"game_id": game_doc["game_id"]},
         {"$set": game_doc},
         upsert=True,
@@ -69,7 +84,7 @@ def save_game(game: dict):
             "steps": r["steps"],
             "time_sec": r["time_sec"],
         }
-        _db[COL_ROUNDS].update_one(
+        await _db[COL_ROUNDS].update_one(
             {"game_id": round_doc["game_id"], "round_number": round_doc["round_number"]},
             {"$set": round_doc},
             upsert=True,
