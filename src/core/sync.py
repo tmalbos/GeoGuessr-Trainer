@@ -79,9 +79,7 @@ async def sync_from_feed(ncfa_cookie: str) -> None:
 
     new_entries = []
     for entry in entries:
-        if entry["challenge_token"] in saved_tokens:
-            print(f"  🔁 [{entry['challenge_token']}] Ya existe en la base de datos.")
-        else:
+        if entry["challenge_token"] not in saved_tokens:
             new_entries.append(entry)
 
     if not new_entries:
