@@ -78,7 +78,7 @@ async def main():
     clear()
     eco_init()
 
-    from src.db.mongo import check_connection
+    from src.db.db import check_connection
 
     mongo_live = await asyncio.wait_for(check_connection(), timeout=2.0)
 

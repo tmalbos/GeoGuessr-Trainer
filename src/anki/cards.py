@@ -12,7 +12,7 @@ import httpx
 
 import src.anki.notes as notes_pkg
 from src.anki.notes.base import Note
-from src.db.mongo import find_documents
+from src.db.db import find_documents
 
 _client = httpx.AsyncClient(
     headers={"User-Agent": "GeoGuessr-Anki/1.0"},

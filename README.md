@@ -95,7 +95,7 @@ GeoGuessr-Trainer/
 │   ├── eco_enrich.py    # Ecoregion enrichment (background thread)
 │   └── stats.py         # Performance analysis
 ├── db/
-│   ├── mongo.py         # MongoDB connection and helpers
+│   ├── db.py         # MongoDB connection and helpers
 │   └── schema.yaml      # Document validation schema
 ├── anki/                # Flashcard generation
 └── tests/

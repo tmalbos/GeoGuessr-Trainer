@@ -100,7 +100,7 @@ license_plates: # list
       - brown
       - red
       - black
-    strips: # Optional
+    strips: # Optional / LIST
       color:
         - white
         - yellow

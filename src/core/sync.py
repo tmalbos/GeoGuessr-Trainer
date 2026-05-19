@@ -7,7 +7,7 @@ import asyncio
 from src.core.analyzer import process_game
 from src.core.api import GeoguessrClient
 from src.core.config import COL_GAMES
-from src.db.mongo import find_documents
+from src.db.db import find_documents
 
 USER_ID = "68daf785000ba2a268744f99"
 

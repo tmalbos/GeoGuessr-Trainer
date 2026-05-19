@@ -2,7 +2,7 @@ import asyncio
 
 from src.anki.generator import generate_cards_for_game
 from src.core.geo_enrich import enrich_all
-from src.db.mongo import save_game
+from src.db.db import save_game
 
 
 def fmt_time(seconds: int | None) -> str:

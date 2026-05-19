@@ -7,7 +7,7 @@ import random
 import statistics
 from collections import defaultdict
 
-from src.db.mongo import MONGO_OK, aggregate
+from src.db.db import MONGO_OK, aggregate
 
 MIN_ZONE_ROUNDS = 10
 BOOTSTRAP_SAMPLES = 1000
