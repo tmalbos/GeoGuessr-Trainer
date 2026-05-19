@@ -17,7 +17,7 @@ license_plates:
       color: white
       strips: null
       letter_color: black
-      shape: long
+      shape: wide
     back: null
   - car_type: normal
     front:
@@ -33,5 +33,5 @@ license_plates:
       color: yellow
       strips: null
       letter_color: black
-      shape: long
+      shape: wide
     back: null

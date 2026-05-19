@@ -29,5 +29,5 @@ license_plates:
         - color: blue
           side: left
       letter_color: black
-      shape: long
+      shape: wide
     back: null
