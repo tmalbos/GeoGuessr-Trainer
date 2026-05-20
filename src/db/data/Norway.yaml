@@ -30,7 +30,7 @@ license_plates:
   - car_type: commercial
     front:
       is_required: true
-      color: '#06402B'
+      color: green
       strips:
         - color: blue
           side: left

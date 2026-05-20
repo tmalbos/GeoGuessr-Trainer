@@ -58,7 +58,7 @@ license_plates:
       is_required: true
       color: white
       strips:
-        color: "#00AA00"
+        color: green
         side: bottom
       letter_color: black
       shape: standard
