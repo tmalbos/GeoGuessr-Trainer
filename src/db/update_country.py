@@ -117,72 +117,120 @@ def normalize_hex_to_enum(hex_color: str) -> str:
     return HEX_MAP.get(hex_color, hex_color)
 
 
-def get_or_create_biome(cur, name: str, realm: str) -> int:
-    cur.execute("SELECT id FROM biomes WHERE name = %s AND realm = %s", (name, realm))
-    row = cur.fetchone()
-    if row:
-        return row[0]
-    cur.execute("INSERT INTO biomes (name, realm) VALUES (%s, %s) RETURNING id", (name, realm))
-    return cur.fetchone()[0]
-
-
-def get_or_create_ecoregion(cur, name: str, biome_id: int) -> int:
-    cur.execute("SELECT id FROM ecoregions WHERE name = %s AND biome_id = %s", (name, biome_id))
-    row = cur.fetchone()
-    if row:
-        return row[0]
+def get_country_exists(cur, country_code: str) -> bool:
     cur.execute(
-        "INSERT INTO ecoregions (name, biome_id) VALUES (%s, %s) RETURNING id", (name, biome_id)
+        """
+        SELECT 1
+        FROM country
+        WHERE code = %s
+        """,
+        (country_code,),
     )
-    return cur.fetchone()[0]
+    return cur.fetchone() is not None
 
 
-def insert_license_plate_face(cur, face: dict | None, is_required: bool = True) -> int | None:
+def get_state_id(cur, country_code: str, state_name: str):
+    cur.execute(
+        """
+        SELECT state_id
+        FROM state
+        WHERE country_code = %s
+          AND LOWER(name) = LOWER(%s)
+        """,
+        (country_code, state_name),
+    )
+    row = cur.fetchone()
+    return row[0] if row else None
+
+
+def get_biome_id(cur, biome_name: str, realm: str):
+    cur.execute(
+        """
+        SELECT biome_id
+        FROM biome
+        WHERE LOWER(name) = LOWER(%s)
+          AND realm = %s
+        """,
+        (biome_name, realm),
+    )
+    row = cur.fetchone()
+    return row[0] if row else None
+
+
+def get_ecoregion_id(cur, ecoregion_name: str, biome_id: int):
+    cur.execute(
+        """
+        SELECT ecoregion_id
+        FROM ecoregion
+        WHERE LOWER(name) = LOWER(%s)
+          AND biome_id = %s
+        """,
+        (ecoregion_name, biome_id),
+    )
+    row = cur.fetchone()
+    return row[0] if row else None
+
+
+def build_plate_fields(face: dict | None, prefix: str):
     if face is None:
-        return None
+        return {
+            f"{prefix}_color": None,
+            f"{prefix}_strip_color_1": None,
+            f"{prefix}_strip_side_1": None,
+            f"{prefix}_strip_color_2": None,
+            f"{prefix}_strip_side_2": None,
+            f"{prefix}_letter_color": None,
+            f"{prefix}_shape": None,
+        }
 
     color_raw = face.get("color", "")
-    if color_raw.startswith("#"):
+    if isinstance(color_raw, str) and color_raw.startswith("#"):
         color_raw = normalize_hex_to_enum(color_raw)
 
     letter_color_raw = face.get("letter_color", "")
-    if letter_color_raw.startswith("#"):
+    if isinstance(letter_color_raw, str) and letter_color_raw.startswith("#"):
         letter_color_raw = normalize_hex_to_enum(letter_color_raw)
-
-    cur.execute(
-        """
-        INSERT INTO license_plate_faces
-            (is_required, color, letter_color, shape)
-        VALUES (%s, %s, %s, %s)
-        RETURNING id
-        """,
-        (
-            is_required,
-            map_val(PLATE_COLOR_MAP, color_raw, "plate color"),
-            map_val(PLATE_COLOR_MAP, letter_color_raw, "letter_color"),
-            map_val(PLATE_SHAPE_MAP, face.get("shape"), "plate shape"),
-        ),
-    )
-    face_id = cur.fetchone()[0]
 
     strips = face.get("strips") or []
     if isinstance(strips, dict):
         strips = [strips]
 
-    for strip in strips:
-        strip_color_raw = strip.get("color", "")
-        if strip_color_raw.startswith("#"):
-            strip_color_raw = normalize_hex_to_enum(strip_color_raw)
-        cur.execute(
-            "INSERT INTO license_plate_face_strips (face_id, color, side) VALUES (%s, %s, %s)",
-            (
-                face_id,
-                map_val(PLATE_COLOR_MAP, strip_color_raw, "strip color"),
-                map_val(STRIP_SIDE_MAP, strip.get("side"), "strip side"),
-            ),
+    strip_1 = strips[0] if len(strips) > 0 else None
+    strip_2 = strips[1] if len(strips) > 1 else None
+
+    def parse_strip(strip):
+        if not strip:
+            return None, None
+
+        strip_color = strip.get("color")
+        if isinstance(strip_color, str) and strip_color.startswith("#"):
+            strip_color = normalize_hex_to_enum(strip_color)
+
+        return (
+            map_val(PLATE_COLOR_MAP, strip_color, "strip color"),
+            map_val(STRIP_SIDE_MAP, strip.get("side"), "strip side"),
         )
 
-    return face_id
+    strip_1_color, strip_1_side = parse_strip(strip_1)
+    strip_2_color, strip_2_side = parse_strip(strip_2)
+
+    return {
+        f"{prefix}_color": map_val(PLATE_COLOR_MAP, color_raw, "plate color"),
+        f"{prefix}_strip_color_1": strip_1_color,
+        f"{prefix}_strip_side_1": strip_1_side,
+        f"{prefix}_strip_color_2": strip_2_color,
+        f"{prefix}_strip_side_2": strip_2_side,
+        f"{prefix}_letter_color": map_val(
+            PLATE_COLOR_MAP,
+            letter_color_raw,
+            "letter_color",
+        ),
+        f"{prefix}_shape": map_val(
+            PLATE_SHAPE_MAP,
+            face.get("shape"),
+            "plate shape",
+        ),
+    }
 
 
 # =============================================================
@@ -208,88 +256,269 @@ def _normalize_name(name: str) -> str:
 
 
 # =============================================================
-# Upsert
+# Sync
 # =============================================================
 
 
-def upsert_country(cur, country_code: str, country_name: str, data: dict) -> None:
+def sync_country(cur, country_code: str, country_name: str, data: dict) -> None:
+    if not get_country_exists(cur, country_code):
+        log.error(f"[{country_code}] Country not found in DB")
+        return
+
     cur.execute(
         """
-        INSERT INTO countries (code, name)
-        VALUES (%s, %s)
-        ON CONFLICT (code) DO UPDATE SET name = EXCLUDED.name
+        DELETE FROM country_issues_license_plate
+        WHERE country_code = %s
         """,
-        (country_code, country_name),
+        (country_code,),
     )
 
-    cur.execute("DELETE FROM states WHERE country_id = %s", (country_code,))
+    cur.execute(
+        """
+        DELETE FROM country_paints_road_line
+        WHERE country_code = %s
+        """,
+        (country_code,),
+    )
 
     for state in data.get("states", []):
-        cur.execute(
-            "INSERT INTO states (country_id, name) VALUES (%s, %s) RETURNING id",
-            (country_code, state["name"]),
-        )
-        state_id = cur.fetchone()[0]
+        state_name = state["name"]
 
-        for t in state.get("terrain", []):
-            biome_id = get_or_create_biome(cur, t.get("biome"), t.get("realm"))
-            ecoregion_id = get_or_create_ecoregion(cur, t.get("ecoregion"), biome_id)
+        state_id = get_state_id(cur, country_code, state_name)
+
+        if state_id is None:
+            log.error(f"[{country_code}] State not found: {state_name}")
+            continue
+
+        for terrain in state.get("terrain", []):
+            biome_name = terrain.get("biome")
+            realm = terrain.get("realm")
+            ecoregion_name = terrain.get("ecoregion")
+
+            biome_id = get_biome_id(cur, biome_name, realm)
+
+            if biome_id is None:
+                log.error(f"[{country_code}] Biome not found: biome={biome_name}, realm={realm}")
+                continue
+
+            ecoregion_id = get_ecoregion_id(cur, ecoregion_name, biome_id)
+
+            if ecoregion_id is None:
+                log.error(f"[{country_code}] Ecoregion not found: {ecoregion_name}")
+                continue
+
+    for plate in data.get("license_plates", []):
+        front = plate.get("front") or {}
+        back = plate.get("back")
+
+        front_fields = build_plate_fields(front, "front")
+        back_fields = build_plate_fields(back, "back")
+
+        values = {
+            "car_type": map_val(
+                {t: t for t in CAR_TYPE_VALUES},
+                plate.get("car_type"),
+                "car_type",
+            ),
+            "front_is_required": front.get("is_required", True),
+            **front_fields,
+            **back_fields,
+        }
+
+        cur.execute(
+            """
+            SELECT license_plate_id
+            FROM license_plate
+            WHERE
+                car_type IS NOT DISTINCT FROM %(car_type)s
+                AND front_is_required IS NOT DISTINCT FROM %(front_is_required)s
+                AND front_color IS NOT DISTINCT FROM %(front_color)s
+                AND front_strip_color_1 IS NOT DISTINCT FROM %(front_strip_color_1)s
+                AND front_strip_side_1 IS NOT DISTINCT FROM %(front_strip_side_1)s
+                AND front_strip_color_2 IS NOT DISTINCT FROM %(front_strip_color_2)s
+                AND front_strip_side_2 IS NOT DISTINCT FROM %(front_strip_side_2)s
+                AND front_letter_color IS NOT DISTINCT FROM %(front_letter_color)s
+                AND front_shape IS NOT DISTINCT FROM %(front_shape)s
+                AND back_color IS NOT DISTINCT FROM %(back_color)s
+                AND back_strip_color_1 IS NOT DISTINCT FROM %(back_strip_color_1)s
+                AND back_strip_side_1 IS NOT DISTINCT FROM %(back_strip_side_1)s
+                AND back_strip_color_2 IS NOT DISTINCT FROM %(back_strip_color_2)s
+                AND back_strip_side_2 IS NOT DISTINCT FROM %(back_strip_side_2)s
+                AND back_letter_color IS NOT DISTINCT FROM %(back_letter_color)s
+                AND back_shape IS NOT DISTINCT FROM %(back_shape)s
+            """,
+            values,
+        )
+
+        row = cur.fetchone()
+
+        if not row:
             cur.execute(
                 """
-                INSERT INTO state_ecoregions (state_id, ecoregion_id, coverage_pct)
-                VALUES (%s, %s, %s)
-                ON CONFLICT (state_id, ecoregion_id) DO NOTHING
+                INSERT INTO license_plate (
+                    car_type,
+                    front_is_required,
+                    front_color,
+                    front_strip_color_1,
+                    front_strip_side_1,
+                    front_strip_color_2,
+                    front_strip_side_2,
+                    front_letter_color,
+                    front_shape,
+                    back_color,
+                    back_strip_color_1,
+                    back_strip_side_1,
+                    back_strip_color_2,
+                    back_strip_side_2,
+                    back_letter_color,
+                    back_shape
+                )
+                VALUES (
+                    %(car_type)s,
+                    %(front_is_required)s,
+                    %(front_color)s,
+                    %(front_strip_color_1)s,
+                    %(front_strip_side_1)s,
+                    %(front_strip_color_2)s,
+                    %(front_strip_side_2)s,
+                    %(front_letter_color)s,
+                    %(front_shape)s,
+                    %(back_color)s,
+                    %(back_strip_color_1)s,
+                    %(back_strip_side_1)s,
+                    %(back_strip_color_2)s,
+                    %(back_strip_side_2)s,
+                    %(back_letter_color)s,
+                    %(back_shape)s
+                )
+                RETURNING license_plate_id
                 """,
-                (state_id, ecoregion_id, t.get("coverage_pct")),
+                values,
             )
+            license_plate_id = cur.fetchone()[0]
+        else:
+            license_plate_id = row[0]
 
-    cur.execute("DELETE FROM license_plates WHERE country_id = %s", (country_code,))
-    for plate in data.get("license_plates", []):
-        front_id = insert_license_plate_face(
-            cur,
-            plate.get("front"),
-            is_required=plate.get("front", {}).get("is_required", True),
-        )
-        back_id = insert_license_plate_face(cur, plate.get("back"))
         cur.execute(
-            "INSERT INTO license_plates (country_id, car_type, front_id, back_id) VALUES (%s, %s, %s, %s)",
-            (
+            """
+            INSERT INTO country_issues_license_plate (
                 country_code,
-                map_val({t: t for t in CAR_TYPE_VALUES}, plate.get("car_type"), "car_type"),
-                front_id,
-                back_id,
-            ),
+                license_plate_id
+            )
+            VALUES (%s, %s)
+            ON CONFLICT DO NOTHING
+            """,
+            (country_code, license_plate_id),
         )
 
-    cur.execute("DELETE FROM road_lines WHERE country_id = %s", (country_code,))
     for line in data.get("roads", {}).get("lines", []):
         inner = line.get("inner") or {}
         outer = line.get("outer") or {}
-        extra = inner.get("extra") or {}
+        extra = line.get("extra") or {}
+
+        values = {
+            "rule": map_val(
+                ROAD_RULE_MAP,
+                line.get("rule"),
+                "road_rule",
+            ),
+            "inner_color": map_val(
+                LINE_COLOR_MAP,
+                inner.get("color"),
+                "inner_color",
+            ),
+            "inner_count": inner.get("count", 0),
+            "inner_pattern": map_val(
+                LINE_PATTERN_MAP,
+                inner.get("pattern"),
+                "inner_pattern",
+            ),
+            "outer_color": map_val(
+                LINE_COLOR_MAP,
+                outer.get("color"),
+                "outer_color",
+            ),
+            "outer_count": outer.get("count", 0),
+            "outer_pattern": map_val(
+                LINE_PATTERN_MAP,
+                outer.get("pattern"),
+                "outer_pattern",
+            ),
+            "extra_color": map_val(
+                LINE_COLOR_MAP,
+                extra.get("color"),
+                "extra_color",
+            ),
+            "extra_pattern": map_val(
+                LINE_PATTERN_MAP,
+                extra.get("pattern"),
+                "extra_pattern",
+            ),
+        }
+
         cur.execute(
             """
-            INSERT INTO road_lines (
-                country_id, rule,
-                inner_color, inner_count, inner_pattern,
-                inner_extra_color, inner_extra_pattern,
-                outer_color, outer_count, outer_pattern
-            )
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            SELECT road_line_id
+            FROM road_line
+            WHERE
+                rule IS NOT DISTINCT FROM %(rule)s
+                AND inner_color IS NOT DISTINCT FROM %(inner_color)s
+                AND inner_count IS NOT DISTINCT FROM %(inner_count)s
+                AND inner_pattern IS NOT DISTINCT FROM %(inner_pattern)s
+                AND outer_color IS NOT DISTINCT FROM %(outer_color)s
+                AND outer_count IS NOT DISTINCT FROM %(outer_count)s
+                AND outer_pattern IS NOT DISTINCT FROM %(outer_pattern)s
+                AND extra_color IS NOT DISTINCT FROM %(extra_color)s
+                AND extra_pattern IS NOT DISTINCT FROM %(extra_pattern)s
             """,
-            (
+            values,
+        )
+
+        row = cur.fetchone()
+
+        if not row:
+            cur.execute(
+                """
+                INSERT INTO road_line (
+                    rule,
+                    inner_color,
+                    inner_count,
+                    inner_pattern,
+                    outer_color,
+                    outer_count,
+                    outer_pattern,
+                    extra_color,
+                    extra_pattern
+                )
+                VALUES (
+                    %(rule)s,
+                    %(inner_color)s,
+                    %(inner_count)s,
+                    %(inner_pattern)s,
+                    %(outer_color)s,
+                    %(outer_count)s,
+                    %(outer_pattern)s,
+                    %(extra_color)s,
+                    %(extra_pattern)s
+                )
+                RETURNING road_line_id
+                """,
+                values,
+            )
+            road_line_id = cur.fetchone()[0]
+        else:
+            road_line_id = row[0]
+
+        cur.execute(
+            """
+            INSERT INTO country_paints_road_line (
                 country_code,
-                map_val(ROAD_RULE_MAP, line.get("rule"), "road_rule"),
-                map_val(LINE_COLOR_MAP, inner.get("color"), "inner_color"),
-                inner.get("count") if inner else 0,
-                map_val(LINE_PATTERN_MAP, inner.get("pattern"), "inner_pattern"),
-                map_val(LINE_COLOR_MAP, extra.get("color"), "inner_extra_color") if extra else None,
-                map_val(LINE_PATTERN_MAP, extra.get("pattern"), "inner_extra_pattern")
-                if extra
-                else None,
-                map_val(LINE_COLOR_MAP, outer.get("color"), "outer_color"),
-                outer.get("count") if outer else 0,
-                map_val(LINE_PATTERN_MAP, outer.get("pattern"), "outer_pattern"),
-            ),
+                road_line_id
+            )
+            VALUES (%s, %s)
+            ON CONFLICT DO NOTHING
+            """,
+            (country_code, road_line_id),
         )
 
 
@@ -302,7 +531,7 @@ def main():
     conn = psycopg2.connect(os.environ["PG_DSN"])
 
     with conn.cursor() as cur:
-        cur.execute("SELECT code, name FROM countries")
+        cur.execute("SELECT code, name FROM country")
         pg_countries = dict(cur.fetchall())
         name_to_code = {_normalize_name(name): code for code, name in pg_countries.items()}
 
@@ -319,21 +548,26 @@ def main():
 
     for code in targets:
         country_name = pg_countries.get(code)
+
         if not country_name:
             log.error(f"Country code not in DB: {code}")
             continue
 
         yaml_path = DATA_DIR / f"{_pascal(country_name)}.yaml"
+
         if not yaml_path.exists():
             log.error(f"YAML not found for {code}: {yaml_path}")
             continue
 
         try:
             data = yaml.safe_load(yaml_path.read_text(encoding="utf-8"))
+
             with conn.cursor() as cur:
-                upsert_country(cur, code, country_name, data)
+                sync_country(cur, code, country_name, data)
+
             conn.commit()
             log.info(f"[{code}] {country_name} — OK")
+
         except Exception as e:
             conn.rollback()
             log.error(f"[{code}] {country_name} — FAILED: {e}")
