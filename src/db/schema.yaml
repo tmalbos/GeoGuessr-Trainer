@@ -6,7 +6,7 @@
 
 roads:
   lines: # list
-    inner:
+    inner: # Optional
       color:
         - white
         - faded white
@@ -20,15 +20,7 @@ roads:
         - solid
         - dashed
         - short-dashed
-      extra:
-        color:
-          - white
-          - yellow
-          - green
-        pattern:
-          - solid
-          - dashed
-    outer:
+    outer: # Optional
       color:
         - white
         - yellow
@@ -42,6 +34,14 @@ roads:
         - dashed
         - short-dashed
         - squares
+    extra: # Optional
+      color:
+        - white
+        - yellow
+        - green
+      pattern:
+        - solid
+        - dashed
     rule:
       - whole-country
       - region-dependant

@@ -4,11 +4,11 @@ roads:
       color: white
       count: 1
       pattern: dashed
-      extra: null
     outer:
       color: white
       count: 1
       pattern: dashed
+    extra: null
     rule: whole-country
 license_plates:
   - car_type: normal

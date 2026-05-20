@@ -4,24 +4,24 @@ roads:
       color: orange-tinted yellow
       count: 1
       pattern: solid
-      extra:
-        color: white
-        pattern: dashed
     outer:
       color: white
       count: 1
       pattern: solid
+    extra:
+      color: white
+      pattern: dashed
     rule: whole-country
   - inner:
       color: orange-tinted yellow
       count: 2
       pattern: solid
-      extra:
-        color: white
-        pattern: solid
     outer:
       color: white
       count: 1
+      pattern: solid
+    extra:
+      color: white
       pattern: solid
     rule: whole-country
 license_plates:
