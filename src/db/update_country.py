@@ -29,81 +29,8 @@ DATA_DIR = Path("./src/db/data")
 
 
 # =============================================================
-# Maps
-# =============================================================
-
-ROAD_RULE_MAP = {
-    "whole-country": "whole_country",
-    "region-dependant": "region_dependant",
-    "urban": "urban",
-    "rural": "rural",
-}
-
-LINE_COLOR_MAP = {
-    "white": "white",
-    "faded white": "faded_white",
-    "yellow": "yellow",
-    "orange-tinted yellow": "orange_tinted_yellow",
-    "green": "green",
-    "red": "red",
-    "orange": "orange",
-}
-
-LINE_PATTERN_MAP = {
-    "solid": "solid",
-    "dashed": "dashed",
-    "short-dashed": "short_dashed",
-    "squares": "squares",
-}
-
-PLATE_COLOR_MAP = {
-    "white": "white",
-    "yellow": "yellow",
-    "pastel yellow": "pastel_yellow",
-    "blue": "blue",
-    "green": "green",
-    "orange": "orange",
-    "brown": "brown",
-    "red": "red",
-    "black": "black",
-}
-
-PLATE_SHAPE_MAP = {
-    "wide": "wide",
-    "short": "short",
-    "tall": "tall",
-    "standard": "standard",
-}
-
-STRIP_SIDE_MAP = {
-    "left": "left",
-    "right": "right",
-    "top": "top",
-    "bottom": "bottom",
-}
-
-CAR_TYPE_VALUES = {
-    "normal",
-    "commercial",
-    "taxi",
-    "motorcycle",
-    "military",
-    "government",
-    "electric",
-}
-
-
-# =============================================================
 # Helpers
 # =============================================================
-
-
-def map_val(mapping: dict, value, field: str):
-    if value is None:
-        return None
-    if value not in mapping:
-        raise ValueError(f"Unknown value for '{field}': {repr(value)}")
-    return mapping[value]
 
 
 def normalize_hex_to_enum(hex_color: str) -> str:
@@ -207,29 +134,21 @@ def build_plate_fields(face: dict | None, prefix: str):
             strip_color = normalize_hex_to_enum(strip_color)
 
         return (
-            map_val(PLATE_COLOR_MAP, strip_color, "strip color"),
-            map_val(STRIP_SIDE_MAP, strip.get("side"), "strip side"),
+            strip_color,
+            strip.get("side"),
         )
 
     strip_1_color, strip_1_side = parse_strip(strip_1)
     strip_2_color, strip_2_side = parse_strip(strip_2)
 
     return {
-        f"{prefix}_color": map_val(PLATE_COLOR_MAP, color_raw, "plate color"),
+        f"{prefix}_color": color_raw,
         f"{prefix}_strip_color_1": strip_1_color,
         f"{prefix}_strip_side_1": strip_1_side,
         f"{prefix}_strip_color_2": strip_2_color,
         f"{prefix}_strip_side_2": strip_2_side,
-        f"{prefix}_letter_color": map_val(
-            PLATE_COLOR_MAP,
-            letter_color_raw,
-            "letter_color",
-        ),
-        f"{prefix}_shape": map_val(
-            PLATE_SHAPE_MAP,
-            face.get("shape"),
-            "plate shape",
-        ),
+        f"{prefix}_letter_color": letter_color_raw,
+        f"{prefix}_shape": face.get("shape"),
     }
 
 
@@ -315,11 +234,7 @@ def sync_country(cur, country_code: str, country_name: str, data: dict) -> None:
         back_fields = build_plate_fields(back, "back")
 
         values = {
-            "car_type": map_val(
-                {t: t for t in CAR_TYPE_VALUES},
-                plate.get("car_type"),
-                "car_type",
-            ),
+            "car_type": plate.get("car_type"),
             "front_is_required": front.get("is_required", True),
             **front_fields,
             **back_fields,
@@ -417,43 +332,15 @@ def sync_country(cur, country_code: str, country_name: str, data: dict) -> None:
         extra = line.get("extra") or {}
 
         values = {
-            "rule": map_val(
-                ROAD_RULE_MAP,
-                line.get("rule"),
-                "road_rule",
-            ),
-            "inner_color": map_val(
-                LINE_COLOR_MAP,
-                inner.get("color"),
-                "inner_color",
-            ),
+            "rule": line.get("rule"),
+            "inner_color": inner.get("color"),
             "inner_count": inner.get("count", 0),
-            "inner_pattern": map_val(
-                LINE_PATTERN_MAP,
-                inner.get("pattern"),
-                "inner_pattern",
-            ),
-            "outer_color": map_val(
-                LINE_COLOR_MAP,
-                outer.get("color"),
-                "outer_color",
-            ),
+            "inner_pattern": inner.get("pattern"),
+            "outer_color": outer.get("color"),
             "outer_count": outer.get("count", 0),
-            "outer_pattern": map_val(
-                LINE_PATTERN_MAP,
-                outer.get("pattern"),
-                "outer_pattern",
-            ),
-            "extra_color": map_val(
-                LINE_COLOR_MAP,
-                extra.get("color"),
-                "extra_color",
-            ),
-            "extra_pattern": map_val(
-                LINE_PATTERN_MAP,
-                extra.get("pattern"),
-                "extra_pattern",
-            ),
+            "outer_pattern": outer.get("pattern"),
+            "extra_color": extra.get("color"),
+            "extra_pattern": extra.get("pattern"),
         }
 
         cur.execute(
