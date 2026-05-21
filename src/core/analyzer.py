@@ -105,8 +105,6 @@ async def process_game(game_data: dict, game_id: str) -> list[str]:
             "is_daily": game_data.get("is_daily"),
             "played_at": played_at,
             "map_name": map_name,
-            "total_score": total_score,
-            "avg_distance": avg_dist,
             "rounds": rounds_to_save,
         }
     )
