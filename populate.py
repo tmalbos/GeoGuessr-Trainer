@@ -202,6 +202,42 @@ def populate_eco(cur, shapefile_path: str) -> None:
             (biome_id, eco_name),
         )
 
+    ROCK_AND_ICE_REALMS = [
+        "Nearctic",
+        "Neotropic",
+        "Palearctic",
+        "Antarctica",
+    ]
+
+    for realm in ROCK_AND_ICE_REALMS:
+        cur.execute(
+            """
+            INSERT INTO biome (name, realm)
+            VALUES (%s, %s)
+            ON CONFLICT (name, realm) DO NOTHING
+            RETURNING biome_id
+            """,
+            ("Rock and Ice, or Abiotic Land Zones", realm),
+        )
+        row_result = cur.fetchone()
+        if row_result:
+            biome_id = row_result[0]
+        else:
+            cur.execute(
+                "SELECT biome_id FROM biome WHERE name = %s AND realm = %s",
+                ("Rock and Ice, or Abiotic Land Zones", realm),
+            )
+            biome_id = cur.fetchone()[0]
+
+        cur.execute(
+            """
+            INSERT INTO ecoregion (biome_id, name)
+            VALUES (%s, %s)
+            ON CONFLICT (name) DO NOTHING
+            """,
+            (biome_id, f"Rock and Ice ({realm})"),
+        )
+
     print("  Biomes and ecoregions inserted.")
 
 
