@@ -6,8 +6,7 @@ import asyncio
 
 from src.core.analyzer import process_game
 from src.core.api import GeoguessrClient
-from src.core.config import COL_GAMES
-from src.db.mongo import find_documents
+from src.db.db import fetch_saved_challenge_tokens
 
 USER_ID = "68daf785000ba2a268744f99"
 
@@ -70,17 +69,9 @@ async def sync_from_feed(ncfa_cookie: str) -> None:
 
     print(f"   {len(entries)} partida(s) encontradas en el feed.\n")
 
-    saved = await find_documents(
-        COL_GAMES,
-        {"challenge_token": {"$in": [e["challenge_token"] for e in entries]}},
-        {"challenge_token": 1, "_id": 0},
-    )
-    saved_tokens = {doc["challenge_token"] for doc in saved}
+    saved_tokens = await fetch_saved_challenge_tokens([e["challenge_token"] for e in entries])
 
-    new_entries = []
-    for entry in entries:
-        if entry["challenge_token"] not in saved_tokens:
-            new_entries.append(entry)
+    new_entries = [e for e in entries if e["challenge_token"] not in saved_tokens]
 
     if not new_entries:
         print("\n  ✅ Todo al día, no hay partidas nuevas.")

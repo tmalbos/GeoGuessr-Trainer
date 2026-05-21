@@ -4,11 +4,8 @@ roads:
       color: yellow
       count: 1
       pattern: short-dashed
-      extra: null
-    outer:
-      color: white
-      count: 0
-      pattern: solid
+    outer: null
+    extra: null
     rule: whole-country
 license_plates:
   - car_type: normal

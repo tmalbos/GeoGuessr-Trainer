@@ -12,6 +12,7 @@ from src.core.eco_enrich import init as eco_init
 from src.core.eco_enrich import is_ready, load_error
 from src.core.stats import available_levels, print_analysis
 from src.core.sync import sync_from_feed
+from src.db.db import check_connection, init_pool
 
 MIN_ROUNDS = 10
 
@@ -78,16 +79,15 @@ async def main():
     clear()
     eco_init()
 
-    from src.db.mongo import check_connection
-
-    mongo_live = await asyncio.wait_for(check_connection(), timeout=2.0)
+    await init_pool()
+    db_live = await asyncio.wait_for(check_connection(), timeout=2.0)
 
     print("\n🌍  GeoGuessr Analyzer")
     print("─" * 30)
 
-    if not mongo_live:
-        print("  ℹ️  MongoDB no disponible — los datos no se guardarán.")
-        print("     Instalá motor y asegurate de tener Mongo corriendo.\n")
+    if not db_live:
+        print("  ℹ️  PostgreSQL no disponible — los datos no se guardarán.")
+        print("     Asegurate de tener Postgres corriendo y PG_DSN configurado.\n")
 
     err = load_error()
     if err is None and not is_ready():
@@ -96,7 +96,7 @@ async def main():
         print(f"  ⚠️  Ecoregiones no disponibles: {err}")
 
     while True:
-        levels = await available_levels(MIN_ROUNDS) if mongo_live else []
+        levels = await available_levels(MIN_ROUNDS) if db_live else []
 
         print()
         print("  [1] Sincronizar partidas")

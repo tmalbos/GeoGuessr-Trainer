@@ -5,16 +5,17 @@ roads:
       color: white
       count: 1
       pattern: short-dashed
+    extra: null
     rule: rural
   - inner:
       color: white
       count: 1
       pattern: dashed
-      extra: null
     outer:
       color: white
       count: 1
       pattern: solid
+    extra: null
     rule: whole-country
 license_plates:
   - car_type: normal

@@ -7,7 +7,7 @@ import random
 import statistics
 from collections import defaultdict
 
-from src.db.mongo import MONGO_OK, aggregate
+from src.db.db import fetch_all_rounds
 
 MIN_ZONE_ROUNDS = 10
 BOOTSTRAP_SAMPLES = 1000
@@ -108,23 +108,7 @@ def _bootstrap_ci(values):
 
 
 async def _load_rounds() -> list[dict]:
-    if not MONGO_OK:
-        return []
-    pipeline = [
-        {
-            "$lookup": {
-                "from": "games",
-                "localField": "game_id",
-                "foreignField": "game_id",
-                "as": "game",
-            }
-        },
-        {"$unwind": "$game"},
-        {"$addFields": {"played_at": "$game.played_at"}},
-        {"$project": {"_id": 0, "game": 0}},
-        {"$sort": {"played_at": 1, "round_number": 1}},
-    ]
-    return await aggregate("rounds", pipeline)
+    return await fetch_all_rounds()
 
 
 async def available_levels(min_rounds: int) -> list[tuple]:

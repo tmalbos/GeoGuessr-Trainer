@@ -4,46 +4,46 @@ roads:
       color: white
       count: 1
       pattern: dashed
-      extra: null
     outer:
       color: yellow
       count: 1
       pattern: solid
+    extra: null
     rule: whole-country
   - inner:
       color: white
       count: 1
       pattern: dashed
-      extra:
-        color: white
-        pattern: solid
     outer:
       color: yellow
       count: 1
+      pattern: solid
+    extra:
+      color: white
       pattern: solid
     rule: whole-country
   - inner:
       color: white
       count: 2
       pattern: solid
-      extra:
-        color: white
-        pattern: dashed
     outer:
       color: yellow
       count: 1
       pattern: solid
+    extra:
+      color: white
+      pattern: dashed
     rule: whole-country
   - inner:
       color: white
       count: 2
       pattern: solid
-      extra:
-        color: yellow
-        pattern: solid
     outer:
       color: yellow
       count: 1
+      pattern: solid
+    extra:
+      color: yellow
       pattern: solid
     rule: whole-country
 license_plates:

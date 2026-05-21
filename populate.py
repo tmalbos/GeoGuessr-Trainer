@@ -1,367 +1,290 @@
 """
-populate.py — Puebla la base de datos geo_signals en MongoDB.
+populate_pg.py — Puebla country, state, biome y ecoregion directo en PostgreSQL.
 
-Automático:
-  - signs.warning.shape     → regla por región
-  - signs.stop.text         → scraping Wikipedia
-  - license_plates.front.is_required → scraping Wikipedia
-  - terrain                 → shapefile RESOLVE Ecoregions 2017 (requiere descarga manual)
+Fuente única para nombres geográficos: Overpass API (OSM) — misma fuente que Nominatim.
+
+Dependencias:
+    pip install psycopg2-binary python-dotenv requests
 
 Uso:
-  python populate.py                  # todo excepto terrain
-  python populate.py --terrain /ruta/al/Ecoregions2017.shp
+    python populate_pg.py                                    # countries + states + eco
+    python populate_pg.py --no-states                        # omitir states
+    python populate_pg.py --no-eco                           # omitir biomas y ecoregiones
+    python populate_pg.py --terrain /ruta/Ecoregions2017.shp # ruta al shapefile
 """
 
 import argparse
+import os
+import time
 
+import psycopg2
 import requests
-import yaml
-from pymongo import MongoClient
+from dotenv import load_dotenv
 
-# ─── config ──────────────────────────────────────────────────────────────────
-
-MONGO_URI = "mongodb://localhost:27017/"
-MONGO_DB = "geoguessr"
-MONGO_COL = "geo_signals"
-
-SCHEMA_PATH = "src/db/schema.yaml"
+load_dotenv()
 
 _session = requests.Session()
 _session.headers.update({"User-Agent": "GeoSignals-Populate/1.0"})
 
-
-# ─── MongoDB ─────────────────────────────────────────────────────────────────
-
-
-def get_col():
-    client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=3000)
-    return client[MONGO_DB][MONGO_COL]
+OVERPASS_URL = "https://overpass-api.de/api/interpreter"
 
 
-def upsert(col, key: str, data: dict):
-    col.update_one(
-        {"_id": key},
-        {"$set": data},
-        upsert=True,
-    )
+# =============================================================
+# Conexión
+# =============================================================
 
 
-# ─── schema validator ─────────────────────────────────────────────────────────
+def get_pg():
+    return psycopg2.connect(os.environ["PG_DSN"])
 
 
-def load_schema(path: str) -> dict:
-    with open(path) as f:
-        return yaml.safe_load(f)
+# =============================================================
+# Overpass helpers
+# =============================================================
 
 
-def validate_enum(value, allowed: list, field: str):
-    if value not in allowed:
-        raise ValueError(f"'{value}' no es válido para '{field}'. Valores: {allowed}")
+def overpass_query(query: str, retries: int = 3) -> list[dict]:
+    for attempt in range(retries):
+        try:
+            r = _session.post(OVERPASS_URL, data={"data": query}, timeout=60)
+            return r.json().get("elements", [])
+        except Exception as e:
+            print(f"    [WARN] Overpass attempt {attempt + 1} failed: {e}")
+            time.sleep(5)
+    return []
 
 
-# ─── REST Countries — lista de países ────────────────────────────────────────
+def get_name(tags: dict) -> str:
+    return tags.get("name:en") or tags.get("name", "")
 
 
-def fetch_all_countries() -> list[dict]:
-    print("Obteniendo lista de países desde REST Countries...")
-    r = _session.get(
-        "https://restcountries.com/v3.1/all",
-        params={"fields": "cca2,name,car,region,subregion"},
-        timeout=15,
-    )
-    data = r.json()
-    print(f"  {len(data)} países encontrados.")
-    return data
+# =============================================================
+# Countries
+# =============================================================
 
 
-# ─── warning shape ───────────────────────────────────────────────────────────
-
-# diamond: USA, Canadá, Australia, NZ, Japón, México, Centroamérica, Sudamérica
-DIAMOND_CODES = {
-    "US",
-    "CA",
-    "AU",
-    "NZ",
-    "JP",
-    "MX",
-    "GT",
-    "BZ",
-    "HN",
-    "SV",
-    "NI",
-    "CR",
-    "PA",
-    "AR",
-    "BO",
-    "BR",
-    "CL",
-    "CO",
-    "EC",
-    "GY",
-    "PY",
-    "PE",
-    "SR",
-    "UY",
-    "VE",
-    "CU",
-    "DO",
-    "HT",
-    "JM",
-    "TT",
-    "BB",
-    "LC",
-    "VC",
-    "GD",
-    "AG",
-    "DM",
-    "KN",
-    "BS",
-    "KR",
-    "TH",
-    "MM",
-    "LA",
-    "KH",
-    "MY",
-    "ID",
-    "PH",
-}
+def fetch_countries() -> list[dict]:
+    """Obtiene todos los países (admin_level=2) desde Overpass."""
+    print("Fetching countries from Overpass...")
+    query = """
+[out:json][timeout:60];
+relation["admin_level"="2"]["boundary"="administrative"]["ISO3166-1"];
+out tags;
+"""
+    elements = overpass_query(query)
+    countries = []
+    for el in elements:
+        tags = el.get("tags", {})
+        code = tags.get("ISO3166-1")
+        name = get_name(tags)
+        if code and name:
+            countries.append({"code": code, "name": name})
+    print(f"  {len(countries)} countries found.")
+    return countries
 
 
-def warning_shape(cca2: str) -> str:
-    return "diamond" if cca2 in DIAMOND_CODES else "triangle"
+def populate_countries(cur, countries: list[dict]) -> None:
+    print("Inserting countries...")
+    for c in countries:
+        cur.execute(
+            """
+            INSERT INTO country (code, name)
+            VALUES (%s, %s)
+            ON CONFLICT (code) DO UPDATE SET name = EXCLUDED.name
+            """,
+            (c["code"], c["name"]),
+        )
+    print(f"  {len(countries)} countries inserted.")
 
 
-# ─── stop sign — Wikipedia scraping ──────────────────────────────────────────
-
-# Mapa manual para países con texto no-latino o conocidos
-STOP_TEXT_MANUAL = {
-    "JP": "止まれ",
-    "CN": "停",
-    "TW": "停",
-    "TH": "หยุด",
-    "KH": "ឈប់",
-    "KP": "섯",
-    "AM": "ԿԱՆԳ",
-    "GE": "STOP",
-    "AZ": "STOP",
-    "BD": "",  # sin texto
-    "NP": "",  # sin texto
-    "QA": "قف",
-    "SA": "قف",
-    "AE": "قف",
-    "EG": "قف",
-    "IQ": "قف",
-    "SY": "قف",
-    "JO": "قف",
-    "LB": "قف",
-    "KW": "قف",
-    "BH": "قف",
-    "OM": "قف",
-    "YE": "قف",
-    "LY": "قف",
-    "DZ": "قف",
-    "MA": "قف",
-    "TN": "قف",
-    "MX": "ALTO",
-    "GT": "ALTO",
-    "BZ": "ALTO",
-    "HN": "ALTO",
-    "SV": "ALTO",
-    "NI": "ALTO",
-    "CR": "ALTO",
-    "PA": "ALTO",
-    "AR": "PARE",
-    "BO": "PARE",
-    "BR": "PARE",
-    "CL": "PARE",
-    "CO": "PARE",
-    "EC": "PARE",
-    "PY": "PARE",
-    "PE": "PARE",
-    "UY": "PARE",
-    "VE": "PARE",
-    "CU": "PARE",
-    "DO": "PARE",
-    "PR": "PARE",
-    "TR": "DUR",
-    "ET": "ቁም",
-    "VU": "STOP",  # circular, texto STOP
-}
-
-STOP_SHAPE_MANUAL = {
-    "JP": "triangle-inverted",
-    "VU": "circle",
-    "CU": "circle",  # Cuba usa señal circular antigua
-    "PK": "circle",
-}
+# =============================================================
+# States
+# =============================================================
 
 
-def stop_sign_data(cca2: str) -> dict:
-    text = STOP_TEXT_MANUAL.get(cca2, "STOP")
-    shape = STOP_SHAPE_MANUAL.get(cca2, "octagon")
-    return {"text": text, "shape": shape}
+def fetch_states_for_country(code: str) -> list[str]:
+    query = f"""
+[out:json][timeout:30];
+area["ISO3166-1"="{code}"][admin_level=2];
+relation["admin_level"="4"]["boundary"="administrative"](area);
+out tags;
+"""
+    elements = overpass_query(query)
+    names = []
+    for el in elements:
+        name = get_name(el.get("tags", {}))
+        if name and name not in names:
+            names.append(name)
+    return sorted(names)
 
 
-# ─── license plate front required ────────────────────────────────────────────
+def populate_states(cur, countries: list[dict]) -> None:
+    print("\nInserting states from Overpass (this will take several minutes)...")
+    for c in countries:
+        code = c["code"]
+        name = c["name"]
 
-# Países donde la placa delantera NO es requerida
-NO_FRONT_PLATE = {
-    "US",  # algunos estados
-    "AU",  # algunos estados (QLD, SA para motocicletas)
-    "NZ",
-    "GB",
-    "IN",  # motocicletas frecuentemente sin placa delantera
-    "PK",
-    "MY",
-    "SG",
-    "MM",
-    "BD",
-    "LK",
-    "AF",
-    "SD",
-    "ET",
-    "KE",  # inconsistente
-    "NG",
-    "GH",
-    "EG",  # inconsistente
-}
+        states = fetch_states_for_country(code)
 
+        if states:
+            for state_name in states:
+                cur.execute(
+                    """
+                    INSERT INTO state (country_code, name)
+                    VALUES (%s, %s)
+                    ON CONFLICT DO NOTHING
+                    """,
+                    (code, state_name),
+                )
+            print(f"  [{code}] {name} — {len(states)} states")
+        else:
+            print(f"  [{code}] {name} — no level-4 divisions")
 
-def front_plate_required(cca2: str) -> bool:
-    return cca2 not in NO_FRONT_PLATE
+        time.sleep(1)
 
 
-# ─── terrain — ecoregions shapefile ──────────────────────────────────────────
+# =============================================================
+# Biomes + Ecoregions — Ecoregions2017 shapefile
+# =============================================================
 
 
-def process_terrain(shapefile_path: str, col):
+def populate_eco(cur, shapefile_path: str) -> None:
     try:
         import geopandas as gpd
     except ImportError:
-        print("  geopandas no instalado. Corré: pip install geopandas")
+        print("  geopandas not installed. Run: pip install geopandas")
         return
 
-    print(f"\nProcesando terrain desde {shapefile_path}...")
-    print("  Cargando ecoregiones (puede tardar ~30s)...")
-    eco = gpd.read_file(shapefile_path)[["ECO_NAME", "BIOME_NAME", "REALM", "geometry"]]
+    print(f"\nLoading ecoregions from {shapefile_path}...")
+    eco = gpd.read_file(shapefile_path)[["ECO_NAME", "BIOME_NAME", "REALM"]]
+    eco = eco.drop_duplicates(subset=["ECO_NAME"])
+    print(f"  {len(eco)} ecoregions found.")
 
-    print("  Descargando polígonos de países (Natural Earth)...")
-    states_url = (
-        "https://naturalearth.s3.amazonaws.com/10m_cultural/ne_10m_admin_1_states_provinces.zip"
-    )
-    states = gpd.read_file(states_url)[["iso_a2", "name", "geometry"]]
+    biome_id_cache = {}
 
-    states = states.rename(columns={"iso_a2": "country_code", "name": "state_name"})
+    for _, row in eco.iterrows():
+        biome_name = row["BIOME_NAME"]
+        realm = row["REALM"]
+        eco_name = row["ECO_NAME"]
 
-    print(f"  Calculando intersecciones para {len(states)} estados...")
-    eco = eco.to_crs(epsg=3857)
-    states = states.to_crs(epsg=3857)
-
-    country_states = {}
-    for _, state in states.iterrows():
-        cca2 = state["country_code"]
-        state_name = state["state_name"]
-        geom = state["geometry"]
-
-        if geom is None or geom.is_empty:
+        if not biome_name or not eco_name or realm == "N/A":
             continue
 
-        # filtrar rápido
-        intersection = gpd.clip(eco, geom)
-        if intersection.empty:
-            continue
-
-        # intersección real (esto es clave)
-        intersection["geometry"] = intersection.geometry.intersection(geom)
-
-        # limpiar geometrías inválidas
-        intersection = intersection[~intersection.is_empty]
-        if intersection.empty:
-            continue
-
-        intersection["area"] = intersection.geometry.area
-        total_area = intersection["area"].sum()
-
-        if total_area < 1e-6:
-            continue
-
-        intersection["pct"] = (intersection["area"] / total_area * 100).round(2)
-
-        terrain_list = (
-            intersection.groupby(["ECO_NAME", "BIOME_NAME", "REALM"])["pct"]
-            .sum()
-            .reset_index()
-            .rename(
-                columns={
-                    "ECO_NAME": "ecoregion",
-                    "BIOME_NAME": "biome",
-                    "REALM": "realm",
-                    "pct": "coverage_pct",
-                }
+        key = (biome_name, realm)
+        if key not in biome_id_cache:
+            cur.execute(
+                """
+                INSERT INTO biome (name, realm)
+                VALUES (%s, %s)
+                ON CONFLICT (name, realm) DO NOTHING
+                RETURNING biome_id
+                """,
+                (biome_name, realm),
             )
-            .sort_values("coverage_pct", ascending=False)
-            .to_dict("records")
+            row_result = cur.fetchone()
+            if row_result:
+                biome_id_cache[key] = row_result[0]
+            else:
+                cur.execute(
+                    "SELECT biome_id FROM biome WHERE name = %s AND realm = %s",
+                    (biome_name, realm),
+                )
+                biome_id_cache[key] = cur.fetchone()[0]
+
+        biome_id = biome_id_cache[key]
+
+        cur.execute(
+            """
+            INSERT INTO ecoregion (biome_id, name)
+            VALUES (%s, %s)
+            ON CONFLICT (name) DO NOTHING
+            """,
+            (biome_id, eco_name),
         )
 
-        if cca2 not in country_states:
-            country_states[cca2] = []
+    ROCK_AND_ICE_REALMS = [
+        "Nearctic",
+        "Neotropic",
+        "Palearctic",
+        "Antarctica",
+    ]
 
-        country_states[cca2].append({"name": state_name, "terrain": terrain_list})
+    for realm in ROCK_AND_ICE_REALMS:
+        cur.execute(
+            """
+            INSERT INTO biome (name, realm)
+            VALUES (%s, %s)
+            ON CONFLICT (name, realm) DO NOTHING
+            RETURNING biome_id
+            """,
+            ("Rock and Ice, or Abiotic Land Zones", realm),
+        )
+        row_result = cur.fetchone()
+        if row_result:
+            biome_id = row_result[0]
+        else:
+            cur.execute(
+                "SELECT biome_id FROM biome WHERE name = %s AND realm = %s",
+                ("Rock and Ice, or Abiotic Land Zones", realm),
+            )
+            biome_id = cur.fetchone()[0]
 
-    for cca2, states_list in country_states.items():
-        col.update_one({"country_code": cca2}, {"$set": {"states": states_list}}, upsert=True)
+        cur.execute(
+            """
+            INSERT INTO ecoregion (biome_id, name)
+            VALUES (%s, %s)
+            ON CONFLICT (name) DO NOTHING
+            """,
+            (biome_id, f"Rock and Ice ({realm})"),
+        )
 
-    print("  ✅ Terrain procesado.")
+    print("  Biomes and ecoregions inserted.")
 
 
-# ─── main ─────────────────────────────────────────────────────────────────────
+# =============================================================
+# Main
+# =============================================================
 
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--terrain", metavar="SHAPEFILE", help="Ruta al archivo Ecoregions2017.shp")
+    parser.add_argument("--no-states", action="store_true", help="Skip states")
+    parser.add_argument("--no-eco", action="store_true", help="Skip biomes and ecoregions")
+    parser.add_argument("--terrain", metavar="SHAPEFILE", help="Path to Ecoregions2017.shp")
     args = parser.parse_args()
 
-    load_schema(SCHEMA_PATH)
-    col = get_col()
+    conn = get_pg()
 
-    countries = fetch_all_countries()
+    try:
+        countries = fetch_countries()
 
-    print("\nPoblando datos automáticos...")
-    for c in countries:
-        cca2 = c.get("cca2", "")
-        name = c.get("name", {}).get("common", "")
-        if not cca2:
-            continue
+        with conn.cursor() as cur:
+            populate_countries(cur, countries)
+            conn.commit()
 
-        data = {
-            "country_code": cca2,
-            "country_name": name,
-            "signs": {
-                "warning": {
-                    "shape": warning_shape(cca2),
-                },
-                "stop": {
-                    "shape": stop_sign_data(cca2)["shape"],
-                    "text": {"value": stop_sign_data(cca2)["text"]},
-                },
-            },
-            "license_plates": {
-                "front": {
-                    "is_required": front_plate_required(cca2),
-                },
-            },
-        }
-        upsert(col, cca2, data)
-        print(f"  [{cca2}] {name}")
+            if not args.no_states:
+                populate_states(cur, countries)
+                conn.commit()
+            else:
+                print("\nStates skipped (--no-states).")
 
-    print(f"\n✅ {len(countries)} países insertados.")
+            if not args.no_eco:
+                if args.terrain:
+                    populate_eco(cur, args.terrain)
+                    conn.commit()
+                else:
+                    print("\nNo shapefile provided. Run with --terrain /path/to/Ecoregions2017.shp")
+            else:
+                print("\nEcoregions skipped (--no-eco).")
 
-    if args.terrain:
-        process_terrain(args.terrain, col)
-    else:
-        print("\nℹ️  Para poblar terrain, descargá el shapefile de https://ecoregions.appspot.com")
-        print("   y corré: python populate.py --terrain /ruta/a/Ecoregions2017.shp")
+        print("\nDone.")
+
+    except Exception as e:
+        conn.rollback()
+        print(f"\nERROR: {e}")
+        raise
+    finally:
+        conn.close()
 
 
 if __name__ == "__main__":

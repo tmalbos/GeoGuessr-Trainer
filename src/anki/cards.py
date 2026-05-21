@@ -12,7 +12,7 @@ import httpx
 
 import src.anki.notes as notes_pkg
 from src.anki.notes.base import Note
-from src.db.mongo import find_documents
+from src.db.db import fetch_country_geo_signals
 
 _client = httpx.AsyncClient(
     headers={"User-Agent": "GeoGuessr-Anki/1.0"},
@@ -62,12 +62,7 @@ async def build_notes(country_code: str) -> list[dict]:
     cca2 = data.get("cca2", "").lower()
     country_name = data.get("translations", {}).get("spa", {}).get("common", country_code)
 
-    geo_docs = await find_documents(
-        "geo_signals",
-        {"country_code": cca2.upper()},
-        {"roads": 1, "license_plates": 1, "_id": 0},
-    )
-    geo = geo_docs[0] if geo_docs else {}
+    geo = await fetch_country_geo_signals(cca2.upper())  # replaces find_documents
 
     country_data = {
         **data,
