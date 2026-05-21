@@ -7,14 +7,14 @@ CREATE TYPE realm_type AS ENUM ('Afrotropic', 'Antarctica', 'Australasia', 'Indo
 
 -- ENUMS: road lines
 CREATE TYPE line_color AS ENUM (
-    'white', 'faded_white', 'yellow', 'orange_tinted_yellow',
+    'white', 'faded white', 'yellow', 'orange-tinted yellow',
     'green', 'red', 'orange'
 );
 CREATE TYPE line_pattern AS ENUM (
-    'solid', 'dashed', 'short_dashed', 'squares'
+    'solid', 'dashed', 'short-dashed', 'squares'
 );
 CREATE TYPE road_rule AS ENUM (
-    'whole_country', 'region_dependant', 'urban', 'rural'
+    'whole-country', 'region-dependant', 'urban', 'rural'
 );
 
 -- ENUMS: plates
@@ -23,7 +23,7 @@ CREATE TYPE car_type AS ENUM (
     'military', 'government', 'electric'
 );
 CREATE TYPE plate_color AS ENUM (
-    'white', 'yellow', 'pastel_yellow', 'blue', 'green',
+    'white', 'yellow', 'pastel yellow', 'blue', 'green',
     'orange', 'brown', 'red', 'black'
 );
 CREATE TYPE strip_side  AS ENUM ('left', 'right', 'top', 'bottom');
