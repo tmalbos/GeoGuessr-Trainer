@@ -2,13 +2,19 @@
 -- GeoGuessr Trainer DB — Schema
 -- =============================================================
 
+-- ENUMS: countries
+CREATE TYPE continents AS ENUM (
+    'Africa', 'Antarctica', 'Asia', 'Europe', 'North America', 'Oceania', 'South America'
+);
+
 -- ENUMS: biomes
-CREATE TYPE realm_type AS ENUM ('Afrotropic', 'Antarctica', 'Australasia', 'Indomalayan', 'Nearctic', 'Neotropic', 'Oceania', 'Palearctic');
+CREATE TYPE realm_type AS ENUM (
+    'Afrotropic', 'Antarctica', 'Australasia', 'Indomalayan', 'Nearctic', 'Neotropic', 'Oceania', 'Palearctic'
+);
 
 -- ENUMS: road lines
 CREATE TYPE line_color AS ENUM (
-    'white', 'faded white', 'yellow', 'orange-tinted yellow',
-    'green', 'red', 'orange'
+    'white', 'faded white', 'yellow', 'orange-tinted yellow', 'green', 'red', 'orange'
 );
 CREATE TYPE line_pattern AS ENUM (
     'solid', 'dashed', 'short-dashed', 'squares'
@@ -19,20 +25,23 @@ CREATE TYPE road_rule AS ENUM (
 
 -- ENUMS: plates
 CREATE TYPE car_type AS ENUM (
-    'normal', 'commercial', 'taxi', 'motorcycle',
-    'military', 'government', 'electric'
+    'normal', 'commercial', 'taxi', 'motorcycle', 'military', 'government', 'electric'
 );
 CREATE TYPE plate_color AS ENUM (
-    'white', 'yellow', 'pastel yellow', 'blue', 'green',
-    'orange', 'brown', 'red', 'black'
+    'white', 'yellow', 'pastel yellow', 'blue', 'green', 'orange', 'brown', 'red', 'black'
 );
 CREATE TYPE strip_side  AS ENUM ('left', 'right', 'top', 'bottom');
 CREATE TYPE plate_shape AS ENUM ('wide', 'short', 'tall', 'standard');
 
 -- 1. STRONG ENTITIES (No dependencies)
 CREATE TABLE country (
-    code  CHAR(2)     PRIMARY KEY,
-    name  VARCHAR(60) UNIQUE NOT NULL
+    code         CHAR(2)     PRIMARY KEY,
+    continent    continents  NOT NULL,
+    name         VARCHAR(60) UNIQUE NOT NULL,
+    flag_url     CHAR(31)    UNIQUE NOT NULL,
+    web_domain   CHAR(3)     UNIQUE NOT NULL,
+    capital      VARCHAR(30),
+    driving_side CHAR(1)     NOT NULL CHECK (driving_side IN ('L', 'R'))
 );
 
 CREATE TABLE biome (
