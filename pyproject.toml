@@ -18,6 +18,7 @@ dependencies = [
     "python-dotenv>=1.0",
     "pyyaml>=6.0",
     "beautifulsoup4>=4.12",
+    "aiofiles>=23.0",
 ]
 
 [project.optional-dependencies]
