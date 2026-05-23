@@ -5,6 +5,8 @@ GeoGuessr Analyzer — Punto de entrada principal.
 import asyncio
 import os
 
+from dotenv import load_dotenv
+
 from src.anki.generator import wait_for_anki
 from src.core.api import CookieExpiredError
 from src.core.app_context import AppContext
@@ -83,6 +85,7 @@ def menu_change_cookie():
 
 async def main():
     clear()
+    load_dotenv()
     eco_init()
 
     app_ctx = AppContext(
