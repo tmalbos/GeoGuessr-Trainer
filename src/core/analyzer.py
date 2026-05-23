@@ -13,7 +13,7 @@ def fmt_time(seconds: int | None) -> str:
 
 
 def fmt_location(geo: dict) -> str:
-    parts = [geo.get("state"), geo.get("country"), geo.get("subregion")]
+    parts = [geo.get("city"), geo.get("state"), geo.get("country")]
     return ", ".join(p for p in parts if p) or "Desconocido"
 
 

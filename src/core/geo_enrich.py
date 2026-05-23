@@ -20,15 +20,6 @@ _client = httpx.AsyncClient(
 _nominatim_sem = asyncio.Semaphore(1)
 
 
-def _hemisphere(lat: float) -> str:
-    if lat > 10:
-        return "North"
-    elif lat < -10:
-        return "South"
-    else:
-        return "Equatorial"
-
-
 async def _nominatim(lat: float, lon: float) -> dict:
     async with _nominatim_sem:
         try:
@@ -39,7 +30,7 @@ async def _nominatim(lat: float, lon: float) -> dict:
                     "lon": lon,
                     "format": "json",
                     "zoom": 10,
-                    "accept-language": "es",
+                    "accept-language": "en",
                 },
             )
             addr = r.json().get("address", {})
@@ -61,36 +52,10 @@ async def _nominatim(lat: float, lon: float) -> dict:
             await asyncio.sleep(1)
 
 
-async def _rest_countries(country_code: str) -> dict:
-    if not country_code:
-        return {"continent": "", "subregion": ""}
-    if country_code in _country_cache:
-        return _country_cache[country_code]
-    try:
-        r = await _client.get(
-            f"https://restcountries.com/v3.1/alpha/{country_code}",
-            params={"fields": "continents,subregion"},
-        )
-        data = r.json()
-        if isinstance(data, list):
-            data = data[0]
-        result = {
-            "continent": data.get("continents", [""])[0],
-            "subregion": data.get("subregion", ""),
-        }
-    except Exception:
-        result = {"continent": "", "subregion": ""}
-    _country_cache[country_code] = result
-    return result
-
-
 async def enrich(lat: float | None, lon: float | None) -> dict:
     empty = {
         "lat": lat,
         "lng": lon,
-        "hemisphere": "",
-        "continent": "",
-        "subregion": "",
         "country_code": "",
         "country": "",
         "state": "",
@@ -110,7 +75,6 @@ async def enrich(lat: float | None, lon: float | None) -> dict:
     ) or get_override(nominatim_data["country_code"], nominatim_data["city"])
 
     effective_cca2 = override_cca2 or nominatim_data["country_code"]
-    country_data = await _rest_countries(nominatim_data["country_code"])
 
     # eco_enrich es CPU/disco — se corre en el executor para no bloquear el loop
     loop = asyncio.get_running_loop()
@@ -121,9 +85,6 @@ async def enrich(lat: float | None, lon: float | None) -> dict:
     return {
         "lat": lat,
         "lng": lon,
-        "hemisphere": _hemisphere(lat),
-        "continent": country_data["continent"],
-        "subregion": country_data["subregion"],
         "country_code": effective_cca2,
         "country": nominatim_data["country"],
         "state": nominatim_data["state"],
