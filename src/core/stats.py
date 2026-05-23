@@ -6,17 +6,17 @@ DB access and level discovery.
 from collections import defaultdict
 
 from src.core.calculator import GEO_LEVELS
-from src.db.db import fetch_all_rounds
+from src.db.db import DbAdapter
 
 
-async def load_rounds() -> list[dict]:
-    """Load all rounds from the database."""
-    return await fetch_all_rounds()
+async def load_rounds(db: DbAdapter) -> list[dict]:
+    """Load all rounds from the database via DbAdapter."""
+    return await db.fetch_all_rounds()
 
 
-async def available_levels(min_rounds: int) -> list[tuple]:
+async def available_levels(db: DbAdapter, min_rounds: int) -> list[tuple]:
     """Discover geo levels with enough rounds for analysis."""
-    rounds = await load_rounds()
+    rounds = await load_rounds(db)
     if not rounds:
         return []
     total = len(rounds)

@@ -4,11 +4,12 @@ generator.py — Orquesta la generación de tarjetas Anki para una partida.
 
 from src.anki.anki_connect import add_note, ensure_deck, note_exists
 from src.anki.cards import build_notes
+from src.db.db import DbAdapter
 
 DECK = "GeoGuessr"
 
 
-async def generate_cards_for_game(rounds: list[dict]) -> list[str]:
+async def generate_cards_for_game(rounds: list[dict], db: DbAdapter) -> list[str]:
     """
     Genera tarjetas para los países vistos en las rondas.
     Devuelve lista de errores (vacía si todo fue bien).
@@ -26,7 +27,7 @@ async def generate_cards_for_game(rounds: list[dict]) -> list[str]:
     errors = []
 
     for code in seen:
-        notes = await build_notes(code)
+        notes = await build_notes(code, db=db)
 
         for note in notes:
             if await note_exists(DECK, note["tags"]):
