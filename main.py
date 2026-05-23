@@ -8,9 +8,11 @@ import os
 from src.anki.generator import wait_for_anki
 from src.core.api import CookieExpiredError
 from src.core.auth import load_cookie, prompt_new_cookie, refresh_cookie
+from src.core.calculator import analyze
 from src.core.eco_enrich import init as eco_init
 from src.core.eco_enrich import is_ready, load_error
-from src.core.stats import available_levels, print_analysis
+from src.core.printer import print_analysis as print_stats_analysis
+from src.core.stats import available_levels, build_groups, load_rounds
 from src.core.sync import sync_from_feed
 from src.db.db import check_connection, init_pool
 
@@ -63,7 +65,11 @@ async def menu_analysis(levels: list[tuple]):
         if choice in options:
             level, label, _ = options[choice]
             clear()
-            await print_analysis(level)
+            rounds = await load_rounds()
+            geo_level = None if level == "general" else level
+            result = analyze(rounds, geo_level)
+            groups = build_groups(rounds, geo_level)
+            print_stats_analysis(result, level, groups)
             input("\n  Presioná Enter para continuar...")
         else:
             print("  Opción no válida.")
