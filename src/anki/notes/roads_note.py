@@ -1,5 +1,7 @@
 import yaml
 
+from src.db.geo_signals import ROAD_LINE_SPEC, normalize_geo_signals
+
 from .base import Note
 
 
@@ -9,42 +11,6 @@ class RoadsNote(Note):
         self.MODEL = "GeoGuessr Roads"
         self.roads = country_data.get("roads")
 
-    def _normalize_road_line(self, line: dict) -> dict:
-        def build_section(name: str) -> dict | None:
-            section = {}
-
-            color = line.get(f"{name}_color")
-            if color is not None:
-                section["color"] = color
-
-            count = line.get(f"{name}_count")
-            if count is not None:
-                section["count"] = count
-
-            pattern = line.get(f"{name}_pattern")
-            if pattern is not None:
-                section["pattern"] = pattern
-
-            return section or None
-
-        normalized = {
-            "rule": line["rule"].replace("_", "-"),
-        }
-
-        inner = build_section("inner")
-        if inner:
-            normalized["inner"] = inner
-
-        outer = build_section("outer")
-        if outer:
-            normalized["outer"] = outer
-
-        extra = build_section("extra")
-        if extra:
-            normalized["extra"] = extra
-
-        return normalized
-
     def model(self) -> str:
         return self.MODEL
 
@@ -52,7 +18,7 @@ class RoadsNote(Note):
         if not self.roads:
             return None
 
-        normalized = [self._normalize_road_line(line) for line in self.roads]
+        normalized = [normalize_geo_signals(line, ROAD_LINE_SPEC) for line in self.roads]
 
         raw = yaml.dump(
             {"roads": {"lines": normalized}}, allow_unicode=True, sort_keys=False
