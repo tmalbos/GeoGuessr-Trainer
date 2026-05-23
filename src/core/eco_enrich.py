@@ -66,42 +66,40 @@ def init() -> None:
         t.start()
 
 
-def lookup(lat: float | None, lon: float | None) -> dict[str, str]:
-    """
-    Dado (lat, lon), devuelve {"realm": ..., "biome": ..., "ecoregion": ...}.
-    Bloquea hasta que la carga del shapefile termine (normalmente ya terminó).
-    Ante cualquier error devuelve el dict vacío.
-    """
+def lookup(lat: float, lon: float) -> dict[str, str]:
     if lat is None or lon is None:
-        return _EMPTY.copy()
+        raise ValueError(f"lookup() requires valid coordinates, got lat={lat!r} lon={lon!r}")
 
-    # Esperar a que la carga termine (en la práctica ya terminó)
     _ready.wait()
 
-    if _load_error is not None or _gdf is None:
-        return _EMPTY.copy()
+    if _load_error is not None:
+        raise RuntimeError("eco_enrich: shapefile could not be loaded") from _load_error
 
-    try:
-        from shapely.geometry import Point
+    if _gdf is None:
+        raise RuntimeError("eco_enrich: _gdf is None after successful load — internal bug")
 
-        point = Point(lon, lat)
+    from shapely.geometry import Point
 
-        candidates = _gdf.iloc[list(_gdf.sindex.query(point, predicate="intersects"))]
+    point = Point(lon, lat)
 
-        if candidates.empty:
-            candidates = _gdf[_gdf.geometry.contains(point)]
+    idxs = list(_gdf.sindex.query(point, predicate="intersects"))
+    candidates = _gdf.iloc[idxs] if idxs else _gdf.iloc[[]]
 
-        if candidates.empty:
-            return _EMPTY.copy()
+    if candidates.empty:
+        nearest = _gdf.sindex.nearest(point)
 
-        row = candidates.iloc[0]
-        return {
-            "realm": row["REALM"],
-            "biome": row["BIOME_NAME"],
-            "ecoregion": row["ECO_NAME"],
-        }
-    except Exception:
-        return _EMPTY.copy()
+        while hasattr(nearest, "__iter__"):
+            nearest = next(iter(nearest))
+
+        nearest_idx = int(nearest)
+        candidates = _gdf.iloc[[nearest_idx]]
+
+    row = candidates.iloc[0]
+    return {
+        "realm": row["REALM"],
+        "biome": row["BIOME_NAME"],
+        "ecoregion": row["ECO_NAME"],
+    }
 
 
 def is_ready() -> bool:
