@@ -2,7 +2,7 @@ import asyncio
 
 from src.anki.generator import generate_cards_for_game
 from src.core.geo_enrich import enrich_all
-from src.db.db import save_game
+from src.db.db import DbAdapter
 
 
 def fmt_time(seconds: int | None) -> str:
@@ -17,7 +17,7 @@ def fmt_location(geo: dict) -> str:
     return ", ".join(p for p in parts if p) or "Desconocido"
 
 
-async def process_game(game_data: dict, game_id: str) -> list[str]:
+async def process_game(game_data: dict, game_id: str, db: DbAdapter) -> list[str]:
     """
     Enriquece, muestra, guarda y genera cards para una partida.
     Devuelve lista de errores de Anki.
@@ -98,7 +98,7 @@ async def process_game(game_data: dict, game_id: str) -> list[str]:
     )
     print("═" * 65 + "\n")
 
-    await save_game(
+    await db.save_game(
         {
             "game_id": game_id,
             "challenge_token": game_data.get("challenge_token"),
@@ -110,4 +110,4 @@ async def process_game(game_data: dict, game_id: str) -> list[str]:
     )
 
     print("  🃏 Generando tarjetas Anki...")
-    return await generate_cards_for_game(rounds_to_save)
+    return await generate_cards_for_game(rounds_to_save, db=db)

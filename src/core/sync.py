@@ -6,7 +6,7 @@ import asyncio
 
 from src.core.analyzer import process_game
 from src.core.api import GeoguessrClient
-from src.db.db import fetch_saved_challenge_tokens
+from src.db.db import DbAdapter
 
 USER_ID = "68daf785000ba2a268744f99"
 
@@ -45,7 +45,7 @@ async def _fetch_worker(client: GeoguessrClient, entries: list[dict], queue: asy
     await queue.put(_SENTINEL)
 
 
-async def _process_worker(queue: asyncio.Queue, anki_errors: list[str]):
+async def _process_worker(queue: asyncio.Queue, anki_errors: list[str], db: DbAdapter):
     """Consume la queue, enriquece, guarda y genera cards."""
     while True:
         item = await queue.get()
@@ -53,11 +53,11 @@ async def _process_worker(queue: asyncio.Queue, anki_errors: list[str]):
             break
         game_token, game_data = item
         print(f"  🔍 [{game_token}] Procesando...")
-        errors = await process_game(game_data, game_token)
+        errors = await process_game(game_data, game_token, db=db)
         anki_errors.extend(errors)
 
 
-async def sync_from_feed(ncfa_cookie: str) -> None:
+async def sync_from_feed(ncfa_cookie: str, db: DbAdapter) -> None:
     client = GeoguessrClient(ncfa_cookie)
 
     print("\n🌍 Obteniendo feed...")
@@ -69,7 +69,7 @@ async def sync_from_feed(ncfa_cookie: str) -> None:
 
     print(f"   {len(entries)} partida(s) encontradas en el feed.\n")
 
-    saved_tokens = await fetch_saved_challenge_tokens([e["challenge_token"] for e in entries])
+    saved_tokens = await db.fetch_saved_challenge_tokens([e["challenge_token"] for e in entries])
 
     new_entries = [e for e in entries if e["challenge_token"] not in saved_tokens]
 
@@ -83,7 +83,7 @@ async def sync_from_feed(ncfa_cookie: str) -> None:
 
     await asyncio.gather(
         _fetch_worker(client, new_entries, queue),
-        _process_worker(queue, anki_errors),
+        _process_worker(queue, anki_errors, db=db),
     )
 
     await client.aclose()

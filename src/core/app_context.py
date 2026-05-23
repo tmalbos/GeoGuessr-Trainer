@@ -1,12 +1,13 @@
 """
 app_context.py — Owns all long-lived resources (pool, http clients, shapefile, cookie).
-Design checkpoint: method bodies are stubs.
 """
 
 import asyncio
 
 import asyncpg
 import httpx
+
+from src.db.db import DbAdapter, close_pool, init_pool
 
 
 class GeoEnrichClient:
@@ -38,6 +39,7 @@ class AppContext:
 
         # ── Resources (set in __init__ or init) ──────────────────────
         self.db_pool: asyncpg.Pool | None = None
+        self._db_adapter: DbAdapter | None = None
         self.ecoregion_gdf = None  # gpd.GeoDataFrame — loaded in background
 
         # Cheap resources created synchronously
@@ -45,9 +47,17 @@ class AppContext:
         self.geo_client = GeoEnrichClient(self.http_client)
         self.anki_client = AnkiConnectClient(self.http_client)
 
+    @property
+    def db_adapter(self) -> DbAdapter:
+        """Return the DbAdapter instance. Raises RuntimeError if not initialized."""
+        if self._db_adapter is None:
+            raise RuntimeError("AppContext not initialized — call await init() first")
+        return self._db_adapter
+
     async def init(self) -> None:
-        """Create DB pool (awaited). Kick off background loading for everything else."""
-        self.db_pool = await asyncpg.create_pool(dsn=self.db_dsn)
+        """Create DB pool and DbAdapter (awaited). Kick off background loading for everything else."""
+        self.db_pool = await init_pool(dsn=self.db_dsn)
+        self._db_adapter = DbAdapter(self.db_pool)
         _ = asyncio.create_task(self._load_background_resources())
 
     async def _load_background_resources(self) -> None:
@@ -57,9 +67,9 @@ class AppContext:
 
     async def aclose(self) -> None:
         """Release all resources."""
-        if self.db_pool is not None:
-            await self.db_pool.close()
-            self.db_pool = None
+        await close_pool(self.db_pool)
+        self.db_pool = None
+        self._db_adapter = None
         await self.http_client.aclose()
         self.ecoregion_gdf = None
 

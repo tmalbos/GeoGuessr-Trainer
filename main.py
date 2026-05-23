@@ -7,6 +7,7 @@ import os
 
 from src.anki.generator import wait_for_anki
 from src.core.api import CookieExpiredError
+from src.core.app_context import AppContext
 from src.core.auth import load_cookie, prompt_new_cookie, refresh_cookie
 from src.core.calculator import analyze
 from src.core.eco_enrich import init as eco_init
@@ -14,7 +15,6 @@ from src.core.eco_enrich import is_ready, load_error
 from src.core.printer import print_analysis as print_stats_analysis
 from src.core.stats import available_levels, build_groups, load_rounds
 from src.core.sync import sync_from_feed
-from src.db.db import check_connection, init_pool
 
 MIN_ROUNDS = 10
 
@@ -23,7 +23,7 @@ def clear():
     os.system("cls" if os.name == "nt" else "clear")
 
 
-async def menu_insert():
+async def menu_insert(db):
     cookie = load_cookie()
     if not cookie:
         print("\n⚠️  No hay cookie guardada. Ingresá una primero.")
@@ -35,13 +35,13 @@ async def menu_insert():
         return
 
     try:
-        await sync_from_feed(cookie)
+        await sync_from_feed(cookie, db=db)
     except CookieExpiredError:
         print("\n🔄 Cookie expirada, intentando renovar...")
         new_cookie = refresh_cookie()
         if new_cookie:
             try:
-                await sync_from_feed(new_cookie)
+                await sync_from_feed(new_cookie, db=db)
             except CookieExpiredError:
                 print("\n❌ No se pudo renovar la cookie.")
 
@@ -49,7 +49,7 @@ async def menu_insert():
     clear()
 
 
-async def menu_analysis(levels: list[tuple]):
+async def menu_analysis(levels: list[tuple], db):
     options = {str(i + 1): lv for i, lv in enumerate(levels)}
 
     while True:
@@ -65,7 +65,7 @@ async def menu_analysis(levels: list[tuple]):
         if choice in options:
             level, label, _ = options[choice]
             clear()
-            rounds = await load_rounds()
+            rounds = await load_rounds(db)
             geo_level = None if level == "general" else level
             result = analyze(rounds, geo_level)
             groups = build_groups(rounds, geo_level)
@@ -85,8 +85,14 @@ async def main():
     clear()
     eco_init()
 
-    await init_pool()
-    db_live = await asyncio.wait_for(check_connection(), timeout=2.0)
+    app_ctx = AppContext(
+        db_dsn=os.environ.get("PG_DSN", ""),
+        ncfa_cookie=os.environ.get("NCFA_COOKIE", ""),
+    )
+    await app_ctx.init()
+    db = app_ctx.db_adapter
+
+    db_live = await asyncio.wait_for(db.check_connection(), timeout=2.0)
 
     print("\n🌍  GeoGuessr Analyzer")
     print("─" * 30)
@@ -102,7 +108,7 @@ async def main():
         print(f"  ⚠️  Ecoregiones no disponibles: {err}")
 
     while True:
-        levels = await available_levels(MIN_ROUNDS) if db_live else []
+        levels = await available_levels(db, MIN_ROUNDS) if db_live else []
 
         print()
         print("  [1] Sincronizar partidas")
@@ -113,9 +119,9 @@ async def main():
         choice = input("\n> ").strip()
 
         if choice == "1":
-            await menu_insert()
+            await menu_insert(db)
         elif choice == "2" and levels:
-            await menu_analysis(levels)
+            await menu_analysis(levels, db)
             clear()
         elif choice == "3":
             menu_change_cookie()
