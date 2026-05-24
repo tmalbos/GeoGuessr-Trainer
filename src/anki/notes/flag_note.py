@@ -2,16 +2,12 @@ import asyncio
 import base64
 import concurrent.futures
 
-import httpx
-
-from src.anki.anki_connect import _invoke
-
 from .base import Note
 
 
 class FlagNote(Note):
-    def __init__(self, country_data: dict):
-        Note.__init__(self, country_data)
+    def __init__(self, country_data: dict, *, http_client=None, anki_client=None):
+        Note.__init__(self, country_data, http_client=http_client, anki_client=anki_client)
         self.SEPARATOR = "<br>"
         self.MODEL = "Básico (teclear la respuesta)"
         self.flag_url = country_data.get("flags", {}).get("png")
@@ -21,15 +17,14 @@ class FlagNote(Note):
         if not self.flag_url:
             return None
 
-        async with httpx.AsyncClient() as client:
-            r = await client.get(self.flag_url, timeout=10)
+        r = await self._http_client.get(self.flag_url, timeout=10)
 
         if r.status_code != 200:
             return None
 
         data_b64 = base64.b64encode(r.content).decode()
         filename = f"flag_{self.cca2}.png"
-        await _invoke("storeMediaFile", filename=filename, data=data_b64)
+        await self._anki_client._invoke("storeMediaFile", filename=filename, data=data_b64)
 
         return filename
 

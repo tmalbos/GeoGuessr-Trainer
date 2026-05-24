@@ -6,8 +6,8 @@ from .base import Note
 
 
 class LicensePlatesNote(Note):
-    def __init__(self, country_data: dict):
-        Note.__init__(self, country_data)
+    def __init__(self, country_data: dict, **kwargs):
+        Note.__init__(self, country_data, **kwargs)
         self.MODEL = "GeoGuessr License Plates"
         self.license_plates = country_data.get("license_plates")
 

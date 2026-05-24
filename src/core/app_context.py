@@ -7,22 +7,9 @@ import asyncio
 import asyncpg
 import httpx
 
+from src.anki.anki_connect import AnkiConnectClient
+from src.core.geo_enrich import GeoEnrichClient
 from src.db.db import DbAdapter, close_pool, init_pool
-
-
-class GeoEnrichClient:
-    """Wraps geo-enrichment API calls. Stub — full impl later."""
-
-    def __init__(self, http_client: httpx.AsyncClient) -> None:
-        self._client = http_client
-        self._semaphore = asyncio.Semaphore(1)
-
-
-class AnkiConnectClient:
-    """Wraps AnkiConnect API calls. Stub — full impl later."""
-
-    def __init__(self, http_client: httpx.AsyncClient) -> None:
-        self._client = http_client
 
 
 class AppContext:
@@ -43,7 +30,7 @@ class AppContext:
         self.ecoregion_gdf = None  # gpd.GeoDataFrame — loaded in background
 
         # Cheap resources created synchronously
-        self.http_client = httpx.AsyncClient()
+        self.http_client = httpx.AsyncClient(headers={"User-Agent": "GeoGuessr-Analyzer/1.0"})
         self.geo_client = GeoEnrichClient(self.http_client)
         self.anki_client = AnkiConnectClient(self.http_client)
 

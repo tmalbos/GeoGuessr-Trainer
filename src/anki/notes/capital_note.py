@@ -2,8 +2,8 @@ from .base import Note
 
 
 class CapitalNote(Note):
-    def __init__(self, country_data: dict):
-        Note.__init__(self, country_data)
+    def __init__(self, country_data: dict, **kwargs):
+        Note.__init__(self, country_data, **kwargs)
         self.MODEL = "Básico (teclear la respuesta)"
         self.capital = (country_data.get("capital") or [None])[0]
 
