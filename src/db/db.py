@@ -123,6 +123,7 @@ class DbAdapter:
                     g.played_at,
 
                     -- real geo
+                    real_c.continent     AS real_continent,
                     real_c.name          AS real_country,
                     real_s.name          AS real_state,
                     r.real_city,
@@ -131,6 +132,7 @@ class DbAdapter:
                     real_e.name          AS real_ecoregion,
 
                     -- guess geo (all nullable)
+                    guess_c.continent    AS guess_continent,
                     guess_c.name         AS guess_country,
                     guess_s.name         AS guess_state,
                     r.guess_city,
@@ -178,6 +180,7 @@ class DbAdapter:
                     "time_sec": row["time_sec"],
                     "played_at": row["played_at"],
                     "real_geo": {
+                        "continent": row["real_continent"],
                         "country": row["real_country"],
                         "state": row["real_state"],
                         "city": row["real_city"],
@@ -186,6 +189,7 @@ class DbAdapter:
                         "ecoregion": row["real_ecoregion"],
                     },
                     "guess_geo": {
+                        "continent": row["guess_continent"],
                         "country": row["guess_country"],
                         "state": row["guess_state"],
                         "city": row["guess_city"],

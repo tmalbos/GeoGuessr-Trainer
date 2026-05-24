@@ -211,11 +211,9 @@ class AnalysisResult:
 
 GEO_LEVELS = [
     ("general", "General"),
-    ("hemisphere", "Hemisferio"),
     ("realm", "Reino"),
     ("continent", "Continente"),
     ("biome", "Bioma"),
-    ("subregion", "Subcontinente"),
     ("country", "País"),
     ("ecoregion", "Ecorregión"),
 ]
@@ -223,12 +221,10 @@ GEO_LEVELS = [
 
 _CHILD_LEVEL = {
     "general": None,
-    "hemisphere": "continent",
     "realm": "biome",
-    "continent": "subregion",
+    "continent": "country",
     "biome": "ecoregion",
-    "subregion": "country",
-    "country": None,
+    "country": "state",
     "ecoregion": None,
 }
 
