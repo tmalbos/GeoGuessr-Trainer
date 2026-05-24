@@ -25,7 +25,7 @@ def clear():
     os.system("cls" if os.name == "nt" else "clear")
 
 
-async def menu_insert(db):
+async def menu_insert(db, app_ctx):
     cookie = load_cookie()
     if not cookie:
         print("\n⚠️  No hay cookie guardada. Ingresá una primero.")
@@ -33,19 +33,39 @@ async def menu_insert(db):
         if not cookie:
             return
 
-    if not await wait_for_anki():
+    if not await wait_for_anki(app_ctx.anki_client):
         return
 
+    gg_client = app_ctx.create_geoguessr_client()
     try:
-        await sync_from_feed(cookie, db=db)
+        await sync_from_feed(
+            gg_client,
+            db=db,
+            geo_client=app_ctx.geo_client,
+            anki_client=app_ctx.anki_client,
+            http_client=app_ctx.http_client,
+        )
     except CookieExpiredError:
         print("\n🔄 Cookie expirada, intentando renovar...")
         new_cookie = refresh_cookie()
         if new_cookie:
+            fresh_client = app_ctx.create_geoguessr_client()
             try:
-                await sync_from_feed(new_cookie, db=db)
+                await sync_from_feed(
+                    fresh_client,
+                    db=db,
+                    geo_client=app_ctx.geo_client,
+                    anki_client=app_ctx.anki_client,
+                    http_client=app_ctx.http_client,
+                )
             except CookieExpiredError:
                 print("\n❌ No se pudo renovar la cookie.")
+            finally:
+                await fresh_client.aclose()
+        else:
+            print("\n❌ No se pudo renovar la cookie.")
+    finally:
+        await gg_client.aclose()
 
     input("\n  Presioná Enter para continuar...")
     clear()
@@ -122,7 +142,7 @@ async def main():
         choice = input("\n> ").strip()
 
         if choice == "1":
-            await menu_insert(db)
+            await menu_insert(db, app_ctx)
         elif choice == "2" and levels:
             await menu_analysis(levels, db)
             clear()

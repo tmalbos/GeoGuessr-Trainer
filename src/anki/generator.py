@@ -2,14 +2,21 @@
 generator.py — Orquesta la generación de tarjetas Anki para una partida.
 """
 
-from src.anki.anki_connect import add_note, ensure_deck, note_exists
+import httpx
+
+from src.anki.anki_connect import AnkiConnectClient
 from src.anki.cards import build_notes
 from src.db.db import DbAdapter
 
 DECK = "GeoGuessr"
 
 
-async def generate_cards_for_game(rounds: list[dict], db: DbAdapter) -> list[str]:
+async def generate_cards_for_game(
+    rounds: list[dict],
+    db: DbAdapter,
+    anki_client: AnkiConnectClient,
+    http_client: httpx.AsyncClient,
+) -> list[str]:
     """
     Genera tarjetas para los países vistos en las rondas.
     Devuelve lista de errores (vacía si todo fue bien).
@@ -20,21 +27,21 @@ async def generate_cards_for_game(rounds: list[dict], db: DbAdapter) -> list[str
         print("\n  ⚠️  No se encontraron países en las rondas.")
         return []
 
-    await ensure_deck(DECK)
+    await anki_client.ensure_deck(DECK)
 
     created = 0
     skipped = 0
     errors = []
 
     for code in seen:
-        notes = await build_notes(code, db=db)
+        notes = await build_notes(code, db=db, http_client=http_client, anki_client=anki_client)
 
         for note in notes:
-            if await note_exists(DECK, note["tags"]):
+            if await anki_client.note_exists(DECK, note["tags"]):
                 skipped += 1
                 continue
             try:
-                result = await add_note(
+                result = await anki_client.add_note(
                     deck=DECK,
                     model=note["model"],
                     fields=note["fields"],
@@ -54,13 +61,11 @@ async def generate_cards_for_game(rounds: list[dict], db: DbAdapter) -> list[str
     return errors
 
 
-async def wait_for_anki() -> bool:
+async def wait_for_anki(anki_client: AnkiConnectClient) -> bool:
     """Verifica que Anki esté corriendo. Bloquea hasta que el usuario lo abra."""
     import asyncio
 
-    from src.anki.anki_connect import is_running
-
-    if await is_running():
+    if await anki_client.is_running():
         return True
 
     print("\n  ⚠️  Anki no está abierto")
@@ -70,7 +75,7 @@ async def wait_for_anki() -> bool:
         await asyncio.get_event_loop().run_in_executor(
             None, lambda: input("  Presioná Enter cuando Anki esté listo... ")
         )
-        if await is_running():
+        if await anki_client.is_running():
             print("  ✅ Anki detectado")
             return True
         print("\n  ⚠️  Anki sigue sin responder")

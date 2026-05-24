@@ -2,8 +2,8 @@ from .base import Note
 
 
 class DrivingSideNote(Note):
-    def __init__(self, country_data: dict):
-        Note.__init__(self, country_data)
+    def __init__(self, country_data: dict, **kwargs):
+        Note.__init__(self, country_data, **kwargs)
         self.SEPARATOR = "<br>"
         self.MODEL = "Single Choice"
         self.side = country_data.get("car", {})["side"].lower()

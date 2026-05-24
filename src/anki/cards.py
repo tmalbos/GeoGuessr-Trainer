@@ -14,12 +14,6 @@ import src.anki.notes as notes_pkg
 from src.anki.notes.base import Note
 from src.db.db import DbAdapter
 
-_client = httpx.AsyncClient(
-    headers={"User-Agent": "GeoGuessr-Anki/1.0"},
-    timeout=8,
-)
-_cache: dict[str, dict] = {}
-
 
 def _remove_accents(text: str) -> str:
     return "".join(c for c in unicodedata.normalize("NFD", text) if unicodedata.category(c) != "Mn")
@@ -34,26 +28,31 @@ def _pascal(name: str) -> str:
     )
 
 
-async def _rest(cca2: str) -> dict:
-    key = cca2.lower()
-    if key in _cache:
-        return _cache[key]
-    try:
-        r = await _client.get(
-            f"https://restcountries.com/v3.1/alpha/{cca2}",
-            params={"fields": "translations,capital,car,tld,cca2,flags"},
-        )
-        if r.status_code == 200:
-            data = r.json()
-            entry = data[0] if isinstance(data, list) else data
-            _cache[key] = entry
-            return entry
-    except Exception:
-        pass
-    return {}
+_cache: dict[str, dict] = {}
 
 
-async def build_notes(country_code: str, db: DbAdapter) -> list[dict]:
+async def build_notes(
+    country_code: str, db: DbAdapter, http_client: httpx.AsyncClient, anki_client
+) -> list[dict]:
+
+    async def _rest(cca2: str) -> dict:
+        key = cca2.lower()
+        if key in _cache:
+            return _cache[key]
+        try:
+            r = await http_client.get(
+                f"https://restcountries.com/v3.1/alpha/{cca2}",
+                params={"fields": "translations,capital,car,tld,cca2,flags"},
+            )
+            if r.status_code == 200:
+                data = r.json()
+                entry = data[0] if isinstance(data, list) else data
+                _cache[key] = entry
+                return entry
+        except Exception:
+            pass
+        return {}
+
     data = await _rest(country_code)
     if not data:
         print(f"  [WARN] No REST data for '{country_code}'")
@@ -84,5 +83,6 @@ async def build_notes(country_code: str, db: DbAdapter) -> list[dict]:
     return [
         {**note, "tags": note["tags"] + [country_data["pascal_tag"]]}
         for cls in note_classes
-        if (note := cls(country_data).note()) is not None
+        if (note := cls(country_data, http_client=http_client, anki_client=anki_client).note())
+        is not None
     ]

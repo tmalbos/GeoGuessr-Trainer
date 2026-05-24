@@ -4,8 +4,12 @@ sync.py — Pipeline async: fetch → enrich+save → anki
 
 import asyncio
 
+import httpx
+
+from src.anki.anki_connect import AnkiConnectClient
 from src.core.analyzer import process_game
 from src.core.api import GeoguessrClient
+from src.core.geo_enrich import GeoEnrichClient
 from src.db.db import DbAdapter
 
 USER_ID = "68daf785000ba2a268744f99"
@@ -45,7 +49,14 @@ async def _fetch_worker(client: GeoguessrClient, entries: list[dict], queue: asy
     await queue.put(_SENTINEL)
 
 
-async def _process_worker(queue: asyncio.Queue, anki_errors: list[str], db: DbAdapter):
+async def _process_worker(
+    queue: asyncio.Queue,
+    anki_errors: list[str],
+    db: DbAdapter,
+    geo_client: GeoEnrichClient,
+    anki_client: AnkiConnectClient,
+    http_client: httpx.AsyncClient,
+):
     """Consume la queue, enriquece, guarda y genera cards."""
     while True:
         item = await queue.get()
@@ -53,18 +64,28 @@ async def _process_worker(queue: asyncio.Queue, anki_errors: list[str], db: DbAd
             break
         game_token, game_data = item
         print(f"  🔍 [{game_token}] Procesando...")
-        errors = await process_game(game_data, game_token, db=db)
+        errors = await process_game(
+            game_data,
+            game_token,
+            db=db,
+            geo_client=geo_client,
+            anki_client=anki_client,
+            http_client=http_client,
+        )
         anki_errors.extend(errors)
 
 
-async def sync_from_feed(ncfa_cookie: str, db: DbAdapter) -> None:
-    client = GeoguessrClient(ncfa_cookie)
-
+async def sync_from_feed(
+    client: GeoguessrClient,
+    db: DbAdapter,
+    geo_client: GeoEnrichClient,
+    anki_client: AnkiConnectClient,
+    http_client: httpx.AsyncClient,
+) -> None:
     print("\n🌍 Obteniendo feed...")
     entries = await client.fetch_feed_entries()
     if not entries:
         print("⚠️  No se encontraron partidas en el feed.")
-        await client.aclose()
         return
 
     print(f"   {len(entries)} partida(s) encontradas en el feed.\n")
@@ -75,7 +96,6 @@ async def sync_from_feed(ncfa_cookie: str, db: DbAdapter) -> None:
 
     if not new_entries:
         print("\n  ✅ Todo al día, no hay partidas nuevas.")
-        await client.aclose()
         return
 
     queue: asyncio.Queue = asyncio.Queue(maxsize=4)
@@ -83,10 +103,15 @@ async def sync_from_feed(ncfa_cookie: str, db: DbAdapter) -> None:
 
     await asyncio.gather(
         _fetch_worker(client, new_entries, queue),
-        _process_worker(queue, anki_errors, db=db),
+        _process_worker(
+            queue,
+            anki_errors,
+            db=db,
+            geo_client=geo_client,
+            anki_client=anki_client,
+            http_client=http_client,
+        ),
     )
-
-    await client.aclose()
 
     if anki_errors:
         print("\n  ⚠️  Errores de Anki:")
