@@ -15,7 +15,7 @@ from src.core.calculator import analyze
 from src.core.printer import print_analysis as print_stats_analysis
 from src.core.stats import available_levels, build_groups, load_rounds
 from src.core.sync import sync_from_feed
-from src.i18n import load as load_lang
+from src.i18n.lang import load as load_lang
 
 MIN_ROUNDS = 10
 
