@@ -1,3 +1,17 @@
+scores:
+  Terrible: Pésimo
+  Decent: Decente
+  High: Alto
+  Exceptional: Excepcional
+  Elite: Elite
+  Inhuman: Inhumano
+geo_levels:
+  General: General
+  Realm: Reino
+  Continent: Continente
+  Biome: Bioma
+  Country: País
+  Ecoregion: Ecorregión
 continents:
   Africa: África
   Antarctica: Antártida
