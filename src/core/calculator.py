@@ -8,6 +8,8 @@ import statistics
 from collections import defaultdict
 from dataclasses import dataclass
 
+from src.i18n.lang import translate
+
 
 def _dist_to_score(km: float) -> int:
     return int(5000 * math.exp(-0.000673 * km) + 0.5)
@@ -15,16 +17,16 @@ def _dist_to_score(km: float) -> int:
 
 def _score_label(score: int) -> str:
     if score <= 2500:
-        return "Pésimo"
+        return translate("Terrible")
     if score <= 3750:
-        return "Decente"
+        return translate("Decent")
     if score <= 4375:
-        return "Alto"
+        return translate("High")
     if score <= 4713:
-        return "Excepcional"
+        return translate("Exceptional")
     if score <= 4857:
-        return "Elite"
-    return "Inhumano"
+        return translate("Elite")
+    return translate("Inhuman")
 
 
 def _arrow(now_val, prev_val, lower_is_better=True) -> str:
@@ -211,11 +213,11 @@ class AnalysisResult:
 
 GEO_LEVELS = [
     ("general", "General"),
-    ("realm", "Reino"),
-    ("continent", "Continente"),
-    ("biome", "Bioma"),
-    ("country", "País"),
-    ("ecoregion", "Ecorregión"),
+    ("realm", "Realm"),
+    ("continent", "Continent"),
+    ("biome", "Biome"),
+    ("country", "Country"),
+    ("ecoregion", "Ecoregion"),
 ]
 
 
@@ -231,7 +233,7 @@ _CHILD_LEVEL = {
 
 def analyze(rounds: list[dict], level: str | None) -> AnalysisResult:
     """Compute analysis for a given geo level and return structured result."""
-    level_label = dict(GEO_LEVELS).get(level, level) if level else "General"
+    level_label = translate(dict(GEO_LEVELS).get(level, level) if level else "General")
     zones_raw = _zone_stats(rounds, level)
     zones = {
         name: ZoneStats(

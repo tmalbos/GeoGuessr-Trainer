@@ -25,7 +25,7 @@ def test_analyze_returns_analysis_result_with_zone_stats():
     # Assert
     assert isinstance(result, AnalysisResult)
     assert result.level == "country"
-    assert result.level_label == "País"
+    assert result.level_label == "Country"
     assert "France" in result.zones
     zone = result.zones["France"]
     assert isinstance(zone, ZoneStats)
