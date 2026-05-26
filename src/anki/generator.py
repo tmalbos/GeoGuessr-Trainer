@@ -7,6 +7,7 @@ import httpx
 from src.anki.anki_connect import AnkiConnectClient
 from src.anki.cards import build_notes
 from src.db.db import DbAdapter
+from src.i18n.lang import translate
 
 DECK = "GeoGuessr"
 
@@ -24,7 +25,7 @@ async def generate_cards_for_game(
     seen = {r["real_geo"]["country_code"] for r in rounds if r["real_geo"].get("country_code")}
 
     if not seen:
-        print("\n  ⚠️  No se encontraron países en las rondas.")
+        print("\n  " + translate("⚠️  No countries found in rounds."))
         return []
 
     await anki_client.ensure_deck(DECK)
@@ -57,7 +58,13 @@ async def generate_cards_for_game(
                 else:
                     errors.append(f"({code}): {e}")
 
-    print(f"  ✅ Tarjetas creadas: {created}  |  Ya existían: {skipped}")
+    print(
+        translate(
+            "  ✅ Cards created: {created}  |  Already existed: {skipped}",
+            created=created,
+            skipped=skipped,
+        )
+    )
     return errors
 
 
@@ -68,14 +75,14 @@ async def wait_for_anki(anki_client: AnkiConnectClient) -> bool:
     if await anki_client.is_running():
         return True
 
-    print("\n  ⚠️  Anki no está abierto")
-    print("  Abrí Anki y asegurate de que AnkiConnect esté instalado")
+    print("\n  " + translate("⚠️  Anki is not open"))
+    print(translate("  Open Anki and make sure AnkiConnect is installed"))
 
     while True:
         await asyncio.get_event_loop().run_in_executor(
-            None, lambda: input("  Presioná Enter cuando Anki esté listo... ")
+            None, lambda: input(translate("  Press Enter when Anki is ready... "))
         )
         if await anki_client.is_running():
-            print("  ✅ Anki detectado")
+            print(translate("  ✅ Anki detected"))
             return True
-        print("\n  ⚠️  Anki sigue sin responder")
+        print("\n  " + translate("⚠️  Anki still not responding"))

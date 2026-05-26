@@ -16,6 +16,7 @@ from src.core.printer import print_analysis as print_stats_analysis
 from src.core.stats import available_levels, build_groups, load_rounds
 from src.core.sync import sync_from_feed
 from src.i18n.lang import load as load_lang
+from src.i18n.lang import translate
 
 MIN_ROUNDS = 10
 
@@ -44,7 +45,7 @@ async def menu_insert(db, app_ctx: AppContext):
             http_client=app_ctx.http_client,
         )
     except CookieExpiredError:
-        print("\n🔄 Cookie expirada, intentando renovar...")
+        print("\n" + translate("🔄 Cookie expired, attempting renewal..."))
         new_cookie = await refresh_cookie()
         if new_cookie:
             fresh_client = app_ctx.create_geoguessr_client()
@@ -57,15 +58,15 @@ async def menu_insert(db, app_ctx: AppContext):
                     http_client=app_ctx.http_client,
                 )
             except CookieExpiredError:
-                print("\n❌ No se pudo renovar la cookie.")
+                print("\n" + translate("❌ Could not refresh the cookie."))
             finally:
                 await fresh_client.aclose()
         else:
-            print("\n❌ No se pudo renovar la cookie.")
+            print("\n" + translate("❌ Could not refresh the cookie."))
     finally:
         await gg_client.aclose()
 
-    input("\n  Presioná Enter para continuar...")
+    input("\n  " + translate("Press Enter to continue..."))
     clear()
 
 
@@ -74,10 +75,10 @@ async def menu_analysis(levels: list[tuple], db):
 
     while True:
         clear()
-        print("\n  ── Análisis ─────────────────────────────")
+        print("\n  ── " + translate("Analysis") + " ─────────────────────────────")
         for key, (_, label, n) in options.items():
-            print(f"  [{key}] {label}  ({n} rondas)")
-        print("  [0] Volver")
+            print(translate("  [{key}] {label}  ({n} rounds)", key=key, label=label, n=n))
+        print("  [0] " + translate("Back"))
 
         choice = input("\n> ").strip()
         if choice == "0":
@@ -90,9 +91,9 @@ async def menu_analysis(levels: list[tuple], db):
             result = analyze(rounds, geo_level)
             groups = build_groups(rounds, geo_level)
             print_stats_analysis(result, level, groups)
-            input("\n  Presioná Enter para continuar...")
+            input("\n  " + translate("Press Enter to continue..."))
         else:
-            print("  Opción no válida.")
+            print(translate("  Invalid option."))
 
 
 async def main():
@@ -111,17 +112,17 @@ async def main():
     print("─" * 30)
 
     if not db_live:
-        print("  ℹ️  PostgreSQL no disponible — los datos no se guardarán.")
-        print("     Asegurate de tener Postgres corriendo y PG_DSN configurado.\n")
+        print(translate("  ℹ️  PostgreSQL unavailable — data will not be saved."))
+        print(translate("     Make sure Postgres is running and PG_DSN is configured.\n"))
 
     while True:
         levels = await available_levels(db, MIN_ROUNDS) if db_live else []
 
         print()
-        print("  [1] Sincronizar partidas")
+        print("  [1] " + translate("Sync games"))
         if levels:
-            print("  [2] Análisis de datos")
-        print("  [3] Cambiar cookie")
+            print("  [2] " + translate("Data analysis"))
+        print("  [3] " + translate("Change cookie"))
 
         choice = input("\n> ").strip()
 
@@ -131,7 +132,7 @@ async def main():
             await menu_analysis(levels, db)
             clear()
         else:
-            print("  Opción no válida.")
+            print(translate("  Invalid option."))
             continue
 
         clear()

@@ -8,7 +8,7 @@ from core.printer import print_analysis
 
 def test_header_shows_level_label_when_zones_exist():
     # Arrange
-    result = AnalysisResult(level="country", level_label="País", zones={})
+    result = AnalysisResult(level="country", level_label="Country", zones={})
     out = StringIO()
 
     # Act
@@ -16,13 +16,13 @@ def test_header_shows_level_label_when_zones_exist():
     output = out.getvalue()
 
     # Assert
-    assert "ANÁLISIS — PAÍS" in output
+    assert "ANALYSIS — COUNTRY" in output
     assert "═" in output
 
 
 def test_warning_when_no_zones_available():
     # Arrange
-    result = AnalysisResult(level="country", level_label="País", zones={})
+    result = AnalysisResult(level="country", level_label="Country", zones={})
     out = StringIO()
 
     # Act
@@ -30,7 +30,7 @@ def test_warning_when_no_zones_available():
     output = out.getvalue()
 
     # Assert
-    assert "No hay zonas" in output
+    assert "No zones with" in output
 
 
 def test_zone_stats_rendered_for_each_zone():
@@ -40,19 +40,19 @@ def test_zone_stats_rendered_for_each_zone():
             total=150,
             window=100,
             score_high=3500,
-            level_label="Excepcional",
+            level_label="Exceptional",
             level_arrow="↑",
-            p90_label="Alto",
+            p90_label="High",
             p90_arrow="→",
             p90_now_km=800.0,
-            cons_label="Decente",
+            cons_label="Decent",
             cons_arrow="↓",
             std_now_km=300.0,
             ci_lo=None,
             ci_hi=None,
         )
     }
-    result = AnalysisResult(level="country", level_label="País", zones=zones)
+    result = AnalysisResult(level="country", level_label="Country", zones=zones)
     groups = {"France": [{}] * 150}
     out = StringIO()
 
@@ -62,10 +62,10 @@ def test_zone_stats_rendered_for_each_zone():
 
     # Assert
     assert "▸ France" in output
-    assert "Nivel actual" in output
-    assert "Excepcional" in output
-    assert "Peores rondas" in output
-    assert "Consistencia" in output
+    assert "Current level" in output
+    assert "Exceptional" in output
+    assert "Worst rounds" in output
+    assert "Consistency" in output
 
 
 def test_zones_sorted_by_score_ascending():
@@ -75,12 +75,12 @@ def test_zones_sorted_by_score_ascending():
             total=80,
             window=80,
             score_high=4000,
-            level_label="Alto",
+            level_label="High",
             level_arrow="→",
-            p90_label="Decente",
+            p90_label="Decent",
             p90_arrow="→",
             p90_now_km=600.0,
-            cons_label="Alto",
+            cons_label="High",
             cons_arrow="↑",
             std_now_km=200.0,
             ci_lo=None,
@@ -90,19 +90,19 @@ def test_zones_sorted_by_score_ascending():
             total=150,
             window=100,
             score_high=3500,
-            level_label="Excepcional",
+            level_label="Exceptional",
             level_arrow="↑",
-            p90_label="Alto",
+            p90_label="High",
             p90_arrow="→",
             p90_now_km=800.0,
-            cons_label="Decente",
+            cons_label="Decent",
             cons_arrow="↓",
             std_now_km=300.0,
             ci_lo=None,
             ci_hi=None,
         ),
     }
-    result = AnalysisResult(level="country", level_label="País", zones=zones)
+    result = AnalysisResult(level="country", level_label="Country", zones=zones)
     out = StringIO()
 
     # Act
@@ -122,19 +122,19 @@ def test_confidence_interval_when_bootstrap_available():
             total=150,
             window=100,
             score_high=3500,
-            level_label="Excepcional",
+            level_label="Exceptional",
             level_arrow="↑",
-            p90_label="Alto",
+            p90_label="High",
             p90_arrow="→",
             p90_now_km=800.0,
-            cons_label="Decente",
+            cons_label="Decent",
             cons_arrow="↓",
             std_now_km=300.0,
             ci_lo=500.0,
             ci_hi=1200.0,
         )
     }
-    result = AnalysisResult(level="country", level_label="País", zones=zones)
+    result = AnalysisResult(level="country", level_label="Country", zones=zones)
     groups = {"France": [{}] * 150}
     out = StringIO()
 
@@ -143,7 +143,7 @@ def test_confidence_interval_when_bootstrap_available():
     output = out.getvalue()
 
     # Assert
-    assert "rango confiable" in output
+    assert "reliable range" in output
     assert "500" in output
     assert "1,200" in output
 
@@ -155,19 +155,19 @@ def test_confusion_section_when_geo_level_has_conflicts():
             total=150,
             window=100,
             score_high=3500,
-            level_label="Excepcional",
+            level_label="Exceptional",
             level_arrow="↑",
-            p90_label="Alto",
+            p90_label="High",
             p90_arrow="→",
             p90_now_km=800.0,
-            cons_label="Decente",
+            cons_label="Decent",
             cons_arrow="↓",
             std_now_km=300.0,
             ci_lo=None,
             ci_hi=None,
         )
     }
-    result = AnalysisResult(level="country", level_label="País", zones=zones)
+    result = AnalysisResult(level="country", level_label="Country", zones=zones)
     groups = {
         "France": [
             {
@@ -195,6 +195,6 @@ def test_confusion_section_when_geo_level_has_conflicts():
     output = out.getvalue()
 
     # Assert
-    assert "Confusión clave" in output
+    assert "Key confusion" in output
     assert "France" in output
     assert "Germany" in output
