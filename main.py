@@ -15,6 +15,7 @@ from src.core.calculator import analyze
 from src.core.printer import print_analysis as print_stats_analysis
 from src.core.stats import available_levels, build_groups, load_rounds
 from src.core.sync import sync_from_feed
+from src.i18n import load as load_lang
 
 MIN_ROUNDS = 10
 
@@ -97,6 +98,7 @@ async def menu_analysis(levels: list[tuple], db):
 async def main():
     clear()
     load_dotenv()
+    await load_lang(os.environ.get("GEOGUESSR_LANG", "en"))
 
     app_ctx = AppContext(db_dsn=os.environ.get("PG_DSN", ""))
 
