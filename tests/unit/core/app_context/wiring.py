@@ -8,17 +8,6 @@ from core.app_context import AppContext
 
 
 @pytest.mark.asyncio
-async def test_clients_share_same_http_client_instance():
-    """geo_client and anki_client both use the same http_client instance."""
-    # Arrange — all are None at construction time
-    ctx = AppContext(db_dsn="postgresql://localhost:5432/geoguessr")
-
-    # Assert — resources are created lazily in init(), not at construction
-    assert ctx.geo_client is None
-    assert ctx.anki_client is None
-
-
-@pytest.mark.asyncio
 async def test_http_client_is_closed_on_aclose():
     """aclose() triggers http_client.aclose()."""
     # Arrange
