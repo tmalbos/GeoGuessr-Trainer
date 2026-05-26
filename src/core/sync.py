@@ -11,6 +11,7 @@ from src.core.analyzer import process_game
 from src.core.api import GeoguessrClient
 from src.core.geo_enrich import GeoEnrichClient
 from src.db.db import DbAdapter
+from src.i18n.lang import translate
 
 USER_ID = "68daf785000ba2a268744f99"
 
@@ -30,16 +31,16 @@ async def _fetch_worker(client: GeoguessrClient, entries: list[dict], queue: asy
             game_token = await client.fetch_game_token(challenge_token)
 
         if not game_token:
-            print(f"  ⚠️  [{challenge_token}] Sin game token.")
+            print(translate("  ⚠️  [{token}] No game token.", token=challenge_token))
             continue
 
         try:
             game_data = await client.fetch_game(game_token)
         except ValueError as e:
-            print(f"  ❌ [{game_token}] No encontrado: {e}")
+            print(translate("  ❌ [{token}] Not found: {e}", token=game_token, e=e))
             continue
         except Exception as e:
-            print(f"  ❌ [{game_token}] Error inesperado: {e}")
+            print(translate("  ❌ [{token}] Unexpected error: {e}", token=game_token, e=e))
             continue
 
         game_data["challenge_token"] = challenge_token
@@ -63,7 +64,7 @@ async def _process_worker(
         if item is _SENTINEL:
             break
         game_token, game_data = item
-        print(f"  🔍 [{game_token}] Procesando...")
+        print(translate("  🔍 [{token}] Processing...", token=game_token))
         errors = await process_game(
             game_data,
             game_token,
@@ -82,22 +83,22 @@ async def sync_from_feed(
     anki_client: AnkiConnectClient,
     http_client: httpx.AsyncClient,
 ) -> None:
-    print("\n🌍 Obteniendo feed...")
+    print("\n" + translate("🌍 Fetching feed..."))
 
     entries = await client.fetch_feed_entries()
 
     if not entries:
-        print("⚠️  No se encontraron partidas en el feed.")
+        print(translate("⚠️  No games found in feed."))
         return
 
-    print(f"   {len(entries)} partida(s) encontradas en el feed.\n")
+    print(translate("   {n} game(s) found in feed.\n", n=len(entries)))
 
     saved_tokens = await db.fetch_saved_challenge_tokens([e["challenge_token"] for e in entries])
 
     new_entries = [e for e in entries if e["challenge_token"] not in saved_tokens]
 
     if not new_entries:
-        print("\n  ✅ Todo al día, no hay partidas nuevas.")
+        print("\n  " + translate("✅ Up to date, no new games."))
         return
 
     queue: asyncio.Queue = asyncio.Queue(maxsize=4)
@@ -116,6 +117,6 @@ async def sync_from_feed(
     )
 
     if anki_errors:
-        print("\n  ⚠️  Errores de Anki:")
+        print("\n  " + translate("⚠️  Anki errors:"))
         for err in anki_errors:
             print(f"      · {err}")

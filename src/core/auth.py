@@ -6,6 +6,8 @@ Si no puede, pide que el usuario la ingrese manualmente.
 
 import os
 
+from src.i18n.lang import translate
+
 COOKIE_FILE = "geoguessr_cookie.txt"
 
 browsers = [
@@ -143,4 +145,4 @@ async def refresh_cookie() -> str | None:
 
         return cookie
 
-    raise RuntimeError("  ⚠️  No se pudo renovar la cookie")
+    raise RuntimeError(translate("  ⚠️  Could not refresh the cookie"))

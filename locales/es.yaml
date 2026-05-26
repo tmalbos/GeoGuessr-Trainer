@@ -1,3 +1,67 @@
+cli:
+  # analyzer.py
+  Unknown: Desconocido
+  "⚠️  No rounds found in this game.": "⚠️  No se encontraron rondas en este juego."
+  "  [{game_id}] Enriching geographic data...": "  [{game_id}] Enriqueciendo datos geográficos..."
+  "  RESULTS — {map_name}": "  RESULTADOS — {map_name}"
+  "Round {i}": "Ronda {i}"
+  "  📍 Real location : {loc}": "  📍 Lugar real  : {loc}"
+  "  🎯 Your guess    : {loc}": "  🎯 Tu guess    : {loc}"
+  "  ⏱ Time          : {t}": "  ⏱ Tiempo      : {t}"
+  "  ⭐ Score         : {pts} / 5,000": "  ⭐ Puntaje     : {pts} / 5,000"
+  "  📏 Distance      : {dist}": "  📏 Distancia   : {dist}"
+  "  👣 Steps         : {steps}": "  👣 Pasos       : {steps}"
+  "  SUMMARY: {cant} rounds  |  Total score: {total_score} / 25,000  |  Average distance: {avg_dist} km": "  RESUMEN: {cant} rondas  |  Puntaje total: {total_score} / 25,000  |  Distancia promedio: {avg_dist} km"
+  "  🃏 Generating Anki cards...": "  🃏 Generando tarjetas Anki..."
+  # printer.py
+  "⚠️  No zones with {n}+ rounds for this level.": "⚠️  No hay zonas con {n}+ rondas para este nivel."
+  "  ANALYSIS — {label}": "  ANÁLISIS — {label}"
+  "  (level based on last {high} | progress: last {low} vs last {mid})": "  (nivel basado en últ. {high} | progreso: últ. {low} vs últ. {mid})"
+  "{n} rounds total": "{n} rondas en total"
+  "reliable range: {lo} – {hi} km": "rango confiable: {lo} – {hi} km"
+  "  Current level    : {label} {arrow}": "  Nivel actual     : {label} {arrow}"
+  "  Worst rounds     : {label} {arrow}": "  Peores rondas    : {label} {arrow}"
+  "in your worst 10%, equivalent to {km} km error": "en tu 10% peor, equivale a {km} km de error"
+  "  Consistency      : {label} {arrow}": "  Consistencia     : {label} {arrow}"
+  "your typical variation is ±{km} km": "tu variación típica equivale a ±{km} km"
+  "  Key confusion    : you mix up {real} → {guess}": "  Confusión clave  : confundís {real} → {guess}"
+  "{freq}x, ~{km} km penalty": "{freq}x, ~{km} km de penalidad"
+  "  Confusions ({label}):": "  Confusiones ({label}):"
+  "{freq}x, ~{km} km": "{freq}x, ~{km} km"
+  # sync.py
+  "🌍 Fetching feed...": "🌍 Obteniendo feed..."
+  "⚠️  No games found in feed.": "⚠️  No se encontraron partidas en el feed."
+  "   {n} game(s) found in feed.\n": "   {n} partida(s) encontradas en el feed.\n"
+  "✅ Up to date, no new games.": "✅ Todo al día, no hay partidas nuevas."
+  "  ⚠️  [{token}] No game token.": "  ⚠️  [{token}] Sin game token."
+  "  ❌ [{token}] Not found: {e}": "  ❌ [{token}] No encontrado: {e}"
+  "  ❌ [{token}] Unexpected error: {e}": "  ❌ [{token}] Error inesperado: {e}"
+  "  🔍 [{token}] Processing...": "  🔍 [{token}] Procesando..."
+  "⚠️  Anki errors:": "⚠️  Errores de Anki:"
+  # generator.py
+  "⚠️  No countries found in rounds.": "⚠️  No se encontraron países en las rondas."
+  "  ✅ Cards created: {created}  |  Already existed: {skipped}": "  ✅ Tarjetas creadas: {created}  |  Ya existían: {skipped}"
+  "⚠️  Anki is not open": "⚠️  Anki no está abierto"
+  "  Open Anki and make sure AnkiConnect is installed": "  Abrí Anki y asegurate de que AnkiConnect esté instalado"
+  "  Press Enter when Anki is ready... ": "  Presioná Enter cuando Anki esté listo... "
+  "  ✅ Anki detected": "  ✅ Anki detectado"
+  "⚠️  Anki still not responding": "⚠️  Anki sigue sin responder"
+  # auth.py
+  "  ⚠️  Could not refresh the cookie": "  ⚠️  No se pudo renovar la cookie"
+  # main.py
+  "🔄 Cookie expired, attempting renewal...": "🔄 Cookie expirada, intentando renovar..."
+  "❌ Could not refresh the cookie.": "❌ No se pudo renovar la cookie."
+  "Press Enter to continue...": "Presioná Enter para continuar..."
+  Analysis: Análisis
+  Back: Volver
+  "  [{key}] {label}  ({n} rounds)": "  [{key}] {label}  ({n} rondas)"
+  "  Invalid option.": "  Opción no válida."
+  "  ℹ️  PostgreSQL unavailable — data will not be saved.": "  ℹ️  PostgreSQL no disponible — los datos no se guardarán."
+  "     Make sure Postgres is running and PG_DSN is configured.\n": "     Asegurate de tener Postgres corriendo y PG_DSN configurado.\n"
+  "Sync games": "Sincronizar partidas"
+  "Data analysis": "Análisis de datos"
+  "Change cookie": "Cambiar cookie"
+
 scores:
   Terrible: Pésimo
   Decent: Decente
