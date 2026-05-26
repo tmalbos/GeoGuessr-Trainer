@@ -11,7 +11,7 @@ from core.app_context import AppContext
 async def test_db_pool_is_set_when_context_is_initialized():
     """init() creates a pool via init_pool() and assigns it to db_pool."""
     # Arrange
-    ctx = AppContext(db_dsn="postgresql://localhost:5432/geoguessr", ncfa_cookie="test")
+    ctx = AppContext(db_dsn="postgresql://localhost:5432/geoguessr")
     mock_pool = AsyncMock()
 
     with patch("db.db.asyncpg.create_pool", new_callable=AsyncMock) as mock_create:

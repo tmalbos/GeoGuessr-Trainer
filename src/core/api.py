@@ -18,15 +18,22 @@ def extract_game_id(raw: str) -> str:
 
 
 class GeoguessrClient:
-    def __init__(self, ncfa_cookie: str):
-        self._headers = {
-            "Cookie": f"_ncfa={ncfa_cookie}",
-            "User-Agent": "Mozilla/5.0",
-        }
-        self._client = httpx.AsyncClient(headers=self._headers, timeout=10)
+    def __init__(self, ncfa_cookie: str, http_client: httpx.AsyncClient | None = None):
+        self._ncfa_cookie = ncfa_cookie
+        self._client = http_client or httpx.AsyncClient(
+            headers={
+                "Cookie": f"_ncfa={ncfa_cookie}",
+                "User-Agent": "Mozilla/5.0",
+            },
+            timeout=10,
+        )
 
     async def _get(self, url: str) -> httpx.Response:
-        r = await self._client.get(url)
+        headers = {
+            "Cookie": f"_ncfa={self._ncfa_cookie}",
+            "User-Agent": "Mozilla/5.0",
+        }
+        r = await self._client.get(url, headers=headers)
         if r.status_code == 401:
             raise CookieExpiredError()
         return r

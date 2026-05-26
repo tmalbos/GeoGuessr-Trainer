@@ -83,7 +83,9 @@ async def sync_from_feed(
     http_client: httpx.AsyncClient,
 ) -> None:
     print("\n🌍 Obteniendo feed...")
+
     entries = await client.fetch_feed_entries()
+
     if not entries:
         print("⚠️  No se encontraron partidas en el feed.")
         return

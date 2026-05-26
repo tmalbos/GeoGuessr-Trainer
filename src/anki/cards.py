@@ -2,6 +2,7 @@
 cards.py — Generación de tarjetas Anki para GeoGuessr.
 """
 
+import base64
 import importlib
 import inspect
 import pkgutil
@@ -11,6 +12,7 @@ import unicodedata
 import httpx
 
 import src.anki.notes as notes_pkg
+from src.anki.anki_connect import AnkiConnectClient
 from src.anki.notes.base import Note
 from src.db.db import DbAdapter
 
@@ -28,11 +30,20 @@ def _pascal(name: str) -> str:
     )
 
 
+async def _download_flag(flag_url: str, http_client: httpx.AsyncClient) -> str | None:
+    r = await http_client.get(flag_url, timeout=10)
+
+    if r.status_code != 200:
+        raise RuntimeError("Couldn't download flag")
+
+    return base64.b64encode(r.content).decode()
+
+
 _cache: dict[str, dict] = {}
 
 
 async def build_notes(
-    country_code: str, db: DbAdapter, http_client: httpx.AsyncClient, anki_client
+    country_code: str, db: DbAdapter, http_client: httpx.AsyncClient, anki_client: AnkiConnectClient
 ) -> list[dict]:
 
     async def _rest(cca2: str) -> dict:
@@ -59,12 +70,18 @@ async def build_notes(
         return []
 
     cca2 = data.get("cca2", "").lower()
+    flag_url = data["flags"]["png"]
+    flag = await _download_flag(flag_url, http_client)
+    flag_filename = f"flag_{cca2}.png"
+    await anki_client.store_media(flag_filename, flag)
+
     country_name = data.get("translations", {}).get("spa", {}).get("common", country_code)
 
     geo = await db.fetch_country_geo_signals(cca2.upper())  # replaces find_documents
 
     country_data = {
         **data,
+        "flag_filename": flag_filename,
         "country_name": country_name,
         "pascal_tag": f"Pais::{_pascal(country_name)}",
         "roads": geo.get("roads"),

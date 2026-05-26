@@ -21,6 +21,7 @@ class GeoEnrichClient:
     ) -> None:
         self._client = http_client
         self._semaphore = semaphore or asyncio.Semaphore(1)
+        self.ecoregion_gdf = None
 
     async def _nominatim(self, lat: float, lon: float) -> dict:
         async with self._semaphore:
@@ -80,7 +81,8 @@ class GeoEnrichClient:
         loop = asyncio.get_running_loop()
         from src.core.eco_enrich import lookup as eco_lookup
 
-        eco = await loop.run_in_executor(None, eco_lookup, lat, lon)
+        gdf = self.ecoregion_gdf
+        eco = await loop.run_in_executor(None, eco_lookup, lat, lon, gdf)
 
         return {
             "lat": lat,
