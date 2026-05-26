@@ -66,3 +66,6 @@ class AnkiConnectClient:
                 "tags": tags,
             },
         )
+
+    async def store_media(self, filename: str, content) -> None:
+        await self._invoke("storeMediaFile", filename=filename, data=content)

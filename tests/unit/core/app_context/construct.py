@@ -1,24 +1,20 @@
-"""Tests for AppContext construction — resource attributes exist."""
+"""Tests for AppContext construction — resource attributes are None at construction."""
 
-import httpx
-
-from core.app_context import AnkiConnectClient, AppContext, GeoEnrichClient
+from core.app_context import AppContext
 
 
 def test_resources_are_exposed_as_attributes_when_context_is_created():
-    """AppContext exposes db_pool, http_client, geo_client, anki_client, cookie."""
+    """AppContext exposes db_pool, http_client, geo_client, anki_client as None until init()."""
     # Arrange
     dsn = "postgresql://localhost:5432/geoguessr"
-    cookie = "test-ncfa-value"
 
     # Act
-    ctx = AppContext(db_dsn=dsn, ncfa_cookie=cookie)
+    ctx = AppContext(db_dsn=dsn)
 
-    # Assert
+    # Assert — all resources are None until init() is called
     assert ctx.db_pool is None
-    assert isinstance(ctx.http_client, httpx.AsyncClient)
-    assert isinstance(ctx.geo_client, GeoEnrichClient)
-    assert isinstance(ctx.anki_client, AnkiConnectClient)
-    assert ctx.cookie == cookie
+    assert ctx.http_client is None
+    assert ctx.geo_client is None
+    assert ctx.anki_client is None
     assert ctx.ecoregion_gdf is None
     assert ctx.db_dsn == dsn
