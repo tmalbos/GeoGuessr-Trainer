@@ -1,3 +1,5 @@
+from src.i18n.lang import translate
+
 from .base import Note
 
 
@@ -15,7 +17,7 @@ class DomainNote(Note):
         if not self.tld:
             return None
         return {
-            "Anverso": f"¿De qué país es el dominio {self.tld.upper()}?",
+            "Anverso": translate("Which country has the domain {tld}?", tld=self.tld.upper()),
             "Reverso": self._remove_accents(self.country_name),
         }
 
@@ -30,7 +32,7 @@ class DomainNote(Note):
         if not self.tld:
             return None
         return {
-            "Anverso": f"¿Cuál es el dominio de {self.country_name}?",
+            "Anverso": translate("What is the domain of {country}?", country=self.country_name),
             "Reverso": self.tld.upper(),
         }
 

@@ -1,3 +1,5 @@
+from src.i18n.lang import translate
+
 from .base import Note
 
 
@@ -13,7 +15,9 @@ class CapitalNote(Note):
 
     def fields(self) -> dict | None:
         return {
-            "Anverso": f"¿De qué país es capital {self.capital}?",
+            "Anverso": translate(
+                "Which country is {capital} the capital of?", capital=self.capital
+            ),
             "Reverso": self._remove_accents(self.country_name),
         }
 
@@ -26,7 +30,7 @@ class CapitalNote(Note):
 
     def inverse_fields(self) -> dict | None:
         return {
-            "Anverso": f"¿Cuál es la capital de {self.country_name}?",
+            "Anverso": translate("What is the capital of {country}?", country=self.country_name),
             "Reverso": self._remove_accents(self.capital),
         }
 

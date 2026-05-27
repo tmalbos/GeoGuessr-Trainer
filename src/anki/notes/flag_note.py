@@ -1,3 +1,5 @@
+from src.i18n.lang import translate
+
 from .base import Note
 
 
@@ -17,7 +19,7 @@ class FlagNote(Note):
             return None
 
         return {
-            "Anverso": f'¿De qué país es esta bandera?{self.SEPARATOR}<img src="{self.flag_filename}" style="max-width:300px;">',
+            "Anverso": f'{translate("Which country does this flag belong to?")}{self.SEPARATOR}<img src="{self.flag_filename}" style="max-width:300px;">',
             "Reverso": self._remove_accents(self.country_name),
         }
 

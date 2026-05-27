@@ -25,7 +25,10 @@ async def test_build_notes_uses_injected_http_client():
             json=[
                 {
                     "cca2": "AR",
-                    "translations": {"spa": {"common": "Argentina"}},
+                    "translations": {
+                        "eng": {"common": "Argentina"},
+                        "spa": {"common": "Argentina"},
+                    },
                     "capital": ["Buenos Aires"],
                     "car": {"side": "right"},
                     "tld": [".ar"],

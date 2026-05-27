@@ -1,3 +1,5 @@
+from src.i18n.lang import translate
+
 from .base import Note
 
 
@@ -13,8 +15,10 @@ class DrivingSideNote(Note):
 
     def fields(self) -> dict | None:
         return {
-            "Pregunta": f"¿De qué lado se maneja en {self.country_name}?",
-            "Opciones": f"Izquierda{self.SEPARATOR}Derecha",
+            "Pregunta": translate(
+                "Which side of the road does {country} drive on?", country=self.country_name
+            ),
+            "Opciones": f"{translate('Left')}{self.SEPARATOR}{translate('Right')}",
             "Respuesta": "1" if self.side == "left" else "2",
             "Mezclar": "false",
         }
