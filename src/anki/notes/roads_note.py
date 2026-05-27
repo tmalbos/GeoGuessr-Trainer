@@ -1,6 +1,7 @@
 import yaml
 
 from src.db.geo_signals import ROAD_LINE_SPEC, normalize_geo_signals
+from src.i18n.lang import translate
 
 from .base import Note
 
@@ -25,7 +26,9 @@ class RoadsNote(Note):
         ).strip()
 
         return {
-            "Pregunta": f"¿Cómo son las líneas de las rutas de {self.country_name}?",
+            "Pregunta": translate(
+                "What do the road lines of {country} look like?", country=self.country_name
+            ),
             "YamlData": f"<pre>{raw}</pre>",
         }
 

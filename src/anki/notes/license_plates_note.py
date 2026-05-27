@@ -1,6 +1,7 @@
 import yaml
 
 from src.db.geo_signals import LICENSE_PLATE_SPEC, normalize_geo_signals
+from src.i18n.lang import translate
 
 from .base import Note
 
@@ -25,7 +26,9 @@ class LicensePlatesNote(Note):
         raw = yaml.dump({"license_plates": normalized}, allow_unicode=True, sort_keys=False).strip()
 
         return {
-            "Pregunta": f"¿Cómo son las matrículas de {self.country_name}?",
+            "Pregunta": translate(
+                "What are the license plates of {country} like?", country=self.country_name
+            ),
             "YamlData": f"<pre>{raw}</pre>",
         }
 

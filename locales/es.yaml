@@ -84,6 +84,17 @@ continents:
   North America: América del Norte
   Oceania: Oceanía
   South America: América del Sur
+anki:
+  "Which country is {capital} the capital of?": "¿De qué país es capital {capital}?"
+  "What is the capital of {country}?": "¿Cuál es la capital de {country}?"
+  "Which country has the domain {tld}?": "¿De qué país es el dominio {tld}?"
+  "What is the domain of {country}?": "¿Cuál es el dominio de {country}?"
+  "Which side of the road does {country} drive on?": "¿De qué lado se maneja en {country}?"
+  Left: Izquierda
+  Right: Derecha
+  "Which country does this flag belong to?": "¿De qué país es esta bandera?"
+  "What are the license plates of {country} like?": "¿Cómo son las matrículas de {country}?"
+  "What do the road lines of {country} look like?": "¿Cómo son las líneas de las rutas de {country}?"
 countries:
   AD: Andorra
   AE: Emiratos Árabes Unidos
