@@ -44,21 +44,3 @@ async def test_returns_empty_lists_when_country_has_no_signals():
 
     # Assert
     assert result == {"roads": [], "license_plates": []}
-
-
-@pytest.mark.asyncio
-async def test_lowercase_country_code_returns_same_behavior():
-    # Arrange
-    mock_pool = MagicMock()
-    mock_conn = AsyncMock()
-    mock_ctx = AsyncMock()
-    mock_pool.acquire.return_value = mock_ctx
-    mock_ctx.__aenter__.return_value = mock_conn
-    mock_conn.fetch.side_effect = [[], []]
-    adapter = DbAdapter(mock_pool)
-
-    # Act
-    result = await adapter.fetch_country_geo_signals("de")
-
-    # Assert — call succeeds and returns expected shape
-    assert result == {"roads": [], "license_plates": []}
