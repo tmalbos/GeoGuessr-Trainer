@@ -188,6 +188,21 @@ CREATE TABLE state (
     FOREIGN KEY (country_code) REFERENCES country(code) ON DELETE CASCADE
 );
 
+CREATE TABLE city (
+    country_code CHAR(2),
+    city_id      BIGSERIAL,
+    state_id     INTEGER,
+    county       VARCHAR(120),
+    name         VARCHAR(120) NOT NULL,
+    area_code    VARCHAR(20),
+    geometry     TEXT         NOT NULL,
+
+    PRIMARY KEY (country_code, city_id),
+    CONSTRAINT uq_city_identity UNIQUE NULLS NOT DISTINCT (country_code, state_id, county, name),
+    FOREIGN KEY (country_code) REFERENCES country(code) ON DELETE CASCADE,
+    FOREIGN KEY (country_code, state_id) REFERENCES state(country_code, state_id)
+);
+
 CREATE TABLE ecoregion (
     biome_id     INTEGER,
     ecoregion_id SERIAL,
@@ -289,19 +304,6 @@ CREATE TABLE country_paints_road_line (
     PRIMARY KEY (country_code, road_line_id),
     FOREIGN KEY (country_code) REFERENCES country(code) ON DELETE CASCADE,
     FOREIGN KEY (road_line_id) REFERENCES road_line(road_line_id) ON DELETE CASCADE
-);
-
-CREATE TABLE city (
-    city_id      BIGSERIAL    PRIMARY KEY,
-    country_code CHAR(2)      NOT NULL REFERENCES country(code),
-    state_id     INTEGER,
-    county       VARCHAR(120),
-    name         VARCHAR(120) NOT NULL,
-    area_code    VARCHAR(20),
-    geometry     TEXT         NOT NULL,
-
-    CONSTRAINT uq_city_identity UNIQUE NULLS NOT DISTINCT (country_code, state_id, county, name),
-    FOREIGN KEY (country_code, state_id) REFERENCES state(country_code, state_id)
 );
 
 CREATE INDEX idx_city_country_code ON city (country_code);
