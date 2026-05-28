@@ -17,17 +17,14 @@ cli:
   "⚠️  No zones with {n}+ rounds for this level.": "⚠️  No hay zonas con {n}+ rondas para este nivel."
   "  ANALYSIS — {label}": "  ANÁLISIS — {label}"
   "  (level based on last {high} | progress: last {low} vs last {mid})": "  (nivel basado en últ. {high} | progreso: últ. {low} vs últ. {mid})"
-  "{n} rounds total": "{n} rondas en total"
-  "reliable range: {lo} – {hi} km": "rango confiable: {lo} – {hi} km"
-  "  Current level    : {label} {arrow}": "  Nivel actual     : {label} {arrow}"
-  "  Worst rounds     : {label} {arrow}": "  Peores rondas    : {label} {arrow}"
-  "in your worst 10%, equivalent to {km} km error": "en tu 10% peor, equivale a {km} km de error"
-  "  Consistency      : {label} {arrow}": "  Consistencia     : {label} {arrow}"
-  "your typical variation is ±{km} km": "tu variación típica equivale a ±{km} km"
-  "  Key confusion    : you mix up {real} → {guess}": "  Confusión clave  : confundís {real} → {guess}"
-  "{freq}x, ~{km} km penalty": "{freq}x, ~{km} km de penalidad"
+  "  ▸ {title}  ({n} rounds total)": "  ▸ {title}  ({n} rondas en total)"
+  "  (reliable range: {lo} - {hi} km)": "  (rango confiable: {lo} - {hi} km)"
+  "  Current level    : {label} {arrow} {ci_str}": "  Nivel actual     : {label} {arrow} {ci_str}"
+  "  Worst rounds     : {label} {arrow}  (in your worst 10%, equivalent to {km} km error)": "  Peores rondas    : {label} {arrow}  (en tu 10% peor, equivale a {km} km de error)"
+  "  Consistency      : {label} {arrow}  (your typical variation is ±{km} km)": "  Consistencia     : {label} {arrow}  (tu variación típica equivale a ±{km} km)"
+  "  Key confusion    : you mix up {real} → {guess}  ({freq}x, ~{km} km penalty)": "  Confusión clave  : confundís {real} → {guess}  ({freq}x, ~{km} km de penalidad)"
   "  Confusions ({label}):": "  Confusiones ({label}):"
-  "{freq}x, ~{km} km": "{freq}x, ~{km} km"
+  "    • {real} → {guess}  ({freq}x, ~{km} km)": "    • {real} → {guess}  ({freq}x, ~{km} km)"
   # sync.py
   "🌍 Fetching feed...": "🌍 Obteniendo feed..."
   "⚠️  No games found in feed.": "⚠️  No se encontraron partidas en el feed."
@@ -69,6 +66,15 @@ scores:
   Exceptional: Excepcional
   Elite: Elite
   Inhuman: Inhumano
+realms:
+  Afrotropic: Afrotrópico
+  Antarctica: Antártica
+  Australasia: Australasia
+  Indomalayan: Indomalaya
+  Nearctic: Neártico
+  Neotropic: Neotrópico
+  Oceania: Oceanía
+  Palearctic: Paleártico
 geo_levels:
   General: General
   Realm: Reino
@@ -261,7 +267,7 @@ countries:
   NG: Nigeria
   NI: Nicaragua
   NL: Países Bajos
-  'NO': Noruega
+  NO: Noruega
   NP: Nepal
   NR: Nauru
   NU: Niue
@@ -343,3 +349,3886 @@ countries:
   ZA: Sudáfrica
   ZM: Zambia
   ZW: Zimbabue
+states:
+  Amran Governorate: Gobernación de Amran
+  Asir Province: Provincia de Asir
+  Aʻana: Aʻana
+  Aargau: Argovia
+  Abay Region: Región de Abay
+  Abia State: Estado de Abia
+  Abidjan: Abiyán
+  Abim: Abim
+  Abra: Abra
+  Abruzzo: Abruzos
+  Abu Dhabi Emirate: Emirato de Abu Dabi
+  Abyan Governorate: Gobernación de Abyan
+  Aceh: Aceh
+  Acre: Acre
+  Ad Dakahliya: Anuncio Dakahliya
+  Ad Dakhiliyah Governorate: Gobernación de Ad Dakhiliyah
+  Ad Dali' Governorate: Gobernación de Ad Dalí
+  Ad Dhahirah Governorate: Gobernación de Ad Dhahirah
+  Adamawa: Adamawa
+  Adamawa State: Estado de Adamawa
+  Adana: Адана
+  Addis Ababa: Addis Abeba
+  Addu Atoll: Atolón Addu
+  Aden Governorate: Gobernación de Adén
+  Adıyaman: Adiyaman
+  Adjumani: Adjumani
+  Administrative-territorial units of the left bank of Nistru: Unidades administrativo-territoriales de la margen izquierda de Nistru
+  Adrar: Adrar
+  Aegean: Egeo
+  Afar Region: Región Afar
+  Aflou: Aflou
+  Afyonkarahisar: Afyonkarahisar
+  Agadez Region: Región de Agadez
+  Agago: Agago
+  Agder: Agder
+  Ağrı: Ağrı
+  Aguascalientes: Aguascalientes
+  Agusan del Norte: Agusan del Norte
+  Agusan del Sur: Agusan del Sur
+  Ahafo Region: Región de Ahafo
+  Ahal Region: Región de Ahal
+  Ahmadi Governorate: Gobernación de Ahmadi
+  Ahuachapán: Ahuachapán
+  Aichi Prefecture: Prefectura de Aichi
+  Aiga-i-le-Tai: Aiga-i-le-Tai
+  Aileu: Aileu
+  Aimeliik: Aimeliik
+  Aïn Defla: Aïn Defla
+  Aïn Oussara: Aïn Oussara
+  Aïn Témouchent: Aïn Temouchent
+  Ainaro: Ainaro
+  Airai: Airai
+  Aitutaki: Aitutaki
+  Aiwo: Aiwo
+  Ajlun: Ajlun
+  Ajman Emirate: Emirato de Ajmán
+  Akershus: Åkershus
+  Akita Prefecture: Prefectura de Akita
+  Akkar Governorate: Gobernación de Akar
+  Aklan: Aklan
+  Akmola Region: Región de Akmola
+  Aksaray: Aksaray
+  Akwa Ibom State: Estado de Akwa Ibom
+  Al-Anbar Governorate: Gobernación de Al-Anbar
+  Al-Bahah Province: Provincia de Al-Bahah
+  Al-Daayen: Al-Daayen
+  Al-Hasaka Governorate: Gobernación de Al-Hasaka
+  Al-Najaf Governorate: Gobernación de Nayaf
+  Al-Qadisiyah Governorate: Gobernación de Al-Qadisiyah
+  Al-Qassim Province: Provincia de Al Qassim
+  Al-Quneitra Governorate: Gobernación de Al Quneitra
+  Al Batinah North Governorate: Gobernación de Al Batinah Norte
+  Al Batinah South Governorate: Gobernación de Al Batinah Sur
+  Al Bayda' Governorate: Gobernación de Al Bayda'
+  Al Buraimi Governorate: Gobernación de Al Buraimi
+  Al Hudaydah Governorate: Gobernación de Al Hudayda
+  Al Ismailiya: Al Ismailiya
+  Al Jawf Governorate: Gobernación de Al Jawf
+  Al Jawf Region: Región de Al Jawf
+  Al Jazirah: Al Jazira
+  Al Kaf: Al-Kaf
+  Al Khartum State: Estado de Jartum
+  Al Khor and Al Thakhira: Al Khor y Al Thakhira
+  Al Mahrah Governorate: Gobernación de Al Mahrah
+  Al Mahwit Governorate: Gobernación de Al Mahwit
+  Al Minya: Al Minya
+  Al Qadarif State: Estado de Al Qadarif
+  Al Qalyubiya: Al Qalyubiya
+  Al Rayyan: Al Rayyan
+  Al Shahaniya: Al-Shahaniya
+  Al Wahat: Al Wahat
+  Al Wakrah: Al Wakrah
+  Al Wusta Governorate: Gobernación de Al Wusta
+  Alabama: Alabama
+  Alagoas: Alagoas
+  Alajuela Province: Provincia de Alajuela
+  Åland Islands: Islas Aland
+  Alaotra-Mangoro: Alaotra-Mangoro
+  Alaska: Alaska
+  Alba: Alba
+  Albay: Albay
+  Alberta: Alberta
+  Alborz Province: Provincia de Alborz
+  Alderney: Alderney
+  Alebtong: Alebtong
+  Aleppo Governorate: Gobernación de Alepo
+  Alexandria: Alejandría
+  Algiers: Argel
+  Ali Sabieh: Ali Sabieh
+  Alibori Department: Departamento de Alibori
+  Almaty: Almaty
+  Almaty Region: Región de Almatý
+  Alta Verapaz: Alta Verapaz
+  Altai Krai: Krai de Altái
+  Altai Republic: República de Altái
+  Alto Paraguay: Alto Paraguay
+  Alto Paraná: Alto Paraná
+  Alytus County: Condado de Alytus
+  Amambay: Amambay
+  Amanat Al Asimah: Amanat Al Asimah
+  Amapá: Amapa
+  Amasya: Amasya
+  Amazonas: Amazonas
+  Amazonas State: Estado Amazonas
+  Ambatosoa: Ambatosoa
+  American Samoa: Samoa Americana
+  Amhara Region: Región de Amhara
+  Amman: Ammán
+  Amnat Charoen Province: Provincia de Amnat Charoen
+  Amolatar: Amolatar
+  Amoron'i Mania: Amoron'i Mania
+  Amudat: Amudat
+  Amur Oblast: Óblast de Amur
+  Amuria: Amuria
+  Amuru: Amuru
+  An Giang Province: Provincia de An Giang
+  Anabar: Anabar
+  Analamanga: Analamanga
+  Analanjirofo: Analanjirofo
+  Anambra State: Estado de Anambra
+  Ancash: Áncash
+  Andalusia: Andalucía
+  Andaman and Nicobar Islands: Islas Andamán y Nicobar
+  Andhra Pradesh: Andhra Pradesh
+  Andijan Region: Región de Andiján
+  Androy: Androy
+  Anegada: Anegada
+  Anenii Noi District: Distrito de Anenii Noi
+  Anetan: Anetan
+  Ang Thong Province: Provincia de Ang Thong
+  Angaur: Angaur
+  Anhui: Anhui
+  Anjouan: Anjouán
+  Ankara: Ankara
+  Annaba: Annaba
+  Annobón: Annobón
+  Anosy: Anosy
+  Anse La Raye: Anse La Raye
+  Anseba: Anseba
+  Antalya: Antalya
+  Antigua: Antigua
+  Antioquia: Antioquía
+  Antique: Antigüedad
+  Antofagasta Region: Región de Antofagasta
+  Anzoategui State: Estado Anzoátegui
+  Aomori Prefecture: Prefectura de Aomori
+  Aosta Valley: Valle de Aosta
+  Apac: Apac
+  Apayao: Apayao
+  Appenzell Ausserrhoden: Appenzell Rodas Exteriores
+  Appenzell Innerrhoden: Appenzell Rodas Interiores
+  Apulia: Apulia
+  Apure State: Estado Apure
+  Apurímac: Apurímac
+  Aqaba: Áqaba
+  Aqtöbe Region: Región de Aqtobe
+  Ar-Raqqa Governorate: Gobernación de Ar-Raqqa
+  Arad: Arad
+  Aragatsotn Province: Provincia de Aragatsotn
+  Aragon: Aragón
+  Aragua State: Estado Aragua
+  Ararat Province: Provincia de Ararat
+  Arauca: Arauca
+  Araucania Region: Región de la Araucanía
+  Archipelago of San Andrés, Providencia and Santa Catalina: Archipiélago de San Andrés, Providencia y Santa Catalina
+  Ardabil Province: Provincia de Ardebil
+  Ardahan: Ardahan
+  Arequipa: Arequipa
+  Argeș: Arges
+  Ariana: Ariana
+  Arica y Parinacota Region: Región de Arica y Parinacota
+  Arima: Arima
+  Arizona: Arizona
+  Arkansas: Arkansas
+  Arkhangai: Arkhangai
+  Arkhangelsk Oblast: Óblast de Arjánguelsk
+  Armavir Province: Provincia de Armavir
+  Arta: Artá
+  Artemisa: Artemisa
+  Artibonite Department: Departamento de Artibonito
+  Artigas: Artigas
+  Artvin: Artvin
+  Arua: Arua
+  Arua City: Arua City
+  Arunachal Pradesh: Arunachal Pradesh
+  Arusha: Arusha
+  As-Suweida Governorate: Gobernación de As-Suweida
+  Ash Shamal: Ash Shamal
+  Ash Sharqiyah North Governorate: Gobernación de Ash Sharqiyah Norte
+  Ash Sharqiyah South Governorate: Gobernación de Ash Sharqiyah Sur
+  Ashanti Region: Región de Ashanti
+  Ashgabat: Asjabad
+  Ashmore and Cartier Islands: Islas Ashmore y Cartier
+  Assaba: Assaba
+  Assam: Assam
+  Astana: Astaná
+  Astrakhan Oblast: Óblast de Astracán
+  Asturias: Asturias
+  Aswan: Asuán
+  Asyut: Asiut
+  Atacama Region: Región de Atacama
+  Atakora Department: Departamento de Atakora
+  Atauro: Atauro
+  Atiu: Atiú
+  Atlántico: Atlántico
+  Atlántida: Atlántida
+  Atlantique Department: Departamento Atlántico
+  Atsimo-Andrefana: Atsimo-Andrefana
+  Atsimo-Atsinanana: Atsimo-Atsinanana
+  Atsinanana: Atsinanana
+  Attapeu: Attapeu
+  Attica: Ática
+  Ātua: Ātua
+  Atyrau Region: Región de Atirau
+  Auckland: Auckland
+  Aurora: Aurora
+  Australian Capital Territory: Territorio de la Capital Australiana
+  Autonomous City of Buenos Aires: Ciudad Autónoma de Buenos Aires
+  Autonomous Community of the Basque Country: Comunidad Autónoma del País Vasco
+  Autonomous Region of Bougainville: Región Autónoma de Bougainville
+  Autonomous Region of Príncipe: Región Autónoma del Príncipe
+  Autonomous Republic of Abkhazia: República Autónoma de Abjasia
+  Autonomous Republic of Adjara: República Autónoma de Adjara
+  Autonomous Republic of Crimea: República Autónoma de Crimea
+  Auvergne-Rhône-Alpes: Auvernia-Ródano-Alpes
+  Avannaata: Avannaata
+  Ayacucho: Ayacucho
+  Aydın: Aydin
+  Ayeyarwady: Ayeyarwady
+  Aysen del General Carlos Ibanez del Campo Region: Región de Aysén del General Carlos Ibáñez del Campo
+  Az Zawiya District: Distrito de Az Zawiya
+  Azad Kashmir: Azad Cachemira
+  Azores: Azores
+  Azua: Azua
+  Azuay: Azuay
+  Baalbek-Hermel Governorate: Gobernación de Baalbek-Hermel
+  Babil Governorate: Gobernación de Babilonia
+  Bắc Ninh Province: Provincia de Bac Ninh
+  Bacău: Bacău
+  Badakhshan Province: Provincia de Badakhshan
+  Baden-Württemberg: Baden-Wurtemberg
+  Badghis Province: Provincia de Badghis
+  Bafatá Region: Región de Bafatá
+  Bagamati Province: Provincia de Bagamati
+  Baghdad Governorate: Gobernación de Bagdad
+  Baghlan Province: Provincia de Baghlan
+  Bago Region: Región de Bago
+  Bahia: Bahía
+  Bahr el Gazel: Bahr el Gazel
+  Baja California: Baja California
+  Baja California Sur: Baja California Sur
+  Baja Verapaz: Baja Verapaz
+  Baladiyah Surman: Baladiyah Surman
+  Balaka: Balaka
+  Balearic Islands: Islas Baleares
+  Bali: Bali
+  Balıkesir: Balikesir
+  Balkan Region: Región de los Balcanes
+  Balkh Province: Provincia de Balj
+  Balochistan: Baluchistán
+  Balqa: Balqa
+  Bălți Municipality: Municipio de Bălți
+  Bamako: Bamako
+  Bamingui-Bangoran: Bamingui-Bangoran
+  Bamyan Province: Provincia de Bamiyán
+  Banaadir: Banaadir
+  Bangka-Belitung Islands: Islas Bangka-Belitung
+  Bangkok: Bangkok
+  Bangui: Bangui
+  Bani Sweif: Bani Sweif
+  Bani Walid: Bani Walid
+  Banjul: Banjul
+  Banten: Bantén
+  Bantey Meanchey: Bantey Meanchey
+  Baoruco: Baoruco
+  Barahona: Barahona
+  Barbuda: Barbuda
+  Barika: Barika
+  Barima-Waini: Barima-Waini
+  Barinas State: Estado Barinas
+  Baringo: Baringo
+  Barishal Division: División de Barishal
+  Bartın: Bartin
+  Bas-Sassandra: Bas-Sassandra
+  Basarabeasca District: Distrito de Basarabeasca
+  Basel-City: Basilea-Ciudad
+  Basel-Landschaft: Basilea-Campiña
+  Bashkortostan: Bashkortostán
+  Basilan: Basilán
+  Basilicata: Basilicata
+  Basra Governorate: Gobernación de Basora
+  Basse-Kotto: Bajo-Kotto
+  Bataan: Bataán
+  Batanes: Batanes
+  Batangas: Batangas
+  Batha: Batha
+  Batken Region: Región de Batken
+  Batman: Ordenanza
+  Batna: Batna
+  Battambang: Battambang
+  Baucau: Baucau
+  Bauchi State: Estado de Bauchi
+  Bavaria: Baviera
+  Bay Islands: Islas de la Bahía
+  Bay of Plenty: Bahía de Plenty
+  Bayan-Ölgii: Bayan-Ölgii
+  Bayankhongor: Bayanhongor
+  Bayburt: Bayburt
+  Bayelsa State: Estado de Bayelsa
+  Bechar: Béchar
+  Beheira Governorate: Gobernación de Beheira
+  Beijing: Pekín
+  Beirut Governorate: Gobernación de Beirut
+  Béja: Béja
+  Bejaia: Bugía
+  Belait District: Distrito de Belait
+  Belgorod Oblast: Óblast de Bélgorod
+  Belize District: Distrito de Belice
+  Ben Arous: Ben Arous
+  Bender Municipality: Municipio de Bender
+  Benghazi: Bengasi
+  Bengkulu: Bengkulu
+  Bengo Province: Provincia de Bengo
+  Benguela Province: Provincia de Benguela
+  Benguet: Benguet
+  Beni: Beni
+  Beni Abbes: Beni Abbes
+  Béni Mellal-Khénifra: Beni Mellal-Jenifra
+  Benishangul-Gumuz Region: Región de Benishangul-Gumuz
+  Benue State: Estado de Benue
+  Beqaa Governorate: Gobernación de Beqaa
+  Berlin: Berlín
+  Bern: Berna
+  Betsiboka: Betsiboka
+  Bié Province: Provincia de Bié
+  Bihar: Bihar
+  Bihor: Bihor
+  Bilecik: Bilecik
+  Biliran: Bilirán
+  Bingöl: Bingöl
+  Biobio Region: Región del Biobío
+  Bioko Norte: Bioko Norte
+  Bioko Sur: Bioko Sur
+  Biombo Region: Región de Biombo
+  Bir El Ater: Bir El-Ater
+  Bishkek City: Ciudad de Bishkek
+  Biskra: Biskra
+  Bistrița-Năsăud: Bistrița-Năsăud
+  Bitlis: Bitlis
+  Bizerte: Bizerta
+  Bjelovar-Bilogora County: Condado de Bjelovar-Bilogora
+  Black River: Black River
+  Blagoevgrad: Blagóevgrado
+  Blantyre: Blantyre
+  Blekinge County: Condado de Blekinge
+  Blida: Blida
+  Blue Nile: Nilo Azul
+  Boaco: Boaco
+  Bobonaro: Bobonaro
+  Bocas del Toro: Bocas del Toro
+  Boe: Boe
+  Boeny: Boeny
+  Bogota, Capital District: Bogotá, Distrito Capital
+  Bohol: Bohol
+  Boké Region: Región de Boke
+  Bokeo Province: Provincia de Bokeo
+  Bolama Region: Región de Bolamá
+  Bolikhamsai: Bolikhamsai
+  Bolívar: Bolívar
+  Bolivar State: Estado Bolívar
+  Bolu: Bolu
+  Bomet: Bomet
+  Bomi County: Condado de Bomi
+  Bong County: Condado de Bong
+  Bongolava: Bongolava
+  Bono East Region: Bono Región Este
+  Bono Region: Bono Región
+  Boquerón: Boquerón
+  Bordj Badji Mokhtar: Bordj Badji Mokhtar
+  Bordj Bou Arreridj: Bordj Bou Arreridj
+  Borgou Department: Departamento de Borgou
+  Borkou: Borkou
+  Borno State: Estado de Borno
+  Botoșani: Botoșani
+  Boucle du Mouhoun: Boucle du Mouhoun
+  Bouenza Department: Departamento de Bouenza
+  Bouira: Bouira
+  Boumerdes: Boumerdes
+  Bourgogne – Franche-Comté: Borgoña – Franco Condado
+  Boyacá: Boyacá
+  Brăila: Brăila
+  Brakna: Brakná
+  Brandenburg: Brandeburgo
+  Brașov: Brașov
+  Brazzaville (department): Brazzaville (departamento)
+  Brčko District: Distrito de Brčko
+  Bremen: Brema
+  Brest Region: Región de Brest
+  Briceni District: Distrito de Bričení
+  British Columbia: Columbia Británica
+  Brittany: Bretaña
+  Brod-Posavina County: Condado de Brod-Posavina
+  Brokopondo: Brokopondo
+  Brunei-Muara District: Distrito de Brunei-Muara
+  Brussels-Capital: Bruselas-Capital
+  Bryansk Oblast: Óblast de Briansk
+  Buada: Buada
+  Bubanza: Bubanza
+  Bucharest: Bucarest
+  Budaka: Budaka
+  Bududa: Bududa
+  Bueng Kan Province: Provincia de Bueng Kan
+  Buenos Aires: Buenos Aires
+  Bugiri: Bugiri
+  Bugweri: Bugweri
+  Buhweju: Buhweju
+  Buikwe: Buikwe
+  Bujumbura Mairie: Ayuntamiento de Buyumbura
+  Bujumbura Rural Province: Provincia rural de Buyumbura
+  Bukedea: Bukedea
+  Bukhara Region: Región de Bujará
+  Bukidnon: Bukidnon
+  Bukomansimbi: Bukomansimbi
+  Bukwo: Bukwo
+  Bulacan: Bulacán
+  Bulambuli: Bulambuli
+  Bulawayo Province: Provincia de Bulawayo
+  Bulgan: Bulgan
+  Buliisa: Buliisa
+  Bumthang District: Distrito de Bumthang
+  Bundibugyo: Bundibugyo
+  Bungoma County: Condado de Bungoma
+  Bunyangabu: Bunyangabu
+  Burdur: Burdur
+  Burgas: Burgas
+  Burgenland: Burgenlandia
+  Buri Ram Province: Provincia de Buri Ram
+  Bursa: Bolsa
+  Bururi: Bururi
+  Buryatia: Buriatia
+  Busan: Busán
+  Bushehr Province: Provincia de Bushehr
+  Bushenyi: Bushenyi
+  Busia: Busia
+  Busia County: Condado de Busia
+  Buskerud: Buskerud
+  Butaleja: Butaleja
+  Butambala: Butambalá
+  Butebo: Butebo
+  Butnan: Butnan
+  Buvuma: Buvuma
+  Buyende: Buyende
+  Buzău: Buzau
+  Cà Mau Province: Provincia de Cà Mau
+  Caaguazú: Caaguazú
+  Caazapá: Caazapá
+  Cabañas: Cabañas
+  Cabinda Province: Provincia de Cabinda
+  Cabo Delgado Province: Provincia de Cabo Delgado
+  Cacheu Region: Región de Cacheu
+  Cagayan: Cagayán
+  Cahul District: Distrito de Cahul
+  Cairo: El Cairo
+  Cajamarca: Cajamarca
+  Calabria: Calabria
+  Călărași: Călărași
+  Călărași District: Distrito de Călărași
+  Caldas: Caldas
+  California: California
+  Callao: Callao
+  Camagüey: Camagüey
+  Camarines Norte: Camarines Norte
+  Camarines Sur: Camarines Sur
+  Camiguin: Camiguín
+  Campania: Campania
+  Campeche: Campeche
+  Cần Thơ: Cần Thơ
+  Canakkale: Çanakkale
+  Canaries: Canarias
+  Canary Islands: Canarias
+  Canelones: Canelones
+  Canindeyú: Canindeyú
+  Çankırı: Çankırı
+  Cankuzo: Cankuzo
+  Cantabria: Cantabria
+  Cantemir District: Distrito de Cantemir
+  Canterbury: Canterbury
+  Cañar: Cañar
+  Cao Bằng Province: Provincia de Cao Bang
+  Capital District: Distrito Capital
+  Capital Governorate: Gobernación de la capital
+  Capital Region of Denmark: Región Capital de Dinamarca
+  Capiz: Cápiz
+  Caquetá: Caquetá
+  Carabobo State: Estado Carabobo
+  Caraș-Severin: Caraș-Severin
+  Carazo: Carazo
+  Carchi: Carchi
+  Carinthia: Carintia
+  Cartago Province: Provincia de Cartago
+  Casablanca-Settat: Casablanca-Settat
+  Casanare: Casanare
+  Castile-La Mancha: Castilla-La Mancha
+  Castile and León: Castilla y León
+  Castries: Castries
+  Catalonia: Cataluña
+  Catamarca: Catamarca
+  Catanduanes: Catanduanes
+  Cauca: Caucas
+  Căușeni District: Distrito de Căușeni
+  Cavite: Cavite
+  Cayo: Cayo
+  Ceará: Ceará
+  Cebu: Cebú
+  Center District: Distrito Centro
+  Central: Central
+  Central-East: Centro-Este
+  Central-North: Centro-Norte
+  Central-Plateau: Meseta central
+  Central-South: Centro-Sur
+  Central-West: Centro-Oeste
+  Central Albania: Albania central
+  Central Bohemian Region: Región de Bohemia Central
+  Central Darfur: Darfur central
+  Central Denmark Region: Región de Dinamarca Central
+  Central Department: Departamento Central
+  Central District: Distrito Central
+  Central Equatoria: Ecuatoria central
+  Central Ethiopia Regional State: Estado regional de Etiopía central
+  Central Finland: Finlandia central
+  Central Hungary: Hungría central
+  Central Java: Central Java
+  Central Kalimantan: Kalimantán Central
+  Central Kasai: Kasái central
+  Central Ostrobothnia: Ostrobotnia Central
+  Central Papua: Papúa Central
+  Central Province: Provincia Central
+  Central Region: Región Central
+  Central River Division: División del Río Central
+  Central Serbia: Central Serbia
+  Central Sulawesi: Célebes Central
+  Centrale Region: Región Central
+  Centre: Centro
+  Centre-Val de Loire: Centro-Val de Loira
+  Centre Department: Departamento Centro
+  Centro Sur: Centro Sur
+  Cerro Largo: Cerro Largo
+  Cesar: César
+  Ceuta: Ceuta
+  Chachoengsao Province: Provincia de Chachoengsao
+  Chaco: Chaco
+  Chagang: Chagang
+  Chaguanas: Chaguanas
+  Chaharmahal and Bakhtiyari Province: Provincia de Chaharmahal y Bakhtiyari
+  Chai Nat Province: Provincia de Chai Nat
+  Chaiyaphum Province: Provincia de Chaiyaphum
+  Chalatenango: Chalatenango
+  Champasak Province: Provincia de Champasak
+  Chandigarh: Chandigarh
+  Changhua County: Condado de Changhua
+  Chanthaburi Province: Provincia de Chanthaburi
+  Chari-Baguirmi: Chari-Baguirmi
+  Chatham Islands: Islas Chatham
+  Chattogram Division: División de chattogramas
+  Chechnya: Chechenia
+  Chelyabinsk Oblast: Óblast de Cheliábinsk
+  Cherkasy Oblast: Óblast de Cherkasy
+  Chernihiv Oblast: Óblast de Cherníhiv
+  Chernivtsi Oblast: Óblast de Chernivtsi
+  Chhattisgarh: Chattisgarh
+  Chiang Mai Province: Provincia de Chiang Mai
+  Chiang Rai Province: Provincia de Chiang Rai
+  Chiapas: Chiapas
+  Chiayi: Chiayi
+  Chiayi County: Condado de Chiayi
+  Chiba Prefecture: Prefectura de Chiba
+  Chihuahua: Chihuahua
+  Chikwawa: Chikwawa
+  Chimaltenango: Chimaltenango
+  Chimborazo: Chimborazo
+  Chin: Mentón
+  Chinandega: Chinandega
+  Chiquimula: Chiquimula
+  Chiradzulu: Chiradzulu
+  Chiriquí: Chiriquí
+  Chișinău Municipality: Municipio de Chisináu
+  Chitipa: Chitipa
+  Chlef: Chlef
+  Chobe District: Distrito de Chobe
+  Chocó: Chocó
+  Choiseul: Choiseul
+  Choluteca: Choluteca
+  Chon Buri Province: Provincia de Chon Buri
+  Chongqing: Chongqing
+  Chontales: Chontales
+  Christmas Island: Isla de Navidad
+  Chubut: Chubut
+  Chukha: Chukha
+  Chukotka Autonomous Okrug: Distrito autónomo de Chukotka
+  Chumphon Province: Provincia de Chumphon
+  Chuquisaca: Chuquisaca
+  Chuvashia: Chuvasia
+  Chuy Region: Región Chuy
+  Cibitoke: Cibitoke
+  Cidade de Maputo: Ciudad de Maputo
+  Ciego de Avila: Ciego de Ávila
+  Cienfuegos: Cienfuegos
+  Cimișlia District: Distrito de Cimișlia
+  City of Kigali: Ciudad de Kigali
+  City of Zagreb: Ciudad de Zagreb
+  Cluj: Cluja
+  Coahuila: Coahuila
+  Cochabamba: Cochabamba
+  Coclé: Coclé
+  Cocos (Keeling) Islands: Islas Cocos (Keeling)
+  Cojedes State: Estado Cojedes
+  Colima: Colima
+  Collines Department: Departamento de Collines
+  Colón: Colon
+  Colonia: Colonia
+  Colorado: Colorado
+  Comayagua: Comayagua
+  Commewijne: Commewijne
+  Community of Madrid: Comunidad de Madrid
+  Comoé: Comoé
+  Conakry: Conakri
+  Concepción: Concepcion
+  Connecticut: Connecticut
+  Constanța: Constanza
+  Constantine: Constantino
+  Copán: Copán
+  Copperbelt Province: Provincia del cinturón de cobre
+  Coquimbo Region: Región de Coquimbo
+  Coral Sea Islands: Islas del Mar del Coral
+  Cordillera Department: Departamento Cordillera
+  Córdoba: Córdoba
+  Coronie: Coronie
+  Corozal: Corozal
+  Corrientes: Corrientes
+  Corsica: Córcega
+  Cortés: Cortés
+  Çorum: Çorum
+  Cotabato: Cotabato
+  Cotopaxi: Cotopaxi
+  Couva-Tabaquite-Talparo: Couva-Tabaquite-Talparo
+  Cova Lima: Cova Lima
+  Covasna: Covasna
+  Criuleni District: Distrito de Criuleni
+  Cross River State: Estado del río Cross
+  Cuando Cubango Province: Provincia de Cuando Cubango
+  Cuanza Norte Province: Provincia de Cuanza Norte
+  Cuanza Sul Province: Provincia de Cuanza Sur
+  Cundinamarca: Cundinamarca
+  Cunene Province: Provincia de Cunene
+  Cuscatlán: Cuscatlán
+  Cusco: Cuzco
+  Cuvette-Ouest Department: Departamento Cuvette-Oeste
+  Cuvette Department: Departamento de cubetas
+  Cuyuni-Mazaruni: Cuyuní-Mazaruní
+  Đà Nẵng: Đà Nẵng
+  Dadra and Nagar Haveli and Daman and Diu: Dadra y Nagar Haveli y Daman y Diu
+  Daegu: Daegu
+  Daejeon: Daejeon
+  Dagana District: Distrito de Dagana
+  Dagestan: Daguestán
+  Dajabón: Dajabón
+  Đắk Lắk Province: Provincia de Đắk Lắk
+  Dakar Region: Región de Dakar
+  Dakhla-Oued Ed-Dahab: Dajla-Ued Ed-Dahab
+  Dakhlet Nouadhibou: Dajlet Nuadibú
+  Dalarna County: Condado de Dalarna
+  Damascus Governorate: Gobernación de Damasco
+  Dâmbovița: Dâmbovița
+  Damietta: Damieta
+  Dar'a Governorate: Gobernación de Deraa
+  Dar es Salaam: Dar es-Salam
+  Darién: Darién
+  Darkhan-Uul: Darkhan-Uul
+  Dashoguz Region: Región de Dashoguz
+  Davao de Oro: Dávao de Oro
+  Davao del Norte: Dávao del Norte
+  Davao del Sur: Dávao del Sur
+  Davao Occidental: Dávao Occidental
+  Davao Oriental: Dávao Oriental
+  Daykundi Province: Provincia de Daykundi
+  Debub Region: Región de debut
+  Dedza: Dedza
+  Deir ez-Zor Governorate: Gobernación de Deir ez-Zor
+  Delaware: Delaware
+  Delhi: Delhi
+  Delta Amacuro State: Estado Delta Amacuro
+  Delta State: Estado delta
+  Demerara-Mahaica: Demerara-Mahaica
+  Denguélé District: Distrito de Denguélé
+  Denizli: Denizli
+  Dennery: Dennery
+  Département de l'Ouest: Departamento del Oeste
+  Département de la Grande-Anse: Departamento de la Grande-Anse
+  Département des Nippes: Departamento de Nippes
+  Département du Nord: Departamento del Norte
+  Département du Sud-Est: Departamento del Sudeste
+  Department of Paraguari: Departamento de Paraguarí
+  Derna: Derna
+  Dhaka Division: División de Daca
+  Dhamar Governorate: Gobernación de Dhamar
+  Dhi Qar Governorate: Gobernación de Dhi Qar
+  Dhofar Governorate: Gobernación de Dhofar
+  Diana Region: Región Diana
+  Diego Martin: Diego Martín
+  Điện Biên Province: Provincia de Dien Bien
+  Diffa Region: Región de Diffa
+  Dikhil: Dikhil
+  Dili: Dilí
+  Dinagat Islands: Islas Dinagat
+  Diourbel Region: Región de Diourbel
+  Dire Dawa: Dire Dawa
+  District de Abidjan: Distrito de Abiyán
+  District de Bas-Sassandra: Distrito de Bas-Sassandra
+  District de Comoé: Distrito de Comoé
+  District de Denguélé: Distrito de Denguélé
+  District de Gôh-Djiboua: Distrito de Gôh-Djiboua
+  District de Lacs: Distrito de los Lagos
+  District de Lagunes: Distrito de Lagunes
+  District de Montagnes: Distrito de Montañas
+  District de Sassandra-Marahoué: Distrito de Sassandra-Marahoué
+  District de Savanes: Distrito de Sabanas
+  District de Vallée du Bandama: Distrito del valle de Bandama
+  District de Woroba: Distrito de Woroba
+  District de Yamoussoukro: Distrito de Yamusukro
+  District de Zanzan: Distrito de Zanzán
+  District of Al-Jufra: Distrito de Al-Jufra
+  District of Columbia: Distrito de Columbia
+  Districts of Republican Subordination: Distritos de subordinación republicana
+  Distrito Capital: Distrito Capital
+  Distrito Nacional: Distrito Nacional
+  Diyala Governorate: Gobernación de Diyala
+  Diyarbakır: Diyarbakir
+  Djanet: Djanet
+  Djelfa: Djelfa
+  Djibloho: Djibloho
+  Djibouti: Yibuti
+  Dnipropetrovsk Oblast: Óblast de Dnipropetrovsk
+  Dobrich: Dóbrich
+  Dodoma Region: Región de Dodoma
+  Doha: Doha
+  Dokolo: Dokolo
+  Dolj: Dolj
+  Dondușeni District: Distrito de Dondușeni
+  Donetsk Oblast: Óblast de Donetsk
+  Đồng Nai: Đồng Nai
+  Đồng Tháp Province: Provincia de Đồng Tháp
+  Donga Department: Departamento de Donga
+  Dornod: Dornod
+  Dornogovi: Dornogovi
+  Dosso Region: Región del Dosso
+  Dowa: Dowa
+  Drâa-Tafilalet: Draa-Tafilalet
+  Drenthe: Drente
+  Drochia District: Distrito de Drochia
+  Duarte: Duarte
+  Dubai Emirate: Emirato de Dubái
+  Dubăsari District: Distrito de Dubăsari
+  Dubrovnik-Neretva County: Condado de Dubrovnik-Neretva
+  Duhok Governorate: Gobernación de Duhok
+  Dundgovi: Dundgovi
+  Durango: Durango
+  Durazno: Durazno
+  Dushanbe: Dusambé
+  Düzce: Düzce
+  East: Este
+  East Azerbaijan Province: Provincia de Azerbaiyán Oriental
+  East Berbice-Corentyne: Berbice Oriental-Corentyne
+  East Darfur: Darfur Oriental
+  East Ennedi: Ennedi Oriental
+  East Java: Java Oriental
+  East Kalimantan: Kalimantan Oriental
+  East Kazakhstan Region: Región de Kazajstán Oriental
+  East New Britain: Este de Nueva Bretaña
+  East Nusa Tenggara: Nusa Tenggara Oriental
+  East Sepik: Sepik Oriental
+  Eastern: Oriental
+  Eastern Cape: Cabo Oriental
+  Eastern Equatoria: Ecuatoria Oriental
+  Eastern Highlands: Tierras Altas del Este
+  Eastern Province: Provincia Oriental
+  Eastern Region: Región Oriental
+  Eastern Samar: Sámar oriental
+  Ebonyi State: Estado de Ébano
+  Edineț District: Distrito de Edineț
+  Edirne: Edirne
+  Edo State: Estado de Edo
+  Ehime Prefecture: Prefectura de Ehime
+  Ekiti State: Estado de Ekiti
+  El Bayadh: El Bayadh
+  El Kantara: El Kantara
+  El M'Ghair: El M'Ghair
+  El Menia: El Menía
+  El Oro: El Oro
+  El Oued: El Oued
+  El Paraíso: El Paraíso
+  El Progreso: El Progreso
+  El Seibo: El Seibo
+  El Tarf: El Tarf
+  Elazığ: Elazığ
+  Elgeyo-Marakwet County: Condado de Elgeyo-Marakwet
+  Elías Piña: Elías Piña
+  Emberá-Wounaan: Emberá-Wounaan
+  Embu: Embu
+  Emilia-Romagna: Emilia-Romaña
+  Enga: Enga
+  England: Inglaterra
+  Ennedi-Ouest: Ennedi-Oeste
+  Entebbe City: Ciudad de Entebbe
+  Entre Ríos Province: Provincia de Entre Ríos
+  Enugu State: Estado de Enugu
+  Epirus and Western Macedonia: Epiro y Macedonia Occidental
+  Équateur: Ecuador
+  Erbil Governorate: Gobernación de Erbil
+  Ermera: Ermera
+  Erongo Region: Región de Erongo
+  Erzincan: Erzincan
+  Erzurum: Erzurum
+  Escuintla: Escuintla
+  Eskişehir: Eskişehir
+  Esmeraldas: Esmeraldas
+  Espaillat: Espaillat
+  Espírito Santo: Espíritu Santo
+  Essequibo Islands: Islas Esequibo
+  Estelí: Esteli
+  Estuaire Province: Provincia del Estuario
+  ʻEua: ʻEua
+  Extremadura: Extremadura
+  Faadhippolhu: Faadhippolhu
+  Faʻasaleleaga: Faʻasaleleaga
+  Faiyum: Fayún
+  Falcon State: Estado Falcón
+  Fălești District: Distrito de Fălești
+  Far-North: Extremo Norte
+  Farah Province: Provincia de Farah
+  Faranah Region: Región de Faranah
+  Fars Province: Provincia de Fars
+  Farwaniya Governorate: Gobernación de Farwaniya
+  Faryab Province: Provincia de Faryab
+  Fatick Region: Región de Fátick
+  Federal Capital Territory: Territorio de la Capital Federal
+  Federal Dependencies: Dependencias Federales
+  Federal District: Distrito Federal
+  Federation of Bosnia and Herzegovina: Federación de Bosnia y Herzegovina
+  Felidhu Atoll: Atolón Felidhu
+  Fergana Region: Región de Ferganá
+  Fez-Meknes: Fez-Mequinez
+  Finnmark: Finnmark
+  Fitovinany: Fitovinany
+  Flacq: Flacq
+  Flanders: Flandes
+  Flevoland: Flevolanda
+  Flores: Flores
+  Florești District: Distrito de Florești
+  Florida: Florida
+  Formosa: Formosa
+  Fort Portal City: Ciudad Portal Fuerte
+  Francisco Morazán: Francisco Morazan
+  Francistown: Francistown
+  Free State: Estado libre
+  French Guiana: Guayana Francesa
+  Fribourg: Friburgo
+  Frisia: Frisia
+  Friuli – Venezia Giulia: Friuli – Venecia Julia
+  Fujairah Emirate: Emirato de Fujairah
+  Fujian: Fujian
+  Fukui Prefecture: Prefectura de Fukui
+  Fukuoka Prefecture: Prefectura de Fukuoka
+  Fukushima Prefecture: Prefectura de Fukushima
+  Fuvahmulah: Fuvahmulah
+  Gabès: Gabes
+  Gaborone: Gaborone
+  Gabrovo: Gabrovo
+  Gabu Region: Región de Gabú
+  Gafsa: Gafsa
+  Gagaʻemauga: Gagaʻemauga
+  Gagaʻifomauga: Gagaʻifomauga
+  Gagauzia: Gagauzia
+  Galápagos: Galápagos
+  Galați: Galați
+  Galicia: Galicia
+  Galmudug: Galmudug
+  Gambela Region: Región de Gambela
+  Gandaki Province: Provincia de Gandaki
+  Gangwon State: Estado de Gangwon
+  Gansu: Gansu
+  Gao: Gao
+  Garissa: Garissa
+  Gasa District: Distrito de Gasa
+  Gash-Barka: Gash-Barka
+  Gauteng: Gauteng
+  Gävleborg County: Condado de Gavleborg
+  Gaza Province: Provincia de Gaza
+  Gaziantep: Gaziantep
+  Gbarpolu County: Condado de Gbarpolu
+  Gegharkunik Province: Provincia de Gegharkunik
+  Geita: Geita
+  Gelderland: Güeldres
+  Geneva: Ginebra
+  Georgia: Georgia
+  Ghanzi District: Distrito de Ghanzi
+  Gharbia: Gharbia
+  Ghardaia: Gardaia
+  Ghat: Ghat
+  Ghazni Province: Provincia de Gazni
+  Ghor Province: Provincia de Ghor
+  Gia Lai Province: Provincia de Gia Lai
+  Gibraltar: Gibraltar
+  Gifu Prefecture: Prefectura de Gifu
+  Gilan Province: Provincia de Gilán
+  Gilbert Islands: Islas Gilbert
+  Gilgit-Baltistan: Gilgit-Baltistán
+  Giresun: Giresun
+  Gisborne: Gisborne
+  Gitega: Gitega
+  Giurgiu: Giurgiu
+  Giza: Guiza
+  Glarus: Glaris
+  Glodeni District: Distrito de Glodeni
+  Goa: Goa
+  Gôh-Djiboua: Gôh-Djiboua
+  Goiás: Goias
+  Golestan Province: Provincia de Golestán
+  Gomba: Gomba
+  Gombe State: Estado de Gombe
+  Gorgol: Gorgol
+  Gorj: Gorje
+  Gorno-Badakhshan Autonomous Region: Región Autónoma de Gorno-Badakhshan
+  Gorontalo: Gorontalo
+  Gotland County: Condado de Gotland
+  Gough Island: Isla Gough
+  Govi-Altai: Govi-Altai
+  Govisumber: Govisumber
+  Gracias a Dios: Gracias a Dios
+  Granada Department: Departamento de Granada
+  Grand Bassa County: Condado de Grand Bassa
+  Grand Cape Mount County: Condado de Grand Cape Mount
+  Grand Est: Gran Este
+  Grand Gedeh County: Condado de Grand Gedeh
+  Grand Kru County: Condado de Gran Kru
+  Grand Port: Gran Puerto
+  Grande Comore: Gran Comora
+  Granma: Granma
+  Great Plain and North: Gran Llanura y Norte
+  Greater Accra Region: Región del Gran Accra
+  Greater Pibor Administrative Area: Área administrativa del Gran Pibor
+  Greater Poland Voivodeship: Voivodato de Gran Polonia
+  Grisons: Grisones
+  Groningen: Groninga
+  Gros Islet: Islote de Gros
+  Guadalcanal: Guadalcanal
+  Guadeloupe: Guadalupe
+  Guainía: Guainía
+  Guairá: Guaira
+  Guam: Guam
+  Guanacaste: Guanacaste
+  Guanajuato: Guanajuato
+  Guangdong: Cantón
+  Guangxi: Guangxi
+  Guantánamo: Guantánamo
+  Guarico State: Estado Guárico
+  Guatemala Department: Departamento de Guatemala
+  Guaviare: Guaviare
+  Guayas: Guayas
+  Guelma: Guelma
+  Guelmim-Oued Noun: Guelmim-Oued Sustantivo
+  Guéra: Guéra
+  Guernsey: Guernesey
+  Guerrero: Guerrero
+  Guidimaka: Guidimaka
+  Guimaras: Guimarás
+  Guizhou: Guizhou
+  Gujarat: Guyarat
+  Gulf: Golfo
+  Gulu: Gulu
+  Gulu City: Ciudad de Gulu
+  Gümüşhane: Gümüşhane
+  Guna Yala: Guna Yala
+  Gunma Prefecture: Prefectura de Gunma
+  Guria: Guría
+  Gwangju: Gwangju
+  Gyeonggi: Gyeonggi
+  Ḥa'il Province: Provincia de Ha'il
+  Hà Nội: Hà Nội
+  Hà Tĩnh Province: Provincia de Hà Tĩnh
+  Haa District: Distrito de Haa
+  Haʻapai: Ha'apai
+  Hadhdhunmathi: Hadhdhunmathi
+  Hadjer-Lamis: Hadjer-Lamis
+  Hadramaut Governorate: Gobernación de Hadramaut
+  Hải Phòng: Hải Phòng
+  Haifa District: Distrito de Haifa
+  Hainan: Hainan
+  Hajjah Governorate: Gobernación de Hajjah
+  Hakkâri: Hakkâri
+  Halabja Governorate: Gobernación de Halabja
+  Halland County: Condado de Halland
+  Hama Governorate: Gobernación de Hama
+  Hamadan Province: Provincia de Hamadán
+  Hamburg: Hamburgo
+  Harar: Harar
+  Harare: Harare
+  Hardap: Hardap
+  Harghita: Harghita
+  Haryana: Haryana
+  Haskovo: Jáskovo
+  Hatay: Hatay
+  Hato Mayor: Hato Mayor
+  Hatohobei: Hatohobei
+  Haut-Katanga: Alto Katanga
+  Haut-Lomami: Alto Lomami
+  Haut-Mbomou: Alto Mbomou
+  Haut-Ogooué Province: Provincia de Alto Ogooué
+  Haute-Kotto: Alto Kotto
+  Haute Matsiatra: Alta Matsiatra
+  Hauts-de-France: Altos de Francia
+  Havana: Havana
+  Hawaii: Hawai
+  Hawalli Governorate: Gobernación de Hawalli
+  Hawke's Bay: Bahía de Hawke
+  Heard Island and McDonald Islands: Islas Heard y McDonald
+  Hebei: Hebei
+  Heilongjiang: Heilongjiang
+  Hela: Hela
+  Helmand Province: Provincia de Helmand
+  Henan: Henán
+  Herat Province: Provincia de Herāt
+  Heredia Province: Provincia de Heredia
+  Hermanas Mirabal: Hermanas Mirabal
+  Herrera: Herrera
+  Hesse: Hesse
+  Hhohho Region: Región de Hhohho
+  Hidalgo: Hidalgo
+  Highland Papua: Papúa montañosa
+  Himachal Pradesh: Himachal Pradesh
+  Hîncești District: Distrito de Hîncești
+  Hiroshima Prefecture: Prefectura de Hiroshima
+  Hirshabelle: Hirshabelle
+  Ho Chi Minh City: Ciudad Ho Chi Minh
+  Hodh Ech Chargui: Hodh Ech Chargui
+  Hodh El Gharbi: Hodh El-Gharbi
+  Hoima: Hoima
+  Hoima City: Hoima City
+  Hokkaido Prefecture: Prefectura de Hokkaido
+  Holguín: Holguín
+  Holy Cross Voivodeship: Voivodato de Santa Cruz
+  Homa Bay County: Condado de Bahía Homa
+  Homs Governorate: Gobernación de Homs
+  Homyel Region: Región de Homiel
+  Hong Kong: Hong Kong
+  Honiara: Honiara
+  Hormozgan Province: Provincia de Hormozgán
+  Houaphanh: Houaphanh
+  Hovsgel: Hovsgel
+  Hradec Králové Region: Región de Hradec Králové
+  Hrodna Region: Región de Grodno
+  Hsinchu: Hsinchu
+  Hsinchu County: Condado de Hsinchu
+  Hualien County: Condado de Hualien
+  Huambo Province: Provincia de Huambo
+  Huancavelica: Huancavelica
+  Huánuco: Huánuco
+  Hubei: Hubei
+  Huế: Matiz
+  Huehuetenango: Huehuetenango
+  Huila: Huila
+  Huíla Province: Provincia de Huila
+  Hunan: Hunan
+  Hunedoara: Hunedoara
+  Hưng Yên Province: Provincia de Hưng Yên
+  Hyogo Prefecture: Prefectura de Hyogo
+  Ialomița: Ialomița
+  Ialoveni District: Distrito de Ialoveni
+  Iași: Iasi
+  Ibanda: Ibanda
+  Ibaraki Prefecture: Prefectura de Ibaraki
+  Ibb Governorate: Gobernación de Ibb
+  Ica: Ica
+  Idaho: Idaho
+  Idleb Governorate: Gobernación de Idleb
+  Ifugao: Ifugao
+  Iganga: Iganga
+  Iğdır: Iğdır
+  Ihorombe: Ihorombe
+  Ilam Province: Provincia de Ilam
+  Ile-de-France: Isla de Francia
+  Ilfov: Ilfov
+  Illinois: Illinois
+  Illizi: Illizi
+  Ilocos Norte: Ilocos Norte
+  Ilocos Sur: Ilocos Sur
+  Iloilo: Iloílo
+  Imbabura: Imbabura
+  Imereti: Imericia
+  Imo State: Estado de la OMI
+  In Guezzam: En Guezzam
+  In Salah: En salat
+  Inaccessible Island: Isla inaccesible
+  Incheon: Inchon
+  Inchiri: Inchiri
+  Independencia Province: Provincia de Independencia
+  Indiana: Indiana
+  Ingushetia: Ingusetia
+  Inhambane Province: Provincia de Inhambane
+  Inner Mongolia: Mongolia Interior
+  Innlandet: Innlandet
+  Intibucá: Intibucá
+  Iowa: Iowa
+  Irbid: Irbid
+  Iringa Region: Región de Iringa
+  Irkutsk Oblast: Óblast de Irkutsk
+  Isabel: Isabel
+  Isabela: Isabela
+  Isfahan Province: Provincia de Isfahán
+  Ishikawa Prefecture: Prefectura de Ishikawa
+  Isingiro: Isingiro
+  Isiolo: Isiolo
+  Islamabad Capital Territory: Territorio de la Capital Islamabad
+  Isle of Youth: Isla de la Juventud
+  Isparta: Isparta
+  Issyk-Kul Region: Región de Issyk-Kul
+  Istanbul: Estanbul
+  Istria County: Condado de Istria
+  Itapúa: Itapua
+  Itasy Region: Región de Itasy
+  Ituri: Ituri
+  Ivano-Frankivsk Oblast: Óblast de Ivano-Frankivsk
+  Ivanovo Oblast: Óblast de Ivánovo
+  Iwate Prefecture: Prefectura de Iwate
+  Izabal: Izabal
+  Izmir: Esmirna
+  Jabal al Akhdar: Jabal al-Akhdar
+  Jabal al Gharbi: Jabal al-Gharbi
+  Jafara: Jáfara
+  Jahra Governorate: Gobernación de Jahra
+  Jalal-Abad Region: Región de Jalal-Abad
+  Jalapa: Jalapa
+  Jalisco: Jalisco
+  Jambi: Jambi
+  Jambyl Region: Región de Jambyl
+  Jammu and Kashmir: Jammu y Cachemira
+  Jämtland County: Condado de Jämtland
+  Jarash: Jarash
+  Jazan Province: Provincia de Jizán
+  Jeju: Jeju
+  Jendouba: Jendouba
+  Jeonbuk-do: Jeonbuk-do
+  Jerusalem District: Distrito de Jerusalén
+  Jervis Bay Territory: Territorio de la Bahía de Jervis
+  Jetisu Region: Región de Jetisu
+  Jewish Autonomous Oblast: Óblast autónomo judío
+  Jharkhand: Jharkhand
+  Jiangsu: Jiangsu
+  Jiangxi: Jiangxi
+  Jigawa State: Estado de Jigawa
+  Jijel: Jijel
+  Jilin: Jilín
+  Jinja: Jinja
+  Jinja City: Ciudad de Jinja
+  Jinotega: Jinotega
+  Jiwaka: Jiwaka
+  Jizzakh Region: Región de Djizaks
+  Johor: Johor
+  Jonglei: Jonglei
+  Jönköping County: Condado de Jönköping
+  Jost Van Dyke: Jost Van Dyke
+  Jowzjan Province: Provincia de Jowzjan
+  Jubaland: Jubalandia
+  Jujuy: Jujuy
+  Junín: Junín
+  Jura: Jura
+  Jutiapa: Jutiapa
+  Jwaneng Town: Ciudad de Jwaneng
+  Kaabong: Kaabong
+  Kabale: Cabalé
+  Kabardino-Balkaria: Kabardia-Balkaria
+  Kabarole: Kabarole
+  Kaberamaido: Kaberamaido
+  Kabul Province: Provincia de Kabul
+  Kachin State: Estado de Kachin
+  Kaduna State: Estado de Kaduna
+  Kaesong: Kaesong
+  Kaffrine Region: Región de Kaffrine
+  Kafr El Sheikh: Kafr el Sheikh
+  Kagadi: Kagadí
+  Kagawa Prefecture: Prefectura de Kagawa
+  Kagera: Kagera
+  Kagoshima Prefecture: Prefectura de Kagoshima
+  Kahramanmaraş: Kahramanmaraş
+  Kainuu: Kainuu
+  Kairouan: Kairuán
+  Kajiado County: Condado de Kajiado
+  Kakamega County: Condado de Kakamega
+  Kakheti: Kajetia
+  Kakumiro: Kakumiro
+  Kalaki: Kalaki
+  Kalangala: Kalangala
+  Kalasin Province: Provincia de Kalasin
+  Kalinga: Kalinga
+  Kaliningrad: Kaliningrado
+  Kaliro: Kaliro
+  Kalmar County: Condado de Kalmar
+  Kaluga Oblast: Óblast de Kaluga
+  Kalungu: Kalungu
+  Kamchatka Krai: Krai de Kamchatka
+  Kampala: Kampala
+  Kamphaeng Phet Province: Provincia de Kamphaeng Phet
+  Kampong Cham: Ciudad de Kompung Cham
+  Kampong Chhnang: Ciudad de Kampong Chhnang
+  Kampong Speu: Kampong Speu
+  Kampong Thom: Ciudad de Kampong Thom
+  Kampot: Kampot
+  Kamuli: Kamuli
+  Kamwenge: Kamwenge
+  Kanagawa Prefecture: Prefectura de Kanagawa
+  Kanchanaburi Province: Provincia de Kanchanaburi
+  Kandahar Province: Provincia de Kandahar
+  Kandal: Kandal
+  Kanem: Kanem
+  Kangwon: Kangwon
+  Kanifing Municipal Council: Ayuntamiento de Kanifing
+  Kankan Region: Región Kankan
+  Kano State: Estado de Kano
+  Kansas: Kansas
+  Kanta-Häme: Kanta-Häme
+  Kanungu: Kanungu
+  Kaohsiung: Kaohsiung
+  Kaolack Region: Región de Kaolack
+  Kapchorwa: Kapchorwa
+  Kapelebyong: Kapelebyong
+  Kapisa Province: Provincia de Kapisa
+  Kara Region: Región de Kara
+  Karabük: Karabuk
+  Karachay-Cherkessia: Karachay-Cherkessia
+  Karaganda Region: Región de Karagandá
+  Karak: Karak
+  Karaman: Karamán
+  Karas: Karas
+  Karbala Governorate: Gobernación de Kerbala
+  Kardzhali: Kardzhali
+  Karelia: Carelia
+  Karenga: Karenga
+  Karlovac County: Condado de Karlovac
+  Karlovy Vary Region: Región de Karlovy Vary
+  Karnali Province: Provincia de Karnali
+  Karnataka: Karnataka
+  Karonga: Karonga
+  Kars: Kars
+  Karuzi: Karuzi
+  Kasai: Kasái
+  Kasaï-Oriental: Kasaï-Oriental
+  Kasese: Kasese
+  Kassala State: Estado de Kasala
+  Kassanda: Kasanda
+  Kasserine: Kasserine
+  Kastamonu: Kastamonu
+  Kasungu: Kasungu
+  Katakwi: Katakwi
+  Katavi Region: Región de Katavi
+  Katsina State: Estado de Katsina
+  Kaunas County: Condado de Kaunas
+  Kavango East: Kavango Este
+  Kavango West: Kavango Oeste
+  Kayah State: Estado de Kayah
+  Kayangel: Kayangel
+  Kayanza: Kayanza
+  Kayes: Kayes
+  Kayseri: Kayseri
+  Kayunga: Kayunga
+  Kazo: Kazo
+  Kebbi State: Estado de Kebbi
+  Kébili: Kébili
+  Kedah: Kedah
+  Kédougou Region: Región de Kedougou
+  Keelung: Keelung
+  Kelantan: Kelantán
+  Kemerovo Oblast–Kuzbass: Óblast de Kémerovo – Kuzbass
+  Kémo: Kemo
+  Kentucky: Kentucky
+  Kep: Kep
+  Kerala: Kerala
+  Kericho County: Condado de Kericho
+  Kerman Province: Provincia de Kermán
+  Kermanshah Province: Provincia de Kermanshah
+  Keserwan-Jbeil Governorate: Gobernación de Keserwan-Jbeil
+  Kgalagadi District: Distrito de Kgalagadi
+  Kgatleng District: Distrito de Kgatleng
+  Khabarovsk Krai: Krai de Jabárovsk
+  Khaet Preah Sihanouk: Khaet Preah Sihanouk
+  Khakassia: Jakasia
+  Khammouane: Khammouane
+  Khánh Hòa Province: Provincia de Khánh Hòa
+  Khanty-Mansiysk Autonomous Okrug – Ugra: Distrito autónomo de Khanty-Mansiysk – Ugra
+  Kharkiv Oblast: Óblast de Járkov
+  Khatlon Region: Región de Khatlón
+  Khenchela: Jenchela
+  Khentii: Khentii
+  Kherson Oblast: Óblast de Jersón
+  Khmelnytskyi Oblast: Óblast de Jmelnitski
+  Khomas: Khomas
+  Khon Kaen Province: Provincia de Khon Kaen
+  Khost Province: Provincia de Jost
+  Khovd: Hovd
+  Khulna Division: División Khulna
+  Khuzestan Province: Provincia de Juzestán
+  Khyber Pakhtunkhwa: Khyber Pakhtunkhwa
+  Kiambu: Kiambu
+  Kibaale: Kibaale
+  Kiboga: Kiboga
+  Kibuku: Kibuku
+  Kidal: Kidal
+  Kié-Ntem: Kié Ntem
+  Kigoma Region: Región de Kigoma
+  Kikuube: Kikuube
+  Kilifi County: Condado de Kilifi
+  Kilimanjaro: Kilimanjaro
+  Kilis: Kilis
+  Kindia Region: Región de Kindia
+  Kinmen: Kinmen
+  Kinshasa: Kinsasa
+  Kırıkkale: Kirikkale
+  Kirinyaga County: Condado de Kirinyaga
+  Kırklareli: Kirklareli
+  Kirkuk Governorate: Gobernación de Kirkuk
+  Kirov Oblast: Óblast de Kírov
+  Kirovohrad Oblast: Óblast de Kirovohrad
+  Kırşehir: Kirşehir
+  Kiruhura: Kiruhura
+  Kirundo: Kirundo
+  Kiryandongo: Kiryandongo
+  Kisii County: Condado de Kisii
+  Kisoro: Kisoro
+  Kisumu County: Condado de Kisumu
+  Kitagwenda: Kitagwenda
+  Kitgum: Kitgum
+  Kitui County: Condado de Kitui
+  Klaipėda County: Condado de Klaipėda
+  Koboko: Koboko
+  Kocaeli: Kocaeli
+  Kochi Prefecture: Prefectura de Cochín
+  Kogi State: Estado de Kogi
+  Koh Kong: Koh Kong
+  Kohgiluye and Buyer Ahmad Province: Provincia de Kohgiluye y Buyer Ahmad
+  Kolda Region: Región de Kolda
+  Kole: Kole
+  Kolhumadulu: Kolhumadulu
+  Komi Republic: República de Komi
+  Kongo Central: Kongo Central
+  Konya: Konya
+  Koprivnica-Križevci County: Condado de Koprivnica-Križevci
+  Koror: Koror
+  Koshi Province: Provincia de Koshi
+  Kosrae: Kosrae
+  Kostanay Region: Región de Kostanái
+  Kostroma Oblast: Óblast de Kostromá
+  Kotayk Province: Provincia de Kotayk
+  Kotido: Kotido
+  Kouffo Department: Departamento de Kouffo
+  Kouilou Department: Departamento de Kouilou
+  Koulikoro: Kulikoró
+  Krabi Province: Provincia de Krabi
+  Krapina-Zagorje County: Condado de Krapina-Zagorje
+  Krasnodar Krai: Krasnodar Krai
+  Krasnoyarsk Krai: Krai de Krasnoyarsk
+  Kratie: Kratié
+  Kronoberg County: Condado de Kronoberg
+  Ksar Chellala: Ksar Chellala
+  Kuala Lumpur: Kuala Lumpur
+  Kufra: Kufra
+  Kujalleq: Kujalleq
+  Kumamoto Prefecture: Prefectura de Kumamoto
+  Kumi: Kumi
+  Kunar Province: Provincia de Kunar
+  Kunduz Province: Provincia de Kunduz
+  Kunene Region: Región Kunene
+  Kurdistan Province: Provincia de Kurdistán
+  Kurgan Oblast: Óblast de Kurgán
+  Kursk Oblast: Óblast de Kursk
+  Kütahya: Kutahya
+  Kuyavian-Pomeranian Voivodeship: Voivodato de Kuyavia y Pomerania
+  Kwale: Kwale
+  Kwango: Kwango
+  Kwania: Kwania
+  Kwara State: Estado de Kwara
+  KwaZulu-Natal: KwaZulu-Natal
+  Kween: Kween
+  Kweneng District: Distrito de Kweneng
+  Kwilu: Kwilu
+  Kyankwanzi: Kyankwanzi
+  Kyegegwa: Kyegegwa
+  Kyenjojo: Kyenjojo
+  Kyiv: Kiev
+  Kyiv Oblast: Óblast de Kiev
+  Kymenlaakso: Kymenlaakso
+  Kyotera: Kyotera
+  Kyoto Prefecture: Prefectura de Kioto
+  Kyustendil: Kyustendil
+  Kyzylorda Region: Región de Kyzylorda
+  La Altagracia: La Altagracia
+  La Digue Group: Grupo La Digue
+  La Guajira: La Guajira
+  La Libertad: La Libertad
+  La Pampa: La Pampa
+  La Paz: La Paz
+  La Rioja: Rioja
+  La Romana: La Romana
+  La Union: La Unión
+  La Unión: La Union
+  La Vega: La Vega
+  Laâyoune-Sakia El Hamra: El Aaiún-Saguia El Hamra
+  Labé Region: Región de Labé
+  Laborie: Laborie
+  Labuan: Labuán
+  Lac: Laca
+  Lacs: Lacs
+  Ladakh: Ladakh
+  Laghman Province: Provincia de Laghman
+  Laghouat: Laghouat
+  Lagos State: Estado de Lagos
+  Laguna: Laguna
+  Lagunes: Lagunes
+  Lahij Governorate: Gobernación de Lahij
+  Lai Châu Province: Provincia de Lai Chau
+  Laikipia County: Condado de Laikipia
+  Lakes: Lakes
+  Lakshadweep: Lakshadweep
+  Lâm Đồng Province: Provincia de Lâm Đồng
+  Lambayeque: Lambayeque
+  Lampang Province: Provincia de Lampang
+  Lamphun Province: Provincia de Lamphun
+  Lampung: Lampung
+  Lamu: Lamu
+  Lamwo: Lamwo
+  Lanao del Norte: Lanao del Norte
+  Lanao del Sur: Lanao del Sur
+  Lạng Sơn Province: Provincia de Lạng Sơn
+  Lào Cai Province: Provincia de Lao Cai
+  Lapland: Laponia
+  Lara State: Estado Lara
+  Las Tunas: Las Tunas
+  Latakia Governorate: Gobernación de Latakia
+  Lautém: Lautem
+  Lavalleja: Lavalleja
+  Lazio: Lacio
+  Lebap Region: Región de Lebap
+  Lékoumou Department: Departamento de Lekoumou
+  Lempira: Lempira
+  Leningrad Oblast: Óblast de Leningrado
+  León: León
+  Leova District: Distrito de Leova
+  Lesser Poland Voivodeship: Voivodato de Pequeña Polonia
+  Leyte: Leyte
+  Lhuntse District: Distrito de Lhuntse
+  Liaoning: Liaoning
+  Liberec Region: Región de Liberec
+  Lienchiang County: Condado de Lienchiang
+  Liguria: Liguria
+  Lika-Senj County: Condado de Lika-Senj
+  Likouala: Likouala
+  Lilongwe: Lilongüe
+  Lima: Lima
+  Limburg: Limburgo
+  Limón Province: Provincia de Limón
+  Limpopo: Limpopo
+  Lindi Region: Región de Lindi
+  Lipetsk Oblast: Óblast de Lípetsk
+  Liquiçá: Liquiçá
+  Lira: Lira
+  Litoral: Litoral
+  Littoral: Litoral
+  Littoral Department: Departamento Litoral
+  Lobatse: Lobatse
+  Lobaye: Lobaye
+  Łódź Voivodeship: Voivodato de Łódź
+  Loei Province: Provincia de Loei
+  Lofa County: Condado de Lofa
+  Logar Province: Provincia de Logar
+  Logone Occidental: Logone Occidental
+  Logone Oriental: Logotipo Oriental
+  Loja: Loja
+  Lomami: Lomami
+  Lombardy: Lombardía
+  Lop Buri Province: Provincia de Lopburi
+  Lorestan Province: Provincia de Lorestán
+  Loreto: Loreto
+  Lori Province: Provincia de Lori
+  Los Lagos Region: Región de Los Lagos
+  Los Ríos: Los Rios
+  Los Santos: Los Santos
+  Louga Region: Región de Louga
+  Louisiana: Luisiana
+  Lovech: Lóvch
+  Lower Austria: Baja Austria
+  Lower Kartli: Bajo Kartli
+  Lower River Division: División del Bajo Río
+  Lower Saxony: Baja Sajonia
+  Lower Silesian Voivodeship: Voivodato de Baja Silesia
+  Lower Uele: Uele inferior
+  Lualaba: Lualaba
+  Luanda Province: Provincia de Luanda
+  Luang Namtha: Luang Namtha
+  Luang Prabang: Luang Prabang
+  Luapula Province: Provincia de Luapula
+  Lublin Voivodeship: Voivodato de Lublin
+  Lubombo: Lubombo
+  Lubusz Voivodeship: Voivodato de Lubusz
+  Lucerne: Alfalfa
+  Luhansk Oblast: Óblast de Lugansk
+  Lumbini Province: Provincia de Lumbini
+  Lunda Norte Province: Provincia de Lunda Norte
+  Lunda Sul Province: Provincia de Lunda Sur
+  Lusaka Province: Provincia de Lusaka
+  Luuka: Luuka
+  Luweero: Luweero
+  Luxor: Lúxor
+  Lviv Oblast: Óblast de Leópolis
+  Lwengo: Lwengo
+  Lyantonde: Lyantonde
+  M'Sila: M'Sila
+  Maan: Maan
+  Macedonia and Thrace: Macedonia y Tracia
+  Machakos County: Condado de Machakos
+  Machinga: Machinga
+  Madaba: Mádaba
+  Madang: Madang
+  Madeira: Madeira
+  Madhesh Province: Provincia de Madhesh
+  Madhya Pradesh: Madhya Pradesh
+  Madi Okollo: Madi Okollo
+  Madre de Dios: Madre de Dios
+  Madriz Department: Departamento de Madriz
+  Mae Hong Son Province: Provincia de Mae Hong Son
+  Maekel Region: Región de Maekel
+  Mafraq: Mafraq
+  Magadan Oblast: Óblast de Magadán
+  Magallanes and Chilean Antarctica Region: Región de Magallanes y Antártica Chilena
+  Magdalena: Magdalena
+  Maguindanao del Norte: Maguindánao del Norte
+  Maguindanao del Sur: Maguindánao del Sur
+  Magway: Magway
+  Maha Sarakham Province: Provincia de Maha Sarakham
+  Mahaica-Berbice: Mahaica-Berbice
+  Maharashtra: Maharastra
+  Mahdia: Mahdía
+  Mahilyow Region: Región de Mahilyow
+  Mai-Ndombe: Mai-Ndombe
+  Maidan Wardak Province: Provincia de Maidan Wardak
+  Maine: Maine
+  Makamba: Makamba
+  Makira-Ulawa: Makira-Ulawa
+  Makkah Region: Región de La Meca
+  Makueni: Makueni
+  Malacca: Malaca
+  Malaita: Malaita
+  Malampa: Malampa
+  Malanje Province: Provincia de Malanje
+  Malatya: Malatya
+  Maldonado: Maldonado
+  Malé: Masculino
+  Malé Atoll: Atolón de Malé
+  Maluku: Molucas
+  Mambéré-Kadéï: Mambéré-Kadéï
+  Mamou Region: Región de Mamou
+  Manabí: Manabí
+  Manafwa: Manafwa
+  Managua: Managua
+  Manatuto: Manatuto
+  Manawatū-Whanganui: Manawatū-Whanganui
+  Mandalay: Mandalay
+  Mandera County: Condado de Mandera
+  Mandoul: Mandoul
+  Mangaia: Mangaia
+  Mangochi: Mangochi
+  Mangystau Region: Región de Mangystau
+  Manica Province: Provincia de Manica
+  Manicaland Province: Provincia de Manicaland
+  Maniema: Maniema
+  Manihiki: Manihiki
+  Manipur: Manipur
+  Manisa: Manisa
+  Manitoba: Manitoba
+  Manouba: Manouba
+  Manufahi: Manufahi
+  Manus: Manus
+  Manyara Region: Región de Manyara
+  Manzini Region: Región de Manzini
+  Maputo Province: Provincia de Maputo
+  Mara Region: Región de Mara
+  Maracha: Maracha
+  Maradi Region: Región de Maradi
+  Maramureș: Maramureș
+  Maranhão: Maranhão
+  Marche: Marcas
+  Mardin: Mardin
+  Margibi County: Condado de Margibi
+  Mari El Republic: República de Mari El
+  María Trinidad Sánchez: María Trinidad Sánchez
+  Marib Governorate: Gobernación de Marib
+  Marijampolė County: Condado de Marijampolė
+  Marinduque: Marinduque
+  Maritime Region: Región Marítima
+  Marj: Marj
+  Markazi Province: Provincia de Markazi
+  Marlborough: Marlborough
+  Marowijne: Marowijne
+  Marrakech-Safi: Marrakech-Safi
+  Marsabit County: Condado de Marsabit
+  Martinique: Martinica
+  Mary Region: Región María
+  Maryland: Maryland
+  Maryland County: Condado de Maryland
+  Masaka: Masaka
+  Masaka City: Masaka City
+  Masaya: Masaya
+  Masbate: Masbate
+  Mascara: Máscara
+  Mashonaland Central Province: Provincia Central de Mashonalandia
+  Mashonaland East Province: Provincia de Mashonalandia Oriental
+  Mashonaland West Province: Provincia de Mashonalandia Occidental
+  Masindi: Masindi
+  Masovian Voivodeship: Voivodato de Mazovia
+  Massachusetts: Massachusetts
+  Masvingo Province: Provincia de Masvingo
+  Matabeleland North Province: Provincia de Matabelelandia Norte
+  Matabeleland South Province: Matabelelandia Provincia Sur
+  Matagalpa: Matagalpa
+  Matam Region: Región de Matam
+  Matanzas: Matanzas
+  Mato Grosso: Mato Grosso
+  Mato Grosso do Sul: Mato Grosso del Sur
+  Matruh: Matruh
+  Mauke: Mauke
+  Maule Region: Región del Maule
+  Mayabeque: Mayabeque
+  Mayaro-Rio Claro: Mayaro-Rio Claro
+  Mayo-Kebbi Est: Mayo-Kebbi Est
+  Mayo-Kebbi Ouest: Mayo-Kebbi Oeste
+  Mayotte: Mayotte
+  Maysan Governorate: Gobernación de Maysan
+  Mayuge: Mayuge
+  Mazandaran Province: Provincia de Mazandarán
+  Mbale: Mbalé
+  Mbale City: Mbale City
+  Mbarara: Mbarara
+  Mbarara City: Ciudad de Mbarara
+  Mbeya Region: Región de Mbeya
+  Mbomou: Mbomou
+  Mchinji: Mchinji
+  Mecklenburg-Vorpommern: Mecklemburgo-Pomerania Occidental
+  Médéa: Médea
+  Médenine: Médenine
+  Međimurje County: Condado de Međimurje
+  Medina Province: Provincia de Medina
+  Meghalaya: Megalaya
+  Mehedinți: Mehedinți
+  Melaky: Melaky
+  Melekeok: Melekeok
+  Melilla: Melilla
+  Menabe: Menabe
+  Ménaka: Ménaka
+  Mendoza: Mendoza
+  Meneng: Meneng
+  Merida State: Estado Mérida
+  Mersin: Mersin
+  Meru County: Condado de Meru
+  Meta: Meta
+  Mexico City: Ciudad de México
+  Miaoli County: Condado de Miaoli
+  Michigan: Michigan
+  Michoacán: Michoacán
+  Micoud: Micoud
+  Midlands Province: Provincia de las Tierras Centrales
+  Mie Prefecture: Prefectura de Mie
+  Migori County: Condado de Migori
+  Mila: Mila
+  Milne Bay: Bahía Milne
+  Minas Gerais: Minas Gerais
+  Minnesota: Minnesota
+  Minsk: Minsk
+  Minsk Region: Región de Minsk
+  Miranda State: Estado Miranda
+  Misamis Occidental: Misamis Occidental
+  Misamis Oriental: Misamis Oriental
+  Misiones: Misiones
+  Mississippi: Misisipí
+  Missouri: Misuri
+  Mitiaro: Mitiaro
+  Mitooma: Mitooma
+  Mityana: Mityana
+  Miyagi Prefecture: Prefectura de Miyagi
+  Miyazaki Prefecture: Prefectura de Miyazaki
+  Mizoram: Mizorán
+  Moheli: Mohéli
+  Moka: Moka
+  Molise: Molise
+  Mombasa County: Condado de Mombasa
+  Mon State: Estado de lunes
+  Monagas State: Estado Monagas
+  Monastir: Monastir
+  Mondulkiri: Mondulkiri
+  Mongala: Mongala
+  Mongar District: Distrito de Mongar
+  Mono Department: Departamento mono
+  Monseñor Nouel: Monseñor Nouel
+  Montagnes: Montagnes
+  Montana: Montana
+  Monte Cristi: Monte Cristi
+  Monte Plata: Monte Plata
+  Montevideo: Montevideo
+  Montserrado County: Condado de Montserrado
+  Monufia Governorate: Gobernación de Monufia
+  Mopti: Moptí
+  Moquegua: Moquegua
+  Moravian-Silesian Region: Región de Moravia-Silesia
+  Morazán: Morazan
+  Møre og Romsdal: Más y Romsdal
+  Morelos: Morelos
+  Morobe: Morobe
+  Morogoro Region: Región de Morogoro
+  Morona Santiago: Morona Santiago
+  Moroto: Moroto
+  Moscow: Moscú
+  Moscow Oblast: Óblast de Moscú
+  Mostaganem: Mostaganem
+  Mount Lebanon Governorate: Gobernación del Monte Líbano
+  Mountain Province: Provincia de montaña
+  Moxico Province: Provincia de Moxico
+  Moyen-Chari: Moyen Chari
+  Moyen-Ogooué Province: Provincia de Moyen-Ogooué
+  Moyo: Moyo
+  Mpigi: Mpigi
+  Mpumalanga: Mpumalanga
+  Mtskheta-Mtianeti: Mtsjeta-Mtianeti
+  Mtwara Region: Región de Mtwara
+  Mubarak al-Kabir Governorate: Gobernación de Mubarak al-Kabir
+  Mubende: Mubende
+  Muchinga Province: Provincia de Muchinga
+  Muğla: Mugla
+  Muharraq Governorate: Gobernación de Muharraq
+  Mukdahan Province: Provincia de Mukdahan
+  Mukono: Mukono
+  Mulaku Atoll: Atolón Mulaku
+  Mulanje: Mulanje
+  Muramvya: Muramvya
+  Murang'a County: Condado de Murang'a
+  Mureș: Mureș
+  Murmansk Oblast: Óblast de Múrmansk
+  Murqub: Murqub
+  Murzuq: Murzuq
+  Muş: Muş
+  Musandam Governorate: Gobernación de Musandam
+  Muscat Governorate: Gobernación de Mascate
+  Muthanna Governorate: Gobernación de Muthanna
+  Muyinga: Muyinga
+  Mwanza: Mwanza
+  Mwanza Region: Región de Mwanza
+  Mwaro: Mwaro
+  Mykolaiv Oblast: Óblast de Mykolaiv
+  Mymensingh Division: División Mymensingh
+  Mzimba: Mzimba
+  N'Djamena: Yamena
+  Naâma: Naâma
+  Nabatieh Governorate: Gobernación de Nabatieh
+  Nabeul: Nabeul
+  Nabilatuk: Nabilatuk
+  Nagaland: Nagalandia
+  Nagano Prefecture: Prefectura de Nagano
+  Nagasaki Prefecture: Prefectura de Nagasaki
+  Nairobi County: Condado de Nairobi
+  Najran Region: Región de Najrán
+  Nakapiripirit: Nakapiripirit
+  Nakaseke: Nakaseke
+  Nakasongola: Nakasongola
+  Nakhon Nayok Province: Provincia de Najon Nayok
+  Nakhon Pathom Province: Provincia de Nakhon Pathom
+  Nakhon Phanom Province: Provincia de Najon Phanom
+  Nakhon Ratchasima Province: Provincia de Najon Ratchasima
+  Nakhon Sawan Province: Provincia de Nakhon Sawan
+  Nakhon Si Thammarat Province: Provincia de Nakhon Si Thammarat
+  Nakuru: Nakuru
+  Nalut: Nalut
+  Namangan Region: Región de Namangán
+  Namayingo: Namayingo
+  Namibe Province: Provincia de Namibe
+  Namisindwa: Namisindwa
+  Nampo: Nampo
+  Nampula Province: Provincia de Nampula
+  Namutumba: Namutumba
+  Nan Province: Provincia de Nan
+  Nana-Grébizi: Nana-Grébizi
+  Nana-Mambéré: Nana Mambéré
+  Nandi County: Condado de Nandi
+  Nangarhar Province: Provincia de Nangarhar
+  Nantou County: Condado de Nantou
+  Napak: Napak
+  Napo: Napo
+  Nara Prefecture: Prefectura de Nara
+  Narathiwat Province: Provincia de Narathiwat
+  Nariño: Nariño
+  Narok: Narok
+  Naryn Region: Región de Naryn
+  Nasarawa State: Estado de Nasarawa
+  Naso Tjër Di: Naso Tjër Di
+  National Capital District: Distrito Capital Nacional
+  Navarre: Navarra
+  Navoiy Region: Región de Navoi
+  Nayarit: Nayarit
+  Naypyitaw Union Territory: Territorio de la Unión de Naypyitaw
+  Neamț: Neamț
+  Nebbi: Nebbi
+  Nebraska: Nebraska
+  Negeri Sembilan: Negeri Sembilan
+  Negros Occidental: Negros Occidentales
+  Negros Oriental: Negros Orientales
+  Nelson: Nelson
+  Nenets Autonomous Okrug: Distrito autónomo de Nenets
+  Neno: Neno
+  Neuchâtel: Neuchatel
+  Neuquén: Neuquén
+  Nevada: Nevada
+  Nevis: Nieves
+  Nevşehir: Nevşehir
+  New Brunswick: Nuevo Brunswick
+  New Hampshire: Nuevo Hampshire
+  New Ireland: Nueva Irlanda
+  New Jersey: Nueva Jersey
+  New Mexico: Nuevo Méjico
+  New South Wales: Nueva Gales del Sur
+  New Taipei: Nuevo Taipéi
+  New Valley: Nuevo Valle
+  New York: Nueva York
+  Newfoundland and Labrador: Terranova y Labrador
+  Ngäbe-Buglé: Ngäbe-Buglé
+  Ngaraard: Ngaraard
+  Ngarchelong: Ngarchelong
+  Ngardmau: Ngardmau
+  Ngatpang: Ngatpang
+  Ngchesar: Ngchesar
+  Ngeremlengui: Ngeremlengui
+  Nghệ An Province: Provincia de Nghệ An
+  Ngiwal: Ngiwal
+  Ngora: Ngora
+  Ngounié Province: Provincia de Ngounié
+  Ngozi: Ngozi
+  Niamey: Niamey
+  Niari Department: Departamento de Niari
+  Niassa Province: Provincia de Niasa
+  Nickerie: Nickerie
+  Nidwalden: Nidwalden
+  Niğde: Niğde
+  Niger State: Estado de Níger
+  Nightingale Islands: Islas Ruiseñor
+  Niigata Prefecture: Prefectura de Niigata
+  Nimba County: Condado de Nimba
+  Nimruz Province: Provincia de Nimruz
+  Nineveh Governorate: Gobernación de Nínive
+  Ningxia: Ningxia
+  Ninh Bình Province: Provincia de Ninh Binh
+  Nisporeni District: Distrito de Nisporeni
+  Nizhny Novgorod Oblast: Óblast de Nizhni Nóvgorod
+  Njombe Region: Región de Njombe
+  Nkhata Bay: Bahía de Nkhata
+  Nkhotakota: Nkhotakota
+  Nong Bua Lam Phu Province: Provincia de Nong Bua Lam Phu
+  Nong Khai Province: Provincia de Nong Khai
+  Nonthaburi Province: Provincia de Nonthaburi
+  Nord-Est Department: Departamento Nordeste
+  Nord-Ouest Department: Departamento Nord-Oeste
+  Nord-Ubangi: Norte-Ubangi
+  Nordland: Nordlandia
+  Norfolk Island: Isla Norfolk
+  Normandy: Normandía
+  Norrbotten County: Condado de Norbotnia
+  Norte de Santander: Norte de Santander
+  North: Norte
+  North-East District: Distrito Noreste
+  North-West District: Distrito Noroeste
+  North-Western Province: Provincia Noroeste
+  North Ari Atoll: Atolón Ari del Norte
+  North Bank Division: División del Banco Norte
+  North Brabant: Brabante Septentrional
+  North Caribbean Coast: Costa Caribe Norte
+  North Carolina: Carolina del Norte
+  North Central Province: Provincia Central del Norte
+  North Chungcheong: Chungcheong del Norte
+  North Dakota: Dakota del Norte
+  North Darfur: Darfur del Norte
+  North Denmark Region: Región del norte de Dinamarca
+  North District: Distrito Norte
+  North East Region: Región Noreste
+  North Governorate: Gobernación del Norte
+  North Gyeongsang: Gyeongsang del Norte
+  North Hamgyong: Hamgyong del Norte
+  North Holland: Holanda del Norte
+  North Huvadhu Atoll: Atolón norte de Huvadhu
+  North Hwanghae: Hwanghae del Norte
+  North Kalimantan: Kalimantan del Norte
+  North Karelia: Karelia del Norte
+  North Kazakhstan Region: Región del norte de Kazajstán
+  North Khorasan Province: Provincia de Jorasán del Norte
+  North Kivu: Kivu del Norte
+  North Kordufan: Kordufán del Norte
+  North Maalhosmadulu: Maalhosmadulu del Norte
+  North Maluku: Molucas del Norte
+  North Miladhunmadulu: Miladhunmadulu del norte
+  North Nilandhe Atoll: Atolón Nilandhe del Norte
+  North Ostrobothnia: Ostrobotnia del Norte
+  North Pemba: Pemba del Norte
+  North Pyongan: Pyŏngan del Norte
+  North Rhine-Westphalia: Renania del Norte-Westfalia
+  North Savo: Savo del Norte
+  North Sinai: Sinaí del Norte
+  North Sulawesi: Célebes Septentrional
+  North Sumatra: Sumatra del Norte
+  North Thiladhunmathi: Norte de Thiladhunmathi
+  North West: Noroeste
+  North West Province, Sierra Leone: Provincia del Noroeste, Sierra Leona
+  North Western Province: Provincia Noroeste
+  Northern: Del norte
+  Northern Albania: Albania del Norte
+  Northern Bahr el Ghazal: Norte de Bahr el Ghazal
+  Northern Borders Province: Provincia de la Frontera Norte
+  Northern Cape: Cabo Norte
+  Northern Governorate: Gobernación del Norte
+  Northern Ireland: Irlanda del Norte
+  Northern Mariana Islands: Islas Marianas del Norte
+  Northern Province: Provincia del Norte
+  Northern Province, Sierra Leone: Provincia del Norte, Sierra Leona
+  Northern Red Sea Region: Región septentrional del Mar Rojo
+  Northern Region: Región Norte
+  Northern Samar: Sámar del Norte
+  Northern State: Estado del Norte
+  Northern Territory: Territorio del Norte
+  Northland: Región septentrional
+  Northwest: Noroeste
+  Northwest Territories: Territorios del Noroeste
+  Nouakchott-Nord Region: Región de Nuakchot-Norte
+  Nouakchott-Ouest Region: Región de Nuakchot-Oeste
+  Nouakchott-Sud Region: Región de Nuakchot-Sur
+  Nouvelle-Aquitaine: Nueva Aquitania
+  Nova Scotia: Nueva Escocia
+  Novgorod Oblast: Óblast de Nóvgorod
+  Novosibirsk Oblast: Óblast de Novosibirsk
+  Nsanje: Nsanje
+  Ntcheu: Ntcheu
+  Ntchisi: Ntchisi
+  Ntoroko: Ntoroko
+  Ntungamo: Ntungamo
+  Nuble Region: Región Nuble
+  Nueva Ecija: Nueva Écija
+  Nueva Esparta State: Estado Nueva Esparta
+  Nueva Segovia: Nueva Segovia
+  Nueva Vizcaya: Nueva Vizcaya
+  Nuevo León: Nuevo León
+  Nunavut: Nunavut
+  Nuqat al Khams: Nuqat al Khams
+  Nuristan Province: Provincia de Nuristán
+  Nwoya: Nwoya
+  Nyamira County: Condado de Nyamira
+  Nyandarua: Nyandarua
+  Nyanga Province: Provincia de Nyanga
+  Nyeri: Nyeri
+  Nzérékoré Region: Región de Nzerékoré
+  Ñeembucú: Ñeembucu
+  O'Higgins Region: Región de O'Higgins
+  Oaxaca: Oaxaca
+  Obock: Obock
+  Obongi: Obongi
+  Obwalden: Obwalden
+  Occidental Mindoro: Mindoro occidental
+  Occitania: Occitania
+  Ocnița District: Distrito de Ocnița
+  Ocotepeque: Ocotepeque
+  Oddar Meanchey: Oddar Meanchey
+  Odesa Oblast: Óblast de Odesa
+  Odisha: Odisha
+  Oecussi-Ambeno: Oecussi-Ambeno
+  Ogooué-Ivindo: Ogooué-Ivindo
+  Ogooué-Lolo Province: Provincia de Ogooué-Lolo
+  Ogooué-Maritime Province: Provincia de Ogooué Marítimo
+  Ogun State: Estado de Ogún
+  Ohangwena: Ohangwena
+  Ohio: Ohio
+  Oio Region: Región de Oio
+  Oita Prefecture: Prefectura de Ōita
+  Okayama Prefecture: Prefectura de Okayama
+  Okinawa Prefecture: Prefectura de Okinawa
+  Oklahoma: Oklahoma
+  Olancho: Olancho
+  Olomouc Region: Región de Olomouc
+  Olt: Olt
+  Omaheke: Omaheke
+  Ombella-M'Poko: Ombella-M'Poko
+  Ömnögovi: Ömnögovi
+  Omoro: Omoro
+  Omsk Oblast: Óblast de Omsk
+  Omusati: Omusati
+  Ondo State: Estado de Ondo
+  Ongo Niua: Ongo Niua
+  Ontario: Ontario
+  Opole Voivodeship: Voivodato de Opole
+  Oran: Orán
+  Orange Walk: Paseo Naranja
+  Ordu: Ordu
+  Örebro County: Condado de Örebro
+  Oregon: Oregón
+  Orellana: Orellana
+  Orenburg Oblast: Óblast de Oremburgo
+  Orhei District: Distrito de Orhei
+  Oriental: Oriental
+  Oriental Mindoro: Mindoro oriental
+  Orkhon: Orjón
+  Oro: Oro
+  Oromia Region: Región de Oromía
+  Oruro: Oruro
+  Oryol Oblast: Óblast de Oriol
+  Osaka Prefecture: Prefectura de Osaka
+  Osh City: Osh City
+  Osh Region: Región de Osh
+  Oshana: Oshaná
+  Oshikoto: Oshikoto
+  Osijek-Baranja County: Condado de Osijek-Baranja
+  Oslo: Oslo
+  Osmaniye: Osmaniye
+  Östergötland County: Condado de Östergotland
+  Østfold: Østfold
+  Ostrobothnia: Ostrobotnia
+  Osun State: Estado de Osun
+  Otago: Otago
+  Other British Virgin Islands: Otras Islas Vírgenes Británicas
+  Oti Region: Región de Otí
+  Otjozondjupa: Otjozondjupa
+  Otuke: Otuke
+  Ouaddaï: Ouaddaï
+  Ouaka: Ouaka
+  Ouargla: Uargla
+  Oudomxay: Oudomxay
+  Ouémé Department: Departamento de Ouémé
+  Ouham: Ouham
+  Ouham-Pendé: Ouham Pendé
+  Ouled Djellal: Ouled Djellal
+  Oum El Bouaghi: Oum El Bouaghi
+  Overijssel: Overijssel
+  Övörkhangai: Övörkhangai
+  Oyam: Oyama
+  Oyo State: Estado de Oyó
+  P'yŏngyang: P'yongyang
+  Pader: Pader
+  Pahang: Pahang
+  Päijät-Häme: Päijät-Häme
+  Pailin: Pailín
+  Paktia Province: Provincia de Paktia
+  Paktika Province: Provincia de Paktika
+  Pakwach: Pakwach
+  Palauli: Palauli
+  Palawan: Palawan
+  Pallisa: Pallisa
+  Pampanga: Pampanga
+  Pamplemousses: Pamplemousses
+  Panamá Oeste: Panamá Oeste
+  Panamá Province: Provincia de Panamá
+  Pando: Pando
+  Panevėžys County: Condado de Panevėžys
+  Pangasinan: Pangasinán
+  Panjshir Province: Provincia de Panjshir
+  Papua: Papuasia
+  Para: Paraca
+  Pará: Paraca
+  Paraíba: Paraíba
+  Paramaribo: Paramaribo
+  Paraná: Paraná
+  Pardubice Region: Región de Pardubice
+  Paro District: Distrito de Paro
+  Parwan Province: Provincia de Parwan
+  Pasco: Pasco
+  Pastaza: Pastaza
+  Pathum Thani Province: Provincia de Pathum Thani
+  Pattani Province: Provincia de Pattani
+  Pavlodar Region: Región de Pavlodar
+  Pays de la Loire: Países del Loira
+  Paysandú: Paysandú
+  Pazardzhik: Pazardzhik
+  Pedernales: Pedernales
+  Peleliu: Peleliu
+  Peloponnese, Western Greece and the Ionian: Peloponeso, Grecia occidental y el Jónico
+  Pemagatshel District: Distrito de Pemagatshel
+  Penal-Debe: Penal-Debe
+  Penama: Peñamá
+  Penang: Penang
+  Penghu: Penghu
+  Pennsylvania: Pensilvania
+  Penza Oblast: Óblast de Penza
+  Perak: Perak
+  Peravia: Peraviá
+  Perlis: Perlis
+  Perm Krai: Krai de Perm
+  Pernambuco: Pernambuco
+  Pernik: Pernik
+  Petén: Petén
+  Phalombe: Phalombe
+  Phang-nga Province: Provincia de Phang Nga
+  Phatthalung Province: Provincia de Phattalung
+  Phayao Province: Provincia de Phayao
+  Phetchabun Province: Provincia de Phetchabun
+  Phetchaburi Province: Provincia de Phetchaburi
+  Phichit Province: Provincia de Phichit
+  Phitsanulok Province: Provincia de Phitsanulok
+  Phnom Penh: Nom Pen
+  Phongsaly: Phongsaly
+  Phra Nakhon Si Ayutthaya Province: Provincia de Phra Nakhon Si Ayutthaya
+  Phrae Province: Provincia de Phrae
+  Phú Thọ Province: Provincia de Phú Thọ
+  Phuket Province: Provincia de Phuket
+  Piauí: Piauí
+  Pichincha: Pichincha
+  Piedmont: Piamonte
+  Pinar del Rio: Pinar del Río
+  Pingtung County: Condado de Pingtung
+  Pirkanmaa: Pirkanmaa
+  Pituffik: Pituffik
+  Piura: Piura
+  Plaines Wilhems: Plaines Wilhems
+  Plateau Department: Departamento de Meseta
+  Plateau State: Estado de la meseta
+  Plateaux Department: Departamento de Mesetas
+  Plateaux Region: Región de las Mesetas
+  Plazas de Soberanía: Plazas de Soberanía
+  Pleven: Pleven
+  Plovdiv: Plovdiv
+  Plzeň Region: Región de Pilsen
+  Podlaskie Voivodeship: Voivodato de Podlaquia
+  Pohnpei: Pohnpei
+  Point Fortin: Punto Fortín
+  Pointe-Noire (département): Pointe-Noire (departamento)
+  Poltava Oblast: Óblast de Poltava
+  Pomeranian Voivodeship: Voivodato de Pomerania
+  Pomeroon-Supenaam: Pomeroon-Supenaam
+  Pool Department: Departamento de piscina
+  Port Louis: Puerto Luis
+  Port of Spain: Port of Spain
+  Port Said: Puerto Said
+  Portuguesa State: Estado Portuguesa
+  Potaro-Siparuni: Potaro-Siparuni
+  Potosí: Potosí
+  Požega-Slavonia County: Condado de Požega-Eslavonia
+  Prachin Buri Province: Provincia de Prachinburi
+  Prachuap Khiri Khan Province: Provincia de Prachuap Khiri Khan
+  Prague: Praga
+  Prahova: Prahová
+  Praslin: Praslin
+  Preah Vihear: Preah Vihear
+  Presidente Hayes: Presidente Hayes
+  Prey Veng: Presa Veng
+  Primorje-Gorski Kotar County: Condado de Primorje-Gorski Kotar
+  Primorsky Krai: Krai de Primorie
+  Prince Edward Island: Isla del Príncipe Eduardo
+  Princes Town: Ciudad de los Príncipes
+  Provence-Alpes-Côte d'Azur: Provenza-Alpes-Costa Azul
+  Pskov Oblast: Óblast de Pskov
+  Puducherry: Puducherry
+  Puebla: Puebla
+  Puerto Plata: Puerto Plata
+  Puerto Rico: Puerto Rico
+  Pukapuka: Pukapuka
+  Punakha District: Distrito de Punakha
+  Punjab: Punjab
+  Puno: Puno
+  Puntarenas Province: Provincia de Puntarenas
+  Puntland: Puntlandia
+  Pursat: Pursat
+  Putrajaya: Putrajaya
+  Putumayo: Putumayo
+  Pwani Region: Región de Pwani
+  Qashqadaryo Region: Región de Qashqadaryo
+  Qazvin Province: Provincia de Qazvín
+  Qena: Quena
+  Qeqertalik: Qeqertalik
+  Qeqqata: Qeqqata
+  Qinghai: Qinghai
+  Qom Province: Provincia de Qom
+  Quảng Ngãi Province: Provincia de Quảng Ngãi
+  Quảng Ninh Province: Provincia de Quảng Ninh
+  Quảng Trị Province: Provincia de Quang Trị
+  Quebec: Quebec
+  Queensland: Queensland
+  Querétaro: Querétaro
+  Quetzaltenango: Quetzaltenango
+  Quezon: Quezón
+  Quiché: Quiche
+  Quinara Region: Región de Quinara
+  Quindío: Quindío
+  Quintana Roo: QuintanaRoo
+  Quirino: Quirino
+  Rabat-Salé-Kénitra: Rabat-Salé-Kénitra
+  Racha-Lechkhumi and Kvemo Svaneti: Racha-Lechkhumi y Kvemo Svaneti
+  Rajasthan: Rajastán
+  Rajshahi Division: División Rajshahi
+  Rakahanga: Rakahanga
+  Rakai: Rakai
+  Rakhine: Rakáin
+  Ralik Chain: Cadena Ralik
+  Rangpur Division: División de Rangpur
+  Ranong Province: Provincia de Ranong
+  Rarotonga: Rarotonga
+  Ras al-Khaimah Emirate: Emirato Ras al-Jaima
+  Rason: Razón
+  Ratak Chain: Cadena Ratak
+  Ratanakiri: Ratanakiri
+  Ratchaburi Province: Provincia de Ratchaburi
+  Raymah Governorate: Gobernación de Raymah
+  Rayong Province: Provincia de Rayong
+  Razavi Khorasan: Razaví Jorasán
+  Razgrad: Razgrad
+  Red Sea: Mar Rojo
+  Red Sea State: Estado del Mar Rojo
+  Redonda: Redonda
+  Region of Banská Bystrica: Región de Banská Bystrica
+  Region of Bratislava: Región de Bratislava
+  Region of Crete: Región de Creta
+  Region of Košice: Región de Košice
+  Region of Murcia: Región de Murcia
+  Region of Nitra: Región de Nitra
+  Region of Prešov: Región de Prešov
+  Region of Southern Denmark: Región del sur de Dinamarca
+  Region of Trenčín: Región de Trenčín
+  Region of Trnava: Región de Trnava
+  Region of Žilina: Región de Žilina
+  Region Zealand: Región Zelanda
+  Relizane: Relizane
+  Rennell and Bellona: Rennell y Bellona
+  Republic of Adygea: República de Adigueya
+  Republic of Crimea: República de Crimea
+  Republic of Kalmykia: República de Kalmukia
+  Republic of Mordovia: República de Mordovia
+  Republic of North Ossetia – Alania: República de Osetia del Norte – Alania
+  Republika Srpska: República Srpska
+  Retalhuleu: Retalhuleu
+  Réunion: Reunión
+  Rezina District: Distrito de Režina
+  Rhineland-Palatinate: Renania-Palatinado
+  Rhode Island: Rhode Island
+  Riau: Riau
+  Riau Islands: Islas Riau
+  Rif Dimashq Governorate: Gobernación de Dimashq Rural
+  Rio de Janeiro: Río de Janeiro
+  Rio Grande do Norte: Río Grande del Norte
+  Rio Grande do Sul: Río Grande del Sur
+  Río Negro: Río Negro
+  Río San Juan: Río San Juan
+  Rioja: Rioja
+  Risaralda: Risaralda
+  Rîșcani District: Distrito de Rîșcani
+  Rivas: Rivas
+  River Gee County: Condado de River Gee
+  River Nile State: Estado del río Nilo
+  Rivera: Rivera
+  Rivercess County: Condado de Rivercess
+  Rivers State: Estado de los ríos
+  Rivière du Rempart District: Distrito de Rivière du Rempart
+  Rivne Oblast: Óblast de Rivne
+  Riyadh Region: Región de Riad
+  Rizal: Rizal
+  Rize: Rize
+  Rocha: Rocha
+  Rogaland: Rogalandia
+  Roi Et Province: Provincia de Roi Et
+  Romblon: Romblón
+  Rondônia: Rondonia
+  Roraima: Roraima
+  Rostov Oblast: Óblast de Rostov
+  Rotuma: Rotuma
+  Rubanda: Rubanda
+  Rubirizi: Rubirizi
+  Rukiga: Rukiga
+  Rukungiri: Rukungiri
+  Rukwa Region: Región de Rukwa
+  Rumonge: Rumonge
+  Rumphi: Rumphi
+  Ruse: Ardid
+  Rutana: Rutana
+  Ruvuma Region: Región de Ruvuma
+  Ruweng Administrative Area: Área administrativa de Ruweng
+  Ruyigi: Ruyigi
+  Rwampara: Rwampara
+  Ryanggang: Ryanggang
+  Ryazan Oblast: Óblast de Riazán
+  Sa'dah Governorate: Gobernación de Sa'dah
+  Sa Kaeo Province: Provincia de Sa Kaeo
+  Saarland: Sarre
+  Sabah: Sabah
+  Sabaragamuwa Province: Provincia de Sabaragamuwa
+  Sabha: Sabha
+  Sacatepéquez: Sacatepéquez
+  Saga Prefecture: Prefectura de Saga
+  Sagaing Region: Región de Sagaing
+  Sahel: Sahel
+  Saïda: Saïda
+  Saint-Louis Region: Región de San Luis
+  Saint Andrew Parish: Parroquia de San Andrés
+  Saint David Parish: Parroquia de San David
+  Saint George Parish: Parroquia de San Jorge
+  Saint John Parish: Parroquia de San Juan
+  Saint Joseph Parish: Parroquia de San José
+  Saint Kitts: San Cristóbal
+  Saint Luke Parish: Parroquia de San Lucas
+  Saint Mark Parish: Parroquia de San Marcos
+  Saint Patrick Parish: Parroquia de San Patricio
+  Saint Paul Parish: Parroquia de San Pablo
+  Saint Peter Parish: Parroquia de San Pedro
+  Saint Petersburg: San Petersburgo
+  Sainyabuli Province: Provincia de Sainyabuli
+  Saitama Prefecture: Prefectura de Saitama
+  Sakarya: Sakarya
+  Sakha Republic: República de Sajá
+  Sakhalin Oblast: Óblast de Sajalín
+  Sakon Nakhon Province: Provincia de Sakon Nakhon
+  Saladin Governorate: Gobernación de Saladino
+  Sălaj: Salaj
+  Salamat: Salamat
+  Salavan Province: Provincia de Salavan
+  Salima: Salima
+  Salta: Salta
+  Salto: Salto
+  Salzburg: Salsburgo
+  Samaná: Samaná
+  Samangan Province: Provincia de Samangan
+  Samar: Sámar
+  Samara Oblast: Óblast de Samara
+  Samarqand Region: Región de Samarcanda
+  Samburu: Samburu
+  Samdrup Jongkhar District: Distrito de Samdrup Jongkhar
+  Samegrelo-Upper Svaneti: Samegrelo-Alto Svaneti
+  Samsun: Samsung
+  Samtse District: Distrito de Samtse
+  Samtskhe-Javakheti: Samtsje-Javajeti
+  Samut Prakan Province: Provincia de Samut Prakan
+  Samut Sakhon Province: Provincia de Samut Sakhon
+  Samut Songkhram Province: Provincia de Samut Songkhram
+  San Cristóbal: San Cristóbal
+  San Fernando: San Fernando
+  San José: San José
+  San José de Ocoa: San José de Ocoa
+  San Jose Province: Provincia de San José
+  San Juan: San Juan
+  San Juan-Laventille: San Juan-Laventille
+  San Luis: San Luis
+  San Luis Potosí: San Luis Potosí
+  San Marcos: San Marcos
+  San Martín: San Martín
+  San Miguel: San Miguel
+  San Pedro: San Pedro
+  San Pedro de Macorís: San Pedro de Macorís
+  San Salvador: San Salvador
+  San Vicente: San Vicente
+  Sana'a Governorate: Gobernación de Saná
+  Sánchez Ramírez: Sánchez Ramírez
+  Sancti Spiritus: Sancti Spíritus
+  Sandaun: Sandaún
+  Sangha: Sangha
+  Sangha-Mbaéré: Sangha-Mbaéré
+  Sangre Grande: Sangre Grande
+  Sankuru: Sankuru
+  Şanlıurfa: Sanliurfa
+  Sanma: Sanma
+  Santa Ana: Santa Ana
+  Santa Bárbara: Santa Bárbara
+  Santa Catarina: Santa Catarina
+  Santa Cruz: Santa Cruz
+  Santa Elena Province: Provincia de Santa Elena
+  Santa Fe: Santa Fé
+  Santa Rosa: Santa Rosa
+  Santander: Santander
+  Santiago: Santiago
+  Santiago de Cuba: Santiago de Cuba
+  Santiago del Estero: Santiago del Estero
+  Santiago Metropolitan Region: Región Metropolitana de Santiago
+  Santiago Rodríguez: Santiago Rodríguez
+  Santo Domingo: Santo Domingo
+  Santo Domingo de los Tsáchilas: Santo Domingo de los Tsachilas
+  São Paulo: São Paulo
+  Sar-e Pol Province: Provincia de Sar-e Pol
+  Saraburi Province: Provincia de Saraburi
+  Saramacca: Saramacca
+  Sarangani: Sarangani
+  Saratov Oblast: Óblast de Saratov
+  Sarawak: Sarawak
+  Sardinia: Cerdeña
+  Sark: Sark
+  Sarpang District: Distrito de Sarpang
+  Saskatchewan: Saskatchewan
+  Sassandra-Marahoué: Sassandra-Marahoué
+  Satakunta: Satakunta
+  Satu Mare: Satu Mare
+  Satun Province: Provincia de Satún
+  Satupaʻitea: Satupaʻitea
+  Sava: Sava
+  Savanes: Savanes
+  Savanes Region: Región de Sabanas
+  Savannah Region: Región de la sabana
+  Savannakhet Province: Provincia de Savannakhet
+  Savanne: Savanne
+  Saxony: Sajonia
+  Saxony-Anhalt: Sajonia-Anhalt
+  Schaffhausen: Schaffhausen
+  Schleswig-Holstein: Schleswig-Holstein
+  Schwyz: Schwyz
+  Scotland: Escocia
+  Sédhiou Region: Región de Sédhiou
+  Ségou Region: Región de Ségú
+  Sejong: Sejong
+  Sekong Province: Provincia de Sekong
+  Selangor: Selangor
+  Selebi Phikwe: Selebi Phikwe
+  Selenge: Selenge
+  Sembabule: Sembabule
+  Semnan Province: Provincia de Semnán
+  Sennar State: Estado de Sennar
+  Seoul: Seúl
+  Serere: Serere
+  Sergipe: Sergipe
+  Sermersooq: Sermersooq
+  Setif: Sétif
+  Sevastopol: Sebastopol
+  Sfax: Sfax
+  Shaanxi: Shaanxi
+  Shabwah Governorate: Gobernación de Shabwa
+  Shan State: Estado de Shan
+  Shandong: Shandong
+  Shanghai: Llevar a la fuerza
+  Shanxi: Shanxi
+  Sharjah Emirate: Emirato de Sharjah
+  Sharqia Governorate: Gobernación de Sharqia
+  Sheema: Sheema
+  Shefa Province: Provincia de Shefa
+  Shida Kartli: Shida Kartli
+  Shiga Prefecture: Prefectura de Shiga
+  Shimane Prefecture: Prefectura de Shimane
+  Shinyanga Region: Región de Shinyanga
+  Shirak Province: Provincia de Shirak
+  Shiselweni: Shiselweni
+  Shizuoka Prefecture: Prefectura de Shizuoka
+  Shumen: Shumen
+  Shymkent: Shymkent
+  Si Sa Ket Province: Provincia de Si Sa Ket
+  Šiauliai County: Condado de Šiauliai
+  Siaya County: Condado de Siaya
+  Šibenik-Knin County: Condado de Šibenik-Knin
+  Sibiu: Sibiu
+  Sichuan: Sichuan
+  Sicily: Sicilia
+  Sidama: Sidama
+  Sidi Bel Abbès: Sidi Bel Abbes
+  Sidi Bouzid: Sidi Bouzid
+  Siem Reap: Ciudad de Siem Riep
+  Siirt: Siirt
+  Sikasso Region: Región de Sikasso
+  Sikkim: Sikkim
+  Sila: Sila
+  Silesian Voivodeship: Voivodato de Silesia
+  Siliana: Siliana
+  Silistra: Silistra
+  Simbu: Simbu
+  Simiyu: Simiyu
+  Sinaloa: Sinaloa
+  Sindh: Sind
+  Sing Buri Province: Provincia de Sing Buri
+  Sîngerei District: Distrito de Sîngerei
+  Singida Region: Región de Singida
+  Sinoe County: Condado de Sinoe
+  Sinop: Sinop
+  Sipaliwini: Sipaliwini
+  Siparia: Siparia
+  Siquijor: Siquijor
+  Sirdaryo Region: Región de Sirdario
+  Şırnak: Şırnak
+  Sironko: Sironko
+  Sirte: Sirte
+  Sisak-Moslavina County: Condado de Sisak-Moslavina
+  Sistan and Baluchestan Province: Provincia de Sistán y Baluchistán
+  Sivas: Sivas
+  Skåne County: Condado de Skåne
+  Skikda: Skikda
+  Sliven: Sliven
+  Smolensk Oblast: Óblast de Smolensk
+  Smolyan: Smolyan
+  Socotra Governorate: Gobernación de Socotra
+  Södermanland County: Condado de Södermanland
+  Sofala Province: Provincia de Sofala
+  Sofia: Sofía
+  Sofia-City: Sofia-Ciudad
+  Sofia Region: Región de Sofía
+  Sokoto State: Estado de Sokoto
+  Șoldănești District: Distrito de Șoldănești
+  Sololá: Sololá
+  Solothurn: Soleura
+  Somali Region: Región de Somalia
+  Sơn La Province: Provincia de Sơn La
+  Songkhla Province: Provincia de Songkhla
+  Songwe Region: Región de Songwe
+  Sonora: Sonora
+  Sonsonate: Sonsonate
+  Sonsorol: Sonsorol
+  Soriano: Soriano
+  Soroca District: Distrito de Soroca
+  Soroti: Soroti
+  Soroti City: Soroti City
+  Sorsogon: Sorsogón
+  Soufrière: Soufriere
+  Souk Ahras: Zoco Ahras
+  Souss-Massa: Sus-Masa
+  Sousse: Susa
+  South: Sur
+  South-East District: Distrito Sureste
+  South Ari Atoll: Atolón Ari del Sur
+  South Australia: Australia del Sur
+  South Bohemian Region: Región de Bohemia del Sur
+  South Caribbean Coast: Costa Caribe Sur
+  South Carolina: Carolina del Sur
+  South Chungcheong: Chungcheong del Sur
+  South Cotabato: Cotabato Sur
+  South Dakota: Dakota del Sur
+  South Darfur: Darfur del Sur
+  South District: Distrito Sur
+  South Ethiopia Regional State: Estado regional del sur de Etiopía
+  South Governorate: Gobernación del Sur
+  South Gyeongsang: Gyeongsang del Sur
+  South Hamgyong: Hamgyong del Sur
+  South Holland: Holanda del Sur
+  South Huvadhu Atoll: Atolón sur de Huvadhu
+  South Hwanghae: Hwanghae del sur
+  South Jeolla: Jeolla del Sur
+  South Kalimantan: Kalimantán del Sur
+  South Karelia: Karelia del Sur
+  South Khorasan Province: Provincia de Jorasán del Sur
+  South Kivu: Kivu del Sur
+  South Kordufan: Kordufán del Sur
+  South Maalhosmadulu: Maalhosmadulu del Sur
+  South Miladhunmadulu: Miladhunmadulu del Sur
+  South Moravian Region: Región de Moravia del Sur
+  South Nilandhe Atoll: Atolón Nilandhe del Sur
+  South Ostrobothnia: Ostrobotnia del Sur
+  South Papua: Papúa del Sur
+  South Pemba: Pemba del Sur
+  South Pyongan: Pyongan del Sur
+  South Savo: Sabo del Sur
+  South Sinai: Sinaí del Sur
+  South Sulawesi: Célebes del Sur
+  South Sumatra: Sumatra del Sur
+  South Thiladhunmathi: Sur de Thiladhunmathi
+  South West: South West
+  South West Ethiopia Peoples: Pueblos del suroeste de Etiopía
+  Southeast Sulawesi: Sudeste de Célebes
+  Southern Albania: Albania meridional
+  Southern District: Distrito Sur
+  Southern Governorate: Gobernación del Sur
+  Southern Highlands: Tierras Altas del Sur
+  Southern Leyte: Leyte del Sur
+  Southern Province: Provincia del Sur
+  Southern Province, Sierra Leone: Provincia Sur, Sierra Leona
+  Southern Red Sea Region: Región Meridional del Mar Rojo
+  Southland: Southland
+  Southwest: Suroeste
+  Southwest Finland: Sudoeste de Finlandia
+  Southwest Papua: Suroeste de Papúa
+  Sowa Town: Sowa Town
+  Special Capital Region of Jakarta: Región Capital Especial de Yakarta
+  Special Region of Yogyakarta: Región Especial de Yogyakarta
+  Split-Dalmatia County: Condado de Split-Dalmacia
+  St. Gallen: San Galo
+  Stann Creek: Stann Creek
+  Stara Zagora: Stara Zagora
+  State of Mexico: Estado de México
+  Stavropol Krai: Krai de Stávropol
+  Ștefan Vodă District: Distrito de Ștefan Vodă
+  Stockholm County: Condado de Estocolmo
+  Strășeni District: Distrito de Strășeni
+  Stung Treng: Picado Treng
+  Styria: Estiria
+  Subcarpathian Voivodeship: Voivodato de Subcarpacia
+  Suceava: Suceava
+  Suchitepéquez: Suchitepéquez
+  Sucre: Sucre
+  Sucre State: Estado Sucre
+  Sucumbíos: Sucumbíos
+  Sud-Ubangi: Ubangi del Sur
+  Sud Department: Departamento Sur
+  Sudurpashchim Province: Provincia de Sudurpaschim
+  Suez: Suez
+  Sughd Region: Región de Sughd
+  Suhaj: Suhaj
+  Sükhbaatar: Sujbaatar
+  Sukhothai Province: Provincia de Sukhothai
+  Sulaymaniyah Governorate: Gobernación de Solimania
+  Sultan Kudarat: Sultán Kudarat
+  Sulu: Sulú
+  Sumy Oblast: Óblast de Sumy
+  Suphan Buri Province: Provincia de Suphan Buri
+  Surat Thani Province: Provincia de Surat Thani
+  Surigao del Norte: Surigao del Norte
+  Surigao del Sur: Surigao del Sur
+  Surin Province: Provincia de Surin
+  Surxondaryo Region: Región de Surjondaryo
+  Svalbard: Islas Svalbard
+  Svay Rieng: Svay Rieng
+  Sverdlovsk Oblast: Óblast de Sverdlovsk
+  Sylhet Division: División Sylhet
+  Syunik Province: Provincia de Syunik
+  Ta'izz Governorate: Gobernación de Taiz
+  Tabasco: Tabasco
+  Tabora Region: Región de Tábora
+  Tabuk Province: Provincia de Tabuk
+  Tachira State: Estado Táchira
+  Tacna: Tacna
+  Tacuarembó: Tacuarembó
+  Tadjourah: Tadjoura
+  Tafea: Tafea
+  Tafilah: Tafila
+  Tagant: Tagante
+  Tahoua Region: Región de Tahoua
+  Taichung: Taichung
+  Tainan: Tainan
+  Taipei: Taipéi
+  Taita–Taveta: Taita–Taveta
+  Taitung County: Condado de Taitung
+  Tak Province: Provincia de Tak
+  Takeo: Takeo
+  Takhar Province: Provincia de Tajar
+  Talas Region: Región de Talas
+  Tamanrasset: Tamanrasset
+  Tamaulipas: Tamaulipas
+  Tambacounda Region: Región de Tambacounda
+  Tambov Oblast: Óblast de Tambov
+  Tamil Nadu: Tamil Nadu
+  Tana River County: Condado del río Tana
+  Tandjilé: Tandjilé
+  Tanga Region: Región de Tanga
+  Tanganyika: Tanganica
+  Tangier-Tetouan-Al Hoceima: Tánger-Tetuán-Alhucemas
+  Tanintharyi Region: Región de Tanintharyi
+  Taoudénit Region: Región de Taoudénit
+  Taoyuan City: Taoyuan City
+  Taraba State: Estado de Taraba
+  Taraclia District: Distrito de Taraclia
+  Taranaki: Taranaki
+  Tarapacа Region: Región de Tarapacá
+  Targovishte: Targóvishte
+  Tarija: Tarija
+  Tarlac: Tarlac
+  Tartus Governorate: Gobernación de Tartús
+  Tashkent: Taskent
+  Tashkent Region: Región de Taskent
+  Tasman: Tasmania
+  Tasmania: Tasmania
+  Tataouine: Tataouine
+  Tatarstan: Tartaristán
+  Tauragė County: Condado de Tauragė
+  Tavush Province: Provincia de Tavush
+  Tawi-Tawi: Tawi-Tawi
+  Tây Ninh Province: Provincia de Tay Ninh
+  Tbilisi: Tiflis
+  Tbong Khmum: Tbong Khmum
+  Tébessa: Tébessa
+  Tehran Province: Provincia de Teherán
+  Tekirdağ: Tekirdağ
+  Tel-Aviv District: Distrito de Tel Aviv
+  Telangana: Telangana
+  Telemark: Telemark
+  Telenești District: Distrito de Telenești
+  Teleorman: Teleorman
+  Telšiai County: Condado de Telšiai
+  Temburong District: Distrito de Temburong
+  Temotu: Temotu
+  Tennessee: Tennesse
+  Terego: Terego
+  Terengganu: Terengganu
+  Ternopil Oblast: Óblast de Ternópil
+  Tete Province: Provincia de Tete
+  Texas: Texas
+  Thái Nguyên Province: Provincia de Thái Nguyên
+  Thanh Hóa Province: Provincia de Thanh Hóa
+  Tharaka-Nithi: Tharaka-Nithi
+  Thessaly and Central Greece: Tesalia y Grecia central
+  Thiès Region: Región de Thiès
+  Thimphu District: Distrito de Timbu
+  Thurgau: Turgovia
+  Thuringia: Turingia
+  Thyolo: Thyolo
+  Tianjin: Tianjín
+  Tiaret: Tiaret
+  Tibesti: Tibestí
+  Tibet: Tíbet
+  Ticino: Tesino
+  Tierra del Fuego: Tierra del Fuego
+  Tigray: Tigray
+  Tillabéri Region: Región de Tillabéri
+  Timbuktu: Tombuctú
+  Timimoun Province: Provincia de Timimoun
+  Timiș: Timiș
+  Tinduf: Tinduf
+  Tipaza: Tipaza
+  Tiris Zemmour: Tiris Zemmour
+  Tissemsilt: Tissemsilt
+  Tizi Ouzou: Tizi Ouzou
+  Tlaxcala: Tlaxcala
+  Tlemcen: Tlemcen
+  Tobago: Tobago
+  Tocantins: Tocantins
+  Tochigi Prefecture: Prefectura de Tochigi
+  Tokat: Tokat
+  Tokushima Prefecture: Prefectura de Tokushima
+  Tokyo: Tokio
+  Toledo: Toledo
+  Tolima: Tolima
+  Tombali Region: Región de Tombalí
+  Tomsk Oblast: Óblast de Tomsk
+  Tongatapu: Tongatapu
+  Torba: Torba
+  Tororo: Tororo
+  Tortola: Tórtola
+  Totonicapán: Totonicapán
+  Tottori Prefecture: Prefectura de Tottori
+  Touggourt: Tuggurt
+  Töv: Töv
+  Toyama Prefecture: Prefectura de Toyama
+  Tozeur: Tozeur
+  Trabzon: Trebisonda
+  Trang Province: Provincia de Trang
+  Trans-Nzoia County: Condado de Trans-Nzoia
+  Transdanubia: Transdanubia
+  Trarza: Traza
+  Trashigang District: Distrito de Trashigang
+  Trashiyangtse District: Distrito de Trashiyangtse
+  Trat Province: Provincia de Trat
+  Treinta y Tres: Treinta y Tres
+  Trentino – Alto Adige/Südtirol: Trentino – Alto Adigio/Südtirol
+  Tripoli: Trípoli
+  Tripura: Tripura
+  Tristan da Cunha: Tristán da Cunha
+  Troms: Troms
+  Trøndelag: Trøndelag
+  Trongsa District: Distrito de Trongsa
+  Trujillo State: Estado Trujillo
+  Tshopo: Tshopo
+  Tshuapa: Tsuapa
+  Tsirang District: Distrito de Tsirang
+  Tuamasaga: Tuamasaga
+  Tucumán: Tucumán
+  Tula Oblast: Óblast de Tula
+  Tulcea: Tulcea
+  Tumbes: Tumbes
+  Tunapuna-Piarco: Tunapuna-Piarco
+  Tunceli: Tunceli
+  Tungurahua: Tungurahua
+  Tunis: Túnez
+  Turkana County: Condado de Turkana
+  Turkistan Region: Región de Turkestán
+  Tuscany: Tuscany
+  Tutong District: Distrito de Tutong
+  Tuva Republic: República de Tuvá
+  Tuyên Quang Province: Provincia de Tuyên Quang
+  Tver Oblast: Óblast de Tver
+  Tyrol: Tirol
+  Tyumen Oblast: Óblast de Tiumén
+  Uasin Gishu County: Condado de Uasin Gishu
+  Ubenide: Ubenide
+  Ubon Ratchathani Province: Provincia de Ubon Ratchathani
+  Ucayali: Ucayali
+  Udmurtia: Udmurtia
+  Udon Thani Province: Provincia de Udon Thani
+  Uíge Province: Provincia de Uige
+  Ulaanbaatar: Ulán Bator
+  Ulsan: Ulsan
+  Ulyanovsk Oblast: Óblast de Uliánovsk
+  Ulytau Region: Región de Ulitau
+  Umbria: Umbría
+  Umm al-Quwain Emirate: Emirato de Umm al-Quwain
+  Umm Salal: Umm Salal
+  Ungheni District: Distrito de Ungheni
+  United States Virgin Islands: Islas Vírgenes de los Estados Unidos
+  Unity: Unidad
+  Upper-Basins: Cuencas superiores
+  Upper Austria: Alta Austria
+  Upper Demerara-Berbice: Alto Demerara-Berbice
+  Upper East Region: Región del Alto Este
+  Upper Nile: Alto Nilo
+  Upper River Division: División del río superior
+  Upper Takutu-Upper Essequibo: Alto Takutu-Alto Esequibo
+  Upper Uele: Alto Uele
+  Upper West Region: Región del Alto Oeste
+  Uppsala County: Condado de Upsala
+  Uri: Uri
+  Uruzgan Province: Provincia de Uruzgán
+  Uşak: Usak
+  Ústí nad Labem Region: Región de Ústí nad Labem
+  Usulután: Usulutan
+  Utah: Utah
+  Utena County: Condado de Utena
+  Uthai Thani Province: Provincia de Uthai Thani
+  Utrecht: Utrecht
+  Uttar Pradesh: Uttar Pradesh
+  Uttaradit Province: Provincia de Uttaradit
+  Uttarakhand: Uttarakhand
+  Uusimaa: Uusimaa
+  Uva Province: Provincia de Uvá
+  Uvs: Uvs
+  Vaʻa-o-Fonoti: Va'a-o-Fonoti
+  Vaisigano: Vaisigano
+  Vakaga: Vakaga
+  Vakinankaratra: Vakinankaratra
+  Valais/Wallis: Valais/Wallis
+  Vâlcea: Valcea
+  Valencian Community: Comunidad Valenciana
+  Valle: Valle
+  Valle del Cauca: Valle del Cauca
+  Vallée du Bandama: Valle del Bandama
+  Valparaiso Region: Región de Valparaíso
+  Valverde: Valverde
+  Van: Furgoneta
+  Varaždin County: Condado de Varaždin
+  Vargas State: Estado Vargas
+  Värmland County: Condado de Värmland
+  Varna: Varna
+  Vaslui: Vaslui
+  Västerbotten County: Condado de Västerbotten
+  Västernorrland County: Condado de Västernorrland
+  Västmanland County: Condado de Västmanland
+  Västra Götaland County: Condado de Västra Götaland
+  Vatovavy: Vatovavy
+  Vaud: Vaud
+  Vaupés: Vaupés
+  Vavaʻu: Vavaʻu
+  Vayots Dzor Province: Provincia de Vayots Dzor
+  Veliko Tarnovo: Veliko Tarnovo
+  Veneto: Véneto
+  Veracruz: Veracruz
+  Veraguas: Veraguas
+  Vermont: Vermont
+  Vestfold: Vestfold
+  Vestland: Vestlandia
+  Vichada: Vichada
+  Victoria: Victoria
+  Vidin: Vidin
+  Vienna: Viena
+  Vientiane Prefecture: Prefectura de Vientián
+  Vientiane Province: Provincia de Vientián
+  Vieux Fort: Viejo Fuerte
+  Vihiga County: Condado de Vihiga
+  Villa Clara: Villa Clara
+  Vilnius County: Condado de Vilna
+  Vĩnh Long Province: Provincia de Vinh Long
+  Vinnytsia Oblast: Óblast de Vinnytsia
+  Viqueque: Viqueque
+  Virgin Gorda: Virgin Gorda
+  Virginia: Virginia
+  Virovitica-Podravina County: Condado de Virovitica-Podravina
+  Vitsebsk Region: Región de Vítsebsk
+  Vladimir Oblast: Óblast de Vladímir
+  Vojvodina: Voivodina
+  Volgograd Oblast: Óblast de Volgogrado
+  Vologda Oblast: Óblast de Vólogda
+  Volta Region: Región del Volta
+  Volyn Oblast: Óblast de Volinia
+  Vorarlberg: Vorarlberg
+  Voronezh Oblast: Óblast de Vorónezh
+  Vrancea: Vranceá
+  Vratsa: Vratsa
+  Vukovar-Srijem County: Condado de Vukovar-Srijem
+  Vysočina Region: Región de Vysočina
+  Wa State (Northern Region): Estado de Wa (Región Norte)
+  Wa State Southern Region: Región Sur del Estado de Wa
+  Wadi al Hayaa: Wadi al-Hayaa
+  Wadi al Shatii: Wadi al-Shatii
+  Wadi Fira: Wadi Firá
+  Waikato: Waikato
+  Wajir County: Condado de Wajir
+  Wakayama Prefecture: Prefectura de Wakayama
+  Wakiso: Wakiso
+  Wales: Gales
+  Wallonia: Valonia
+  Wangdue Phodrang District: Distrito de Wangdue Phodrang
+  Wanica: Wánica
+  Warmian-Masurian Voivodeship: Voivodato de Varmia y Masuria
+  Warrap: Warrap
+  Washington: Washington
+  Wasit Governorate: Gobernación de Wasit
+  Waterfalls: Cascadas
+  Wele-Nzas: Wele-Nzas
+  Wellington: Wellington
+  West: Oeste
+  West Azerbaijan Province: Provincia de Azerbaiyán Occidental
+  West Bengal: Bengala Occidental
+  West Coast: Costa Oeste
+  West Coast Division: División de la Costa Oeste
+  West Darfur: Darfur Occidental
+  West Java: Java Occidental
+  West Kalimantan: Kalimantan Occidental
+  West Kazakhstan Region: Región de Kazajstán Occidental
+  West Kordufan: Kordufán Occidental
+  West New Britain: Nueva Bretaña occidental
+  West Nusa Tenggara: Nusa Tenggara Occidental
+  West Papua: Papúa Occidental
+  West Pokot: Pokot Occidental
+  West Pomeranian Voivodeship: Voivodato de Pomerania Occidental
+  West Sulawesi: Célebes Occidental
+  West Sumatra: Sumatra Occidental
+  West Virginia: Virginia Occidental
+  Western: Occidental
+  Western Area: Área Oeste
+  Western Australia: Australia Occidental
+  Western Bahr el Ghazal State: Estado de Bahr el Ghazal occidental
+  Western Cape: Cabo Occidental
+  Western Equatoria: Ecuatoria Occidental
+  Western Highlands: Tierras Altas Occidentales
+  Western North Region: Región Norte Occidental
+  Western Province: Provincia Occidental
+  Western Region: Región Occidental
+  White Nile: Nilo Blanco
+  Wisconsin: Wisconsin
+  Woleu-Ntem: Woleu Ntem
+  Woroba: Woroba
+  Wyoming: Wyoming
+  Xaisomboun Province: Provincia de Xaisomboun
+  Xiangkhouang Province: Provincia de Xiangkhouang
+  Xinjiang: Sinkiang
+  Xorazm Region: Región de Xorazm
+  Yala Province: Provincia de Yala
+  Yalova: Yalova
+  Yamagata Prefecture: Prefectura de Yamagata
+  Yamaguchi Prefecture: Prefectura de Yamaguchi
+  Yamalo-Nenets Autonomous Okrug: Distrito autónomo de Yamalo-Nenets
+  Yamanashi Prefecture: Prefectura de Yamanashi
+  Yambol: Yámbol
+  Yamoussoukro: Yamusukro
+  Yangon: Rangún
+  Yap: Ladrar
+  Yaracuy State: Estado Yaracuy
+  Yaren: Yaren
+  Yaroslavl Oblast: Óblast de Yaroslavl
+  Yasothon Province: Provincia de Yasotón
+  Yazd Province: Provincia de Yazd
+  Yerevan: Ereván
+  Yilan County: Condado de Yilan
+  Yobe: Yobe
+  Yoro: Yoro
+  Yozgat: Yozgat
+  Yucatán: Yucatán
+  Yukon: Yukón
+  Yumbe: Yumbe
+  Yunlin County: Condado de Yunlin
+  Yunnan: Yunnan
+  Zabaykalsky Krai: Krai de Zabaikalie
+  Zabul Province: Provincia de Zabul
+  Zacapa: Zacapa
+  Zacatecas: Zacatecas
+  Zadar County: Condado de Zadar
+  Zaghouan Governorate: Gobernación de Zaghouan
+  Zagreb County: Condado de Zagreb
+  Zaire Province: Provincia de Zaire
+  Zakarpattia Oblast: Óblast de Zakarpatia
+  Zambales: Zambales
+  Zambezi: Zambeze
+  Zambezia Province: Provincia de Zambezia
+  Zamboanga del Norte: Zamboanga del Norte
+  Zamboanga del Sur: Zamboanga del Sur
+  Zamboanga Sibugay: Zamboanga Sibugay
+  Zamfara State: Estado de Zamfara
+  Zamora Chinchipe: Zamora Chinchipe
+  Zanjan Province: Provincia de Zanyán
+  Zanzan: Zanzán
+  Zanzibar North: Zanzíbar Norte
+  Zanzibar South & Central: Zanzíbar sur y centro
+  Zanzibar Urban/West: Zanzíbar Urbano/Oeste
+  Zaporizhia Oblast: Óblast de Zaporiyia
+  Zarqa: Zarqá
+  Zavkhan: Zavkhan
+  Zeeland: Zelanda
+  Zhejiang: Zhejiang
+  Zhemgang District: Distrito de Zhemgang
+  Zhytomyr Oblast: Óblast de Zhytómyr
+  Ziguinchor Region: Región de Ziguinchor
+  Zinder Region: Región de Zinder
+  Zlín Region: Región de Zlín
+  Zomba: Zomba
+  Zombo: Zombo
+  Zonguldak: Zonguldak
+  Zou Department: Departamento de Zou
+  Zug: Zug
+  Zulia State: Estado Zulia
+  Zurich: Zúrich
+  ကရင်ပြည်နယ်: ကရင်ပြည်နယ်
+biomes:
+  Boreal Forests/Taiga: Bosques boreales/Taiga
+  Deserts & Xeric Shrublands: Desiertos y matorrales xéricos
+  Flooded Grasslands & Savannas: Pastizales y sabanas inundados
+  Mangroves: Manglares
+  Mediterranean Forests, Woodlands & Scrub: Bosques, bosques y matorrales mediterráneos
+  Montane Grasslands & Shrublands: Pastizales y matorrales montanos
+  Rock and Ice, or Abiotic Land Zones: Roca y hielo, o zonas terrestres abióticas
+  Temperate Broadleaf & Mixed Forests: Bosques templados latifoliados y mixtos
+  Temperate Conifer Forests: Bosques templados de coníferas
+  Temperate Grasslands, Savannas & Shrublands: Pastizales, sabanas y matorrales templados
+  Tropical & Subtropical Coniferous Forests: Bosques de coníferas tropicales y subtropicales
+  Tropical & Subtropical Dry Broadleaf Forests: Bosques latifoliados secos tropicales y subtropicales
+  Tropical & Subtropical Dry Broadleaf Forests: Bosques latifoliados secos tropicales y subtropicales
+  Tropical & Subtropical Grasslands, Savannas & Shrublands: Pastizales, sabanas y matorrales tropicales y subtropicales
+  Tropical & Subtropical Moist Broadleaf Forests: Bosques latifoliados húmedos tropicales y subtropicales
+  Tundra: Tundra
+ecoregions:
+  Adelie Land tundra: Tundra de la Tierra Adelia
+  Admiralty Islands lowland rain forests: Selvas tropicales de tierras bajas de las Islas del Almirantazgo
+  Aegean and Western Turkey sclerophyllous and mixed forests: Bosques esclerófilos y mixtos del Egeo y Turquía occidental
+  Afghan Mountains semi-desert: Semidesierto de las montañas afganas
+  Ahklun and Kilbuck Upland Tundra: Ahklun y Kilbuck Tundra de tierras altas
+  Al-Hajar foothill xeric woodlands and shrublands: Bosques y matorrales xéricos al pie de las estribaciones de Al-Hajar
+  Al-Hajar montane woodlands and shrublands: Bosques y matorrales montanos de Al-Hajar
+  Alai-Western Tian Shan steppe: Estepa Alai-Tian Shan occidental
+  Alashan Plateau semi-desert: Semidesierto de la meseta de Alashan
+  Alaska-St. Elias Range tundra: Alaska-St. Tundra de la Cordillera Elías
+  Alaska Peninsula montane taiga: Taiga montana de la península de Alaska
+  Albany thickets: Matorrales de Albany
+  Alberta-British Columbia foothills forests: Bosques de las estribaciones de Alberta-Columbia Británica
+  Albertine Rift montane forests: Bosques montanos del Albertine Rift
+  Aldabra Island xeric scrub: Exfoliante xérico de la isla de Aldabra
+  Aleutian Islands tundra: Tundra de las Islas Aleutianas
+  Allegheny Highlands forests: Bosques de las tierras altas de Allegheny
+  Alps conifer and mixed forests: Alpes coníferas y bosques mixtos
+  Altai alpine meadow and tundra: Tundra y pradera alpina de Altai
+  Altai montane forest and forest steppe: Bosque montano de Altai y estepa forestal
+  Altai steppe and semi-desert: Estepa y semidesierto de Altai
+  Alto Paraná Atlantic forests: Bosques atlánticos del Alto Paraná
+  Amazon-Orinoco-Southern Caribbean mangroves: Manglares Amazonas-Orinoco-Caribe Sur
+  Amsterdam-Saint Paul Islands temperate grasslands: Pastizales templados de las islas Amsterdam-Saint Paul
+  Amur meadow steppe: Estepa de la pradera de Amur
+  Anatolian conifer and deciduous mixed forests: Bosques mixtos de coníferas y caducifolios de Anatolia
+  Andaman Islands rain forests: Selvas tropicales de las Islas Andamán
+  Angolan montane forest-grassland: Pastizales y bosques montanos de Angola
+  Angolan mopane woodlands: Bosques de mopane angoleños
+  Angolan scarp savanna and woodlands: Sabanas y bosques escarpados de Angola
+  Angolan wet miombo woodlands: Bosques húmedos de miombo angoleños
+  Antipodes Subantarctic Islands tundra: Antípodas Tundra de las islas subantárticas
+  Appalachian-Blue Ridge forests: Bosques de los Apalaches y la Cordillera Azul
+  Appalachian mixed mesophytic forests: Bosques mesofíticos mixtos de los Apalaches
+  Appalachian Piedmont forests: Bosques del Piamonte Apalache
+  Appenine deciduous montane forests: Bosques montanos caducifolios de los Apeninos
+  Apure-Villavicencio dry forests: Bosques secos Apure-Villavicencio
+  Arabian-Persian Gulf coastal plain desert: Desierto de la llanura costera del Golfo Arábigo-Pérsico
+  Arabian desert: Arabian desert
+  Arabian sand desert: Desierto de arena árabe
+  Araucaria moist forests: Bosques húmedos de araucaria
+  Aravalli west thorn scrub forests: Bosques de matorrales espinosos del oeste de Aravalli
+  Araya and Paria xeric scrub: Exfoliante xérico de Araya y Paria
+  Arctic coastal tundra: Tundra costera ártica
+  Arctic foothills tundra: Tundra de las estribaciones árticas
+  Arizona Mountains forests: Bosques de las montañas de Arizona
+  Arnhem Land tropical savanna: Sabana tropical de la Tierra de Arnhem
+  Ascension scrub and grasslands: Matorral y pastizales de ascensión
+  Atacama desert: Atacama desert
+  Atlantic Coast restingas: Restingas de la Costa Atlántica
+  Atlantic coastal pine barrens: Pinares de la costa atlántica
+  Australian Alps montane grasslands: Pastizales montanos de los Alpes australianos
+  Azerbaijan shrub desert and steppe: Desierto arbustivo y estepa de Azerbaiyán
+  Azores temperate mixed forests: Bosques mixtos templados de Azores
+  Badghyz and Karabil semi-desert: Semidesierto de Badghyz y Karabil
+  Bahamian-Antillean mangroves: Manglares de las Bahamas y las Antillas
+  Bahamian pineyards: Pinares de las Bahamas
+  Bahia coastal forests: Bosques costeros de Bahía
+  Bahia interior forests: Bosques del interior de Bahía
+  Baja California desert: Baja California desert
+  Bajío dry forests: Bajío dry forests
+  Balkan mixed forests: Bosques mixtos balcánicos
+  Balsas dry forests: Bosques secos de Balsas
+  Baltic mixed forests: Bosques mixtos del Báltico
+  Baluchistan xeric woodlands: Bosques xéricos de Baluchistán
+  Banda Sea Islands moist deciduous forests: Bosques caducifolios húmedos de las islas del mar de Banda
+  Belizian pine savannas: Sabanas de pinos de Belice
+  Beni savanna: Beni savanna
+  Beringia lowland tundra: Tundra de tierras bajas de Beringia
+  Beringia upland tundra: Tundra de tierras altas de Beringia
+  Bermuda subtropical conifer forests: Bosques de coníferas subtropicales de las Bermudas
+  Biak-Numfoor rain forests: Selvas tropicales de Biak-Numfoor
+  Blue Mountains forests: Bosques de las Montañas Azules
+  Bohai Sea saline meadow: Pradera salina del mar de Bohai
+  Bolivian montane dry forests: Bosques secos montanos bolivianos
+  Bolivian Yungas: Bolivian Yungas
+  Borneo lowland rain forests: Selvas tropicales de las tierras bajas de Borneo
+  Borneo montane rain forests: Selvas tropicales montanas de Borneo
+  Borneo peat swamp forests: Bosques pantanosos de turba de Borneo
+  Brahmaputra Valley semi-evergreen forests: Bosques semiperennes del valle de Brahmaputra
+  Brazilian Atlantic dry forests: Bosques secos del Atlántico brasileño
+  Brigalow tropical savanna: Sabana tropical de Brigalow
+  British Columbia coastal conifer forests: Bosques de coníferas costeros de Columbia Británica
+  Brooks-British Range tundra: Tundra de Brooks-British Range
+  Buru rain forests: Selvas tropicales de Buru
+  Caatinga: Caatinga
+  Caatinga Enclaves moist forests: Caatinga Enclaves bosques húmedos
+  Caledon conifer forests: Bosques de coníferas de Caledon
+  California Central Valley grasslands: Pastizales del Valle Central de California
+  California coastal sage and chaparral: Salvia y chaparral costeros de California
+  California interior chaparral and woodlands: Chaparral y bosques interiores de California
+  California montane chaparral and woodlands: Chaparral y bosques montanos de California
+  Cameroon Highlands forests: Bosques de las tierras altas de Camerún
+  Campos Rupestres montane savanna: Sabana montana de Campos Rupestres
+  Canadian Aspen forests and parklands: Bosques y parques de álamos canadienses
+  Canadian High Arctic tundra: Tundra del Alto Ártico canadiense
+  Canadian Low Arctic tundra: Tundra ártica baja canadiense
+  Canadian Middle Arctic Tundra: Tundra ártica media canadiense
+  Canary Islands dry woodlands and forests: Bosques y bosques secos de Canarias
+  Cantabrian mixed forests: Bosques mixtos cantábricos
+  Canterbury-Otago tussock grasslands: Pastizales de matas de Canterbury-Otago
+  Cape Verde Islands dry forests: Bosques secos de las islas de Cabo Verde
+  Cape York Peninsula tropical savanna: Sabana tropical de la península del Cabo York
+  Caqueta moist forests: Bosques húmedos del Caquetá
+  Cardamom Mountains rain forests: Selvas tropicales de las montañas Cardamomo
+  Caribbean shrublands: Matorral caribeño
+  Carnarvon xeric shrublands: Matorrales xéricos de Carnarvon
+  Carolines tropical moist forests: Bosques húmedos tropicales de las Carolinas
+  Carpathian montane forests: Bosques montanos de los Cárpatos
+  Carpentaria tropical savanna: Sabana tropical carpentaria
+  Caspian Hyrcanian mixed forests: Bosques mixtos del Caspio Hircanio
+  Caspian lowland desert: Desierto de las tierras bajas del Caspio
+  Catatumbo moist forests: Bosques húmedos del Catatumbo
+  Cauca Valley dry forests: Bosques secos del Valle del Cauca
+  Cauca Valley montane forests: Bosques montanos del Valle del Cauca
+  Caucasus mixed forests: Bosques mixtos del Cáucaso
+  Cayos Miskitos-San Andrés and Providencia moist forests: Cayos Miskitos-Bosques húmedos de San Andrés y Providencia
+  Celtic broadleaf forests: Bosques latifoliados celtas
+  Central-Southern Cascades Forests: Bosques en cascada del centro-sur
+  Central-Southern US mixed grasslands: Pastizales mixtos del centro-sur de EE. UU.
+  Central Afghan Mountains xeric woodlands: Bosques xéricos de las montañas centrales de Afganistán
+  Central African mangroves: Central African mangroves
+  Central American Atlantic moist forests: Bosques húmedos atlánticos centroamericanos
+  Central American dry forests: Bosques secos centroamericanos
+  Central American montane forests: Bosques montanos centroamericanos
+  Central American pine-oak forests: Bosques centroamericanos de pino y encino
+  Central Anatolian steppe: Estepa de Anatolia central
+  Central Anatolian steppe and woodlands: Estepa y bosques de Anatolia central
+  Central Andean dry puna: Puna seca de los Andes centrales
+  Central Andean puna: Central Andean puna
+  Central Andean wet puna: Puna húmeda de los Andes centrales
+  Central Asian northern desert: Desierto del norte de Asia central
+  Central Asian riparian woodlands: Bosques ribereños de Asia central
+  Central Asian southern desert: Desierto del sur de Asia central
+  Central British Columbia Mountain forests: Bosques de montaña de la Columbia Británica central
+  Central bushveld: Central bushveld
+  Central Canadian Shield forests: Bosques del Escudo Canadiense Central
+  Central China Loess Plateau mixed forests: Bosques mixtos de la meseta de Loess de China central
+  Central Congolian lowland forests: Bosques de tierras bajas del Congo central
+  Central Deccan Plateau dry deciduous forests: Bosques caducifolios secos de la meseta central de Deccan
+  Central European mixed forests: Bosques mixtos de Europa Central
+  Central Indochina dry forests: Bosques secos de Indochina central
+  Central Korean deciduous forests: Bosques caducifolios de Corea central
+  Central Mexican matorral: Matorral del centro de México
+  Central Pacific Northwest coastal forests: Bosques costeros del noroeste del Pacífico central
+  Central Persian desert basins: Cuencas del desierto de Persia Central
+  Central Polynesian tropical moist forests: Bosques húmedos tropicales de la Polinesia Central
+  Central Range Papuan montane rain forests: Selvas tropicales montanas de Papúa en la Cordillera Central
+  Central Ranges xeric scrub: Exfoliante xérico de la Cordillera Central
+  Central South Antarctic Peninsula tundra: Tundra central sur de la Península Antártica
+  Central Tallgrass prairie: Pradera central de pastos altos
+  Central Tibetan Plateau alpine steppe: Estepa alpina de la meseta tibetana central
+  Central US forest-grasslands transition: Transición entre bosques y pastizales del centro de EE. UU.
+  Central Zambezian wet miombo woodlands: Bosques húmedos de miombo del Zambez central
+  Cerrado: Cerrado
+  Changbai Mountains mixed forests: Bosques mixtos de las montañas Changbai
+  Changjiang Plain evergreen forests: Bosques siempre verdes de la llanura de Changjiang
+  Chao Phraya freshwater swamp forests: Bosques pantanosos de agua dulce de Chao Phraya
+  Chao Phraya lowland moist deciduous forests: Bosques caducifolios húmedos de tierras bajas de Chao Phraya
+  Chatham Island temperate forests: Bosques templados de la isla Chatham
+  Cherskii-Kolyma mountain tundra: Tundra montañosa de Cherskii-Kolymá
+  Chhota-Nagpur dry deciduous forests: Bosques secos caducifolios de Chhota-Nagpur
+  Chiapas Depression dry forests: Bosques secos de la depresión de Chiapas
+  Chiapas montane forests: Bosques montanos de Chiapas
+  Chihuahuan desert: Chihuahuan desert
+  Chilean Matorral: Chilean Matorral
+  Chimalapas montane forests: Bosques montanos de chimalapas
+  Chin Hills-Arakan Yoma montane forests: Bosques montanos de Chin Hills-Arakan Yoma
+  Chiquitano dry forests: Chiquitano dry forests
+  Chocó-Darién moist forests: Bosques húmedos del Chocó-Darién
+  Christmas and Cocos Islands tropical forests: Bosques tropicales de Navidad y de las Islas Cocos
+  Chukchi Peninsula tundra: Tundra de la península de Chukchi
+  Clipperton Island shrub and grasslands: Arbustos y pastizales de la isla Clipperton
+  Cocos Island moist forests: Bosques húmedos de la Isla del Coco
+  Colorado Plateau shrublands: Matorrales de la meseta del Colorado
+  Colorado Rockies forests: Bosques de las Montañas Rocosas de Colorado
+  Comoros forests: Bosques de las Comoras
+  Congolian coastal forests: Bosques costeros del Congo
+  Cook Inlet taiga: Taiga de la ensenada de Cook
+  Cook Islands tropical moist forests: Bosques húmedos tropicales de las Islas Cook
+  Coolgardie woodlands: Bosques de Coolgardie
+  Copper Plateau taiga: Taiga de la meseta de cobre
+  Cordillera Central páramo: Páramo Cordillera Central
+  Cordillera de Merida páramo: Páramo Cordillera de Mérida
+  Cordillera La Costa montane forests: Bosques montanos de la Cordillera La Costa
+  Cordillera Oriental montane forests: Bosques montanos de la Cordillera Oriental
+  Corsican montane broadleaf and mixed forests: Bosques montanos latifoliados y mixtos de Córcega
+  Costa Rican seasonal moist forests: Bosques húmedos estacionales de Costa Rica
+  Crete Mediterranean forests: Bosques mediterráneos de Creta
+  Crimean Submediterranean forest complex: Complejo forestal submediterráneo de Crimea
+  Cross-Niger transition forests: Bosques de transición a través del Níger
+  Cross-Sanaga-Bioko coastal forests: Bosques costeros de Cross-Sanaga-Bioko
+  Cross-Timbers savanna-woodland: Cross-Timbers sabana-bosque
+  Cuban cactus scrub: Matorral de cactus cubano
+  Cuban dry forests: Cuban dry forests
+  Cuban moist forests: Cuban moist forests
+  Cuban pine forests: Pinares cubanos
+  Cuban wetlands: Cuban wetlands
+  Cyprus Mediterranean forests: Bosques mediterráneos de Chipre
+  Da Hinggan-Dzhagdy Mountains conifer forests: Bosques de coníferas de las montañas Da Hinggan-Dzhagdy
+  Daba Mountains evergreen forests: Bosques siempre verdes de las montañas Daba
+  Daurian forest steppe: Estepa del bosque dauriano
+  Davis Highlands tundra: Tundra de las Tierras Altas de Davis
+  Deccan thorn scrub forests: Bosques de matorrales espinosos del Deccan
+  Dinaric Mountains mixed forests: Bosques mixtos de las Montañas Dináricas
+  Djibouti xeric shrublands: Matorrales xéricos de Yibuti
+  Drakensberg Escarpment savanna and thicket: Sabana y matorral de la escarpa de Drakensberg
+  Drakensberg grasslands: Pastizales de Drakensberg
+  Dronning Maud Land tundra: Tundra de la Tierra de la Reina Maud
+  Dry Chaco: Chaco Seco
+  Dry miombo woodlands: Bosques secos de miombo
+  East Afghan montane conifer forests: Bosques de coníferas montanos del este de Afganistán
+  East African halophytics: Halófitas de África Oriental
+  East African mangroves: Manglares de África Oriental
+  East African montane forests: Bosques montanos de África Oriental
+  East African montane moorlands: Páramos montanos de África Oriental
+  East Antarctic tundra: Tundra antártica oriental
+  East Arabian fog shrublands and sand desert: Matorrales de niebla y desierto de arena del este de Arabia
+  East Central Texas forests: Bosques del centro este de Texas
+  East Deccan dry-evergreen forests: Bosques secos de hoja perenne del este de Deccan
+  East Deccan moist deciduous forests: Bosques caducifolios húmedos del este de Deccan
+  East European forest steppe: Estepa forestal de Europa del Este
+  East Sahara Desert: Desierto del Sahara Oriental
+  East Saharan montane xeric woodlands: Bosques xéricos montanos del Sahara Oriental
+  East Siberian taiga: Taiga de Siberia Oriental
+  East Sudanian savanna: Sabana del este de Sudán
+  Eastern Anatolian deciduous forests: Bosques caducifolios del este de Anatolia
+  Eastern Anatolian montane steppe: Estepa montana del este de Anatolia
+  Eastern Arc forests: Bosques del Arco Oriental
+  Eastern Australia mulga shrublands: Matorrales de mulga en el este de Australia
+  Eastern Australian temperate forests: Bosques templados del este de Australia
+  Eastern Canadian Forest-Boreal transition: Transición bosque-boreal del este de Canadá
+  Eastern Canadian forests: Bosques del este de Canadá
+  Eastern Canadian Shield taiga: Taiga del escudo canadiense oriental
+  Eastern Cascades forests: Bosques de las cascadas del este
+  Eastern Congolian swamp forests: Bosques pantanosos del este del Congo
+  Eastern Cordillera Real montane forests: Cordillera Oriental Bosques montanos reales
+  Eastern Gobi desert steppe: Estepa del desierto de Gobi oriental
+  Eastern Great Lakes lowland forests: Bosques de tierras bajas del este de los Grandes Lagos
+  Eastern Guinean forests: Bosques del este de Guinea
+  Eastern Himalayan alpine shrub and meadows: Arbustos y prados alpinos del Himalaya oriental
+  Eastern Himalayan broadleaf forests: Bosques latifoliados del Himalaya oriental
+  Eastern Himalayan subalpine conifer forests: Bosques de coníferas subalpinos del Himalaya oriental
+  Eastern Java-Bali montane rain forests: Selvas tropicales montanas del este de Java y Bali
+  Eastern Java-Bali rain forests: Selvas tropicales del este de Java y Bali
+  Eastern Mediterranean conifer-broadleaf forests: Bosques de coníferas latifoliadas del Mediterráneo oriental
+  Eastern Micronesia tropical moist forests: Bosques húmedos tropicales del este de Micronesia
+  Eastern Panamanian montane forests: Bosques montanos del este de Panamá
+  Ecuadorian dry forests: Ecuadorian dry forests
+  Edwards Plateau savanna: Sabana de la meseta de Edwards
+  Einasleigh upland savanna: Sabana de tierras altas de Einasleigh
+  Elburz Range forest steppe: Estepa forestal de la sierra de Elburz
+  Ellsworth Land tundra: Tundra de la Tierra de Ellsworth
+  Ellsworth Mountains tundra: Tundra de las montañas Ellsworth
+  Emin Valley steppe: Estepa del valle de Emin
+  Enderby Land tundra: Tundra de la Tierra de Enderby
+  English Lowlands beech forests: Hayedos de tierras bajas inglesas
+  Enriquillo wetlands: Humedales de Enriquillo
+  Eritrean coastal desert: Desierto costero de Eritrea
+  Esperance mallee: Esperance mallee
+  Espinal: Espinal
+  Ethiopian montane forests: Bosques montanos de Etiopía
+  Ethiopian montane grasslands and woodlands: Pastizales y bosques montanos de Etiopía
+  Ethiopian montane moorlands: Páramos montanos de Etiopía
+  Etosha Pan halophytics: Halófitas del Pan de Etosha
+  European Atlantic mixed forests: Bosques mixtos atlánticos europeos
+  Euxine-Colchic broadleaf forests: Bosques latifoliados euxino-colchic
+  Everglades flooded grasslands: Los Everglades inundaron pastizales
+  Eyre and York mallee: Eyre y York mallee
+  Faroe Islands boreal grasslands: Pastizales boreales de las Islas Feroe
+  Fernando de Noronha-Atol das Rocas moist forests: Bosques húmedos Fernando de Noronha-Atol das Rocas
+  Fiji tropical dry forests: Bosques secos tropicales de Fiji
+  Fiji tropical moist forests: Bosques húmedos tropicales de Fiji
+  Fiordland temperate forests: Bosques templados de Fiordland
+  Flinders-Lofty montane woodlands: Bosques montanos de Flinders-Lifty
+  Flint Hills tallgrass prairie: Pradera de pastos altos de Flint Hills
+  Fraser Plateau and Basin conifer forests: Bosques de coníferas de la meseta y la cuenca de Fraser
+  Fynbos shrubland: Matorral de Fynbos
+  Galápagos Islands xeric scrub: Matorral xérico de las Islas Galápagos
+  Gariep Karoo: Gariep Karoo
+  Ghorat-Hazarajat alpine meadow: Pradera alpina de Ghorat-Hazarajat
+  Gibson desert: Gibson desert
+  Gissaro-Alai open woodlands: Bosques abiertos de Gissaro-Alai
+  Gobi Lakes Valley desert steppe: Estepa desértica del valle de los lagos de Gobi
+  Godavari-Krishna mangroves: Manglares Godavari-Krishna
+  Granitic Seychelles forests: Bosques graníticos de Seychelles
+  Great Basin montane forests: Bosques montanos de la Gran Cuenca
+  Great Basin shrub steppe: Estepa arbustiva de la Gran Cuenca
+  Great Lakes Basin desert steppe: Estepa desértica de la cuenca de los Grandes Lagos
+  Great Sandy-Tanami desert: Gran desierto de Sandy-Tanami
+  Great Victoria desert: Gran desierto de Victoria
+  Greater Negros-Panay rain forests: Grandes bosques tropicales de Negros-Panay
+  Guajira-Barranquilla xeric scrub: Exfoliante xérico Guajira-Barranquilla
+  Guayaquil flooded grasslands: Guayaquil inundó pastizales
+  Guianan freshwater swamp forests: Bosques pantanosos de agua dulce de Guyana
+  Guianan Highlands moist forests: Bosques húmedos de las tierras altas de Guyana
+  Guianan lowland moist forests: Bosques húmedos de tierras bajas de Guyana
+  Guianan piedmont moist forests: Bosques húmedos del Piamonte guayanés
+  Guianan savanna: Guianan savanna
+  Guinean forest-savanna: Sabana forestal guineana
+  Guinean mangroves: Guinean mangroves
+  Guinean montane forests: Bosques montanos de Guinea
+  Guizhou Plateau broadleaf and mixed forests: Bosques latifoliados y mixtos de la meseta de Guizhou
+  Gulf of California xeric scrub: Matorral xérico del Golfo de California
+  Gulf of St. Lawrence lowland forests: Bosques de tierras bajas del Golfo de San Lorenzo
+  Gurupa várzea: Gurupa várzea
+  Hainan Island monsoon rain forests: Selvas tropicales monzónicas de la isla de Hainan
+  Halmahera rain forests: Selvas tropicales de Halmahera
+  Hampton mallee and woodlands: Hampton mallee y bosques
+  Hawai'i tropical dry forests: Bosques secos tropicales de Hawái
+  Hawai'i tropical high shrublands: Matorrales altos tropicales de Hawái
+  Hawai'i tropical low shrublands: Matorrales bajos tropicales de Hawái
+  Hawai'i tropical moist forests: Bosques húmedos tropicales de Hawái
+  Helanshan montane conifer forests: Bosques de coníferas montanos de Helanshan
+  Hengduan Mountains subalpine conifer forests: Bosques de coníferas subalpinos de las montañas Hengduan
+  High Monte: Alto Monte
+  Highveld grasslands: Pastizales de alto nivel
+  Himalayan subtropical broadleaf forests: Bosques latifoliados subtropicales del Himalaya
+  Himalayan subtropical pine forests: Bosques de pinos subtropicales del Himalaya
+  Hindu Kush alpine meadow: Pradera alpina del Hindu Kush
+  Hispaniolan dry forests: Bosques secos de la Española
+  Hispaniolan moist forests: Bosques húmedos de la Española
+  Hispaniolan pine forests: Bosques de pinos de la Española
+  Hobyo grasslands and shrublands: Pastizales y matorrales de Hobyo
+  Hokkaido deciduous forests: Bosques caducifolios de Hokkaido
+  Hokkaido montane conifer forests: Bosques de coníferas montanos de Hokkaido
+  Honshu alpine conifer forests: Bosques de coníferas alpinos de Honshu
+  Horn of Africa xeric bushlands: Matorral xerófilo del Cuerno de África
+  Huang He Plain mixed forests: Bosques mixtos de la llanura de Huang He
+  Humid Chaco: Chaco Húmedo
+  Humid Pampas: Pampa húmeda
+  Huon Peninsula montane rain forests: Selvas tropicales montanas de la península de Huon
+  Iberian conifer forests: Bosques ibéricos de coníferas
+  Iberian sclerophyllous and semi-deciduous forests: Bosques esclerófilos y semicaducifolios ibéricos
+  Iceland boreal birch forests and alpine tundra: Bosques boreales de abedules y tundra alpina de Islandia
+  Ile Europa and Bassas da India xeric scrub: Matorral xérico de Ile Europa y Bassas da India
+  Illyrian deciduous forests: Bosques caducifolios de Iliria
+  Indochina mangroves: Indochina mangroves
+  Indus River Delta-Arabian Sea mangroves: Manglares del delta del río Indo y del mar Arábigo
+  Indus Valley desert: Desierto del valle del Indo
+  Inner Niger Delta flooded savanna: Sabana inundada del delta interior del Níger
+  Interior Alaska-Yukon lowland taiga: Taiga interior de tierras bajas de Alaska y Yukon
+  Interior Plateau US Hardwood Forests: Meseta interior Bosques de frondosas de EE. UU.
+  Interior Yukon-Alaska alpine tundra: Interior de la tundra alpina de Yukon-Alaska
+  Iquitos várzea: Iquitos várzea
+  Irrawaddy dry forests: Bosques secos del Irrawaddy
+  Irrawaddy freshwater swamp forests: Bosques pantanosos de agua dulce del Irrawaddy
+  Irrawaddy moist deciduous forests: Bosques caducifolios húmedos del Irrawaddy
+  Islas Revillagigedo dry forests: Bosques secos Islas Revillagigedo
+  Isthmian-Atlantic moist forests: Bosques húmedos ístmico-atlánticos
+  Isthmian-Pacific moist forests: Bosques húmedos del Istmo-Pacífico
+  Italian sclerophyllous and semi-deciduous forests: Bosques esclerófilos y semicaducifolios italianos
+  Itigi-Sumbu thicket: Matorral de Itigi-Sumbu
+  Jalisco dry forests: Bosques secos de Jalisco
+  Jamaican dry forests: Bosques secos de Jamaica
+  Jamaican moist forests: Bosques húmedos de Jamaica
+  Japurá-Solimões-Negro moist forests: Bosques húmedos de Japurá-Solimões-Negro
+  Jarrah-Karri forest and shrublands: Bosques y matorrales de Jarrah-Karri
+  Jian Nan subtropical evergreen forests: Bosques siempre verdes subtropicales de Jian Nan
+  Jos Plateau forest-grassland: Bosque-pastizales de Jos Plateau
+  Juan Fernández Islands temperate forests: Bosques templados de las Islas Juan Fernández
+  Junggar Basin semi-desert: Semidesierto de la cuenca del Junggar
+  Juruá-Purus moist forests: Bosques húmedos de Juruá-Purus
+  Kalaallit Nunaat Arctic steppe: Estepa ártica de Kalaallit Nunaat
+  Kalaallit Nunaat High Arctic tundra: Kalaallit Nunaat Alta tundra ártica
+  Kalahari Acacia woodlands: Bosques de acacias del Kalahari
+  Kalahari xeric savanna: Sabana xérica del Kalahari
+  Kamchatka-Kurile meadows and sparse forests: Praderas y bosques dispersos de Kamchatka-Kurile
+  Kamchatka taiga: Taiga de Kamchatka
+  Kamchatka tundra: Tundra de Kamchatka
+  Kaokoveld desert: Desierto de Kaokoveld
+  Karakoram-West Tibetan Plateau alpine steppe: Estepa alpina de la meseta tibetana occidental del Karakoram
+  Kayah-Karen montane rain forests: Selvas tropicales montanas Kayah-Karen
+  Kazakh forest steppe: Estepa forestal kazaja
+  Kazakh semi-desert: Semidesierto kazajo
+  Kazakh steppe: Kazakh steppe
+  Kazakh upland steppe: Estepa de tierras altas de Kazajstán
+  Kermadec Islands subtropical moist forests: Bosques húmedos subtropicales de las islas Kermadec
+  Khangai Mountains alpine meadow: Pradera alpina de las montañas Khangai
+  Khangai Mountains conifer forests: Bosques de coníferas de las montañas Khangai
+  Khathiar-Gir dry deciduous forests: Bosques secos caducifolios de Khathiar-Gir
+  Kimberly tropical savanna: Sabana tropical de Kimberly
+  Kinabalu montane alpine meadows: Prados alpinos montanos de Kinabalu
+  Klamath-Siskiyou forests: Bosques de Klamath-Siskiyou
+  Knysna-Amatole montane forests: Bosques montanos de Knysna-Amatole
+  Kola Peninsula tundra: Tundra de la península de Kola
+  Kopet Dag semi-desert: Semidesierto de Kopet Dag
+  Kopet Dag woodlands and forest steppe: Bosques y estepa forestal de Kopet Dag
+  Kuh Rud and Eastern Iran montane woodlands: Kuh Rud y bosques montanos del este de Irán
+  Kwazulu Natal-Cape coastal forests: Bosques costeros de Kwazulu Natal-Cabo
+  La Costa xeric shrublands: Matorral xerófilo de la Costa
+  Lake Chad flooded savanna: El lago Chad inundó la sabana
+  Lara-Falcón dry forests: Bosques secos Lara-Falcón
+  Leeward Islands moist forests: Bosques húmedos de las Islas de Sotavento
+  Lesser Antillean dry forests: Bosques secos de las Antillas Menores
+  Lesser Sundas deciduous forests: Bosques caducifolios menores de Sundas
+  Limpopo lowveld: Nivel bajo de Limpopo
+  Llanos: Llanos
+  Lord Howe Island subtropical forests: Bosques subtropicales de la isla Lord Howe
+  Louisiade Archipelago rain forests: Selvas tropicales del archipiélago de las Luisianas
+  Low Monte: Monte Bajo
+  Lower Gangetic Plains moist deciduous forests: Bosques caducifolios húmedos de las llanuras del Bajo Ganges
+  Luang Prabang montane rain forests: Selvas tropicales montanas de Luang Prabang
+  Luzon montane rain forests: Selvas tropicales montanas de Luzón
+  Luzon rain forests: Selvas tropicales de Luzón
+  Luzon tropical pine forests: Bosques de pinos tropicales de Luzón
+  Madagascar dry deciduous forests: Bosques secos caducifolios de Madagascar
+  Madagascar ericoid thickets: Matorrales ericoideos de Madagascar
+  Madagascar humid forests: Bosques húmedos de Madagascar
+  Madagascar mangroves: Madagascar mangroves
+  Madagascar spiny thickets: Matorrales espinosos de Madagascar
+  Madagascar subhumid forests: Bosques subhúmedos de Madagascar
+  Madagascar succulent woodlands: Bosques suculentos de Madagascar
+  Madeira-Tapajós moist forests: Bosques húmedos de Madeira-Tapajós
+  Madeira evergreen forests: Bosques siempre verdes de Madeira
+  Magdalena-Urabá moist forests: Bosques húmedos Magdalena-Urabá
+  Magdalena Valley dry forests: Bosques secos del Valle del Magdalena
+  Magdalena Valley montane forests: Bosques montanos del Valle del Magdalena
+  Magellanic subpolar forests: Bosques subpolares magallánicos
+  Makgadikgadi halophytics: Halófitas de Makgadikgadi
+  Malabar Coast moist forests: Bosques húmedos de la costa de Malabar
+  Maldives-Lakshadweep-Chagos Archipelago tropical moist forests: Bosques húmedos tropicales del archipiélago Maldivas-Lakshadweep-Chagos
+  Malpelo Island xeric scrub: Exfoliante xérico de la isla de Malpelo
+  Manchurian mixed forests: Bosques mixtos de Manchuria
+  Mandara Plateau woodlands: Bosques de la meseta de Mandara
+  Maputaland coastal forests and woodlands: Bosques y bosques costeros de Maputaland
+  Maracaibo dry forests: Bosques secos de Maracaibo
+  Marajó várzea: Marajó várzea
+  Maranhão Babaçu forests: Bosques de Maranhão Babaçu
+  Marañón dry forests: Bosques secos del Marañón
+  Marianas tropical dry forests: Bosques secos tropicales de las Marianas
+  Marie Byrd Land tundra: Tundra terrestre de Marie Byrd
+  Marquesas tropical moist forests: Bosques húmedos tropicales de las Marquesas
+  Masai xeric grasslands and shrublands: Pastizales y matorrales xéricos masai
+  Mascarene forests: Bosques mascarenos
+  Mato Grosso tropical dry forests: Bosques secos tropicales de Mato Grosso
+  Mediterranean Acacia-Argania dry woodlands and succulent thickets: Bosques secos mediterráneos de Acacia-Argania y matorrales suculentos
+  Mediterranean conifer and mixed forests: Bosques mediterráneos de coníferas y mixtos
+  Mediterranean dry woodlands and steppe: Bosques secos mediterráneos y estepa
+  Mediterranean High Atlas juniper steppe: Estepa mediterránea de enebro del Alto Atlas
+  Mediterranean woodlands and forests: Bosques y bosques mediterráneos
+  Meghalaya subtropical forests: Bosques subtropicales de Meghalaya
+  Mentawai Islands rain forests: Selvas tropicales de las islas Mentawai
+  Meseta Central matorral: Matorral central de la Meseta
+  Mesoamerican Gulf-Caribbean mangroves: Manglares mesoamericanos del Golfo-Caribe
+  Mesopotamian shrub desert: Desierto de arbustos de Mesopotamia
+  Mid-Atlantic US coastal savannas: Sabanas costeras del Atlántico medio de EE. UU.
+  Mid-Canada Boreal Plains forests: Bosques de las llanuras boreales del centro de Canadá
+  Midwest Canadian Shield forests: Bosques del Escudo Canadiense del Medio Oeste
+  Mindanao-Eastern Visayas rain forests: Selvas tropicales de Mindanao-Visayas orientales
+  Mindanao montane rain forests: Selvas tropicales montanas de Mindanao
+  Mindoro rain forests: Selvas tropicales de Mindoro
+  Miskito pine forests: Bosques de pinos miskitos
+  Mississippi lowland forests: Bosques de tierras bajas de Mississippi
+  Mitchell Grass Downs: Mitchell hierba abajo
+  Mizoram-Manipur-Kachin rain forests: Selvas tropicales de Mizoram-Manipur-Kachin
+  Mojave desert: Mojave desert
+  Mongolian-Manchurian grassland: Pastizales de Mongolia y Manchuria
+  Montana Valley and Foothill grasslands: Pastizales del valle de Montana y las estribaciones
+  Monte Alegre várzea: Monte Alegre várzea
+  Motagua Valley thornscrub: Matorral espinoso del Valle del Motagua
+  Mount Cameroon and Bioko montane forests: Bosques montanos del monte Camerún y Bioko
+  Mulanje Montane forest-grassland: Bosque-pastizales montanos de Mulanje
+  Murray-Darling woodlands and mallee: Bosques y mallee de Murray-Darling
+  Muskwa-Slave Lake taiga: Taiga del lago Muskwa-Slave
+  Myanmar Coast mangroves: Manglares de la costa de Myanmar
+  Myanmar coastal rain forests: Selvas tropicales costeras de Myanmar
+  Nama Karoo shrublands: Matorral de Nama Karoo
+  Namaqualand-Richtersveld steppe: Estepa de Namaqualand-Richtersveld
+  Namib Desert: Desierto de Namib
+  Namibian savanna woodlands: Bosques de sabana de Namibia
+  Nansei Islands subtropical evergreen forests: Bosques siempre verdes subtropicales de las islas Nansei
+  Napo moist forests: Bosques húmedos del Napo
+  Naracoorte woodlands: Bosques de Naracoorte
+  Narmada Valley dry deciduous forests: Bosques caducifolios secos del valle de Narmada
+  Nebraska Sand Hills mixed grasslands: Pastizales mixtos de Nebraska Sand Hills
+  Negro-Branco moist forests: Bosques húmedos Negro-Branco
+  Nelson Coast temperate forests: Bosques templados de la costa de Nelson
+  Nenjiang River grassland: Pastizales del río Nenjiang
+  New Britain-New Ireland lowland rain forests: Selvas tropicales de tierras bajas de Nueva Bretaña y Nueva Irlanda
+  New Britain-New Ireland montane rain forests: Selvas tropicales montanas de Nueva Bretaña y Nueva Irlanda
+  New Caledonia dry forests: Bosques secos de Nueva Caledonia
+  New Caledonia rain forests: Selvas tropicales de Nueva Caledonia
+  New England-Acadian forests: Bosques acadianos de Nueva Inglaterra
+  New Guinea mangroves: Manglares de Nueva Guinea
+  New Zealand North Island temperate forests: Bosques templados de la Isla Norte de Nueva Zelanda
+  New Zealand South Island montane grasslands: Pastizales montanos de la Isla Sur de Nueva Zelanda
+  New Zealand South Island temperate forests: Bosques templados de la Isla Sur de Nueva Zelanda
+  Nicobar Islands rain forests: Selvas tropicales de las islas Nicobar
+  Niger Delta swamp forests: Bosques pantanosos del delta del Níger
+  Nigerian lowland forests: Bosques de tierras bajas de Nigeria
+  Nihonkai evergreen forests: Bosques siempre verdes de Nihonkai
+  Nihonkai montane deciduous forests: Bosques caducifolios montanos de Nihonkai
+  Nile Delta flooded savanna: Sabana inundada del delta del Nilo
+  Norfolk Island subtropical forests: Bosques subtropicales de la isla Norfolk
+  North Arabian desert: Desierto del norte de Arabia
+  North Arabian highland shrublands: Matorrales de las tierras altas del norte de Arabia
+  North Atlantic moist mixed forests: Bosques mixtos húmedos del Atlántico norte
+  North Cascades conifer forests: Bosques de coníferas de North Cascades
+  North Deccan dry deciduous forests: Bosques caducifolios secos del norte de Deccan
+  North Saharan Xeric Steppe and Woodland: Estepa y bosque xéricos del norte del Sahara
+  North Tibetan Plateau-Kunlun Mountains alpine desert: Desierto alpino de las montañas Kunlun y la meseta tibetana del norte
+  North Victoria Land tundra: Tundra del norte de la Tierra de Victoria
+  North Western Ghats moist deciduous forests: Bosques caducifolios húmedos del noroeste de Ghats
+  North Western Ghats montane rain forests: Selvas tropicales montanas del noroeste de Ghats
+  Northeast Antarctic Peninsula tundra: Tundra del noreste de la Península Antártica
+  Northeast Brazil restingas: Restingas del noreste de Brasil
+  Northeast China Plain deciduous forests: Bosques caducifolios llanos del noreste de China
+  Northeast Congolian lowland forests: Bosques de tierras bajas del noreste del Congo
+  Northeast Himalayan subalpine conifer forests: Bosques de coníferas subalpinos del noreste del Himalaya
+  Northeast India-Myanmar pine forests: Bosques de pinos del noreste de India y Myanmar
+  Northeast Siberian coastal tundra: Tundra costera del noreste de Siberia
+  Northeast Siberian taiga: Taiga del noreste de Siberia
+  Northeast Spain and Southern France Mediterranean forests: Bosques mediterráneos del noreste de España y sur de Francia
+  Northeast US Coastal forests: Bosques costeros del noreste de EE. UU.
+  Northern Acacia-Commiphora bushlands and thickets: Matorrales y matorrales del norte de Acacia-Commiphora
+  Northern Anatolian conifer and deciduous forests: Bosques caducifolios y de coníferas del norte de Anatolia
+  Northern Andean páramo: Páramo del norte de los Andes
+  Northern Annamites rain forests: Selvas tropicales de los Annamitas del norte
+  Northern California coastal forests: Bosques costeros del norte de California
+  Northern Canadian Shield taiga: Taiga del Escudo Canadiense del Norte
+  Northern Congolian Forest-Savanna: Sabana-bosque del norte del Congo
+  Northern Cordillera forests: Bosques de la Cordillera del Norte
+  Northern Indochina subtropical forests: Bosques subtropicales del norte de Indochina
+  Northern Khorat Plateau moist deciduous forests: Bosques caducifolios húmedos de la meseta septentrional de Khorat
+  Northern Mesoamerican Pacific mangroves: Manglares del Pacífico mesoamericano norte
+  Northern New Guinea lowland rain and freshwater swamp forests: Bosques pantanosos de agua dulce y lluvia de las tierras bajas del norte de Nueva Guinea
+  Northern New Guinea montane rain forests: Selvas tropicales montanas del norte de Nueva Guinea
+  Northern Pacific Alaskan coastal forests: Bosques costeros del Pacífico norte de Alaska
+  Northern Rockies conifer forests: Bosques de coníferas del norte de las Montañas Rocosas
+  Northern Shortgrass prairie: Pradera de pasto corto del norte
+  Northern Swahili coastal forests: Bosques costeros del norte de Swahili
+  Northern Tallgrass prairie: Pradera de pastos altos del norte
+  Northern Thailand-Laos moist deciduous forests: Bosques caducifolios húmedos del norte de Tailandia y Laos
+  Northern Triangle subtropical forests: Bosques subtropicales del Triángulo Norte
+  Northern Triangle temperate forests: Bosques templados del Triángulo Norte
+  Northern Vietnam lowland rain forests: Selvas tropicales de las tierras bajas del norte de Vietnam
+  Northland temperate kauri forests: Bosques kauri templados del norte
+  Northwest Andean montane forests: Bosques montanos del noroeste andino
+  Northwest Antarctic Peninsula tundra: Tundra del noroeste de la Península Antártica
+  Northwest Congolian lowland forests: Bosques de tierras bajas del noroeste del Congo
+  Northwest Hawai'i scrub: Matorral del noroeste de Hawaii
+  Northwest Iberian montane forests: Bosques montanos del noroeste ibérico
+  Northwest Russian-Novaya Zemlya tundra: Tundra del noroeste de Rusia-Novaya Zemlya
+  Northwest Territories taiga: Taiga de los Territorios del Noroeste
+  Northwestern Himalayan alpine shrub and meadows: Arbustos y prados alpinos del noroeste del Himalaya
+  Novosibirsk Islands Arctic desert: Desierto ártico de las islas Novosibirsk
+  Nujiang Langcang Gorge alpine conifer and mixed forests: Bosques mixtos y de coníferas alpinos de Nujiang Langcang Gorge
+  Nullarbor Plains xeric shrublands: Matorrales xéricos de las llanuras de Nullarbor
+  Nyanga-Chimanimani Montane forest-grassland: Bosques-pastizales montanos de Nyanga-Chimanimani
+  Oaxacan montane forests: Oaxacan montane forests
+  Ogasawara subtropical moist forests: Bosques húmedos subtropicales de Ogasawara
+  Ogilvie-MacKenzie alpine tundra: Tundra alpina de Ogilvie-MacKenzie
+  Okanogan dry forests: Bosques secos de Okanogan
+  Okhotsk-Manchurian taiga: Taiga de Okhotsk-Manchuria
+  Ordos Plateau steppe: Estepa de la meseta de Ordos
+  Orinoco Delta swamp forests: Bosques pantanosos del Delta del Orinoco
+  Orinoco wetlands: Humedales del Orinoco
+  Orissa semi-evergreen forests: Bosques semiperennes de Orissa
+  Ozark Highlands mixed forests: Bosques mixtos de las tierras altas de Ozark
+  Ozark Mountain forests: Bosques de la montaña Ozark
+  Pacific Coastal Mountain icefields and tundra: Campos de hielo y tundra de las montañas costeras del Pacífico
+  Palau tropical moist forests: Bosques húmedos tropicales de Palaos
+  Palawan rain forests: Selvas tropicales de Palawan
+  Palouse prairie: Palouse prairie
+  Pamir alpine desert and tundra: Desierto alpino de Pamir y tundra
+  Panamanian dry forests: Panamanian dry forests
+  Pannonian mixed forests: Bosques mixtos de Panonia
+  Pantanal: Pantanal
+  Pantanos de Centla: Pantanos de Centla
+  Pantepui forests & shrublands: Bosques y matorrales de Pantepui
+  Papuan Central Range sub-alpine grasslands: Pastizales subalpinos de la Cordillera Central de Papúa
+  Paraguaná xeric scrub: Exfoliante xérico de Paraguaná
+  Paraná flooded savanna: Sabana inundada del Paraná
+  Paropamisus xeric woodlands: Bosques xéricos de Paropamisus
+  Patagonian steppe: Patagonian steppe
+  Patía valley dry forests: Bosques secos del valle del Patía
+  Peninsular Malaysian montane rain forests: Selvas tropicales montanas de Malasia peninsular
+  Peninsular Malaysian peat swamp forests: Bosques pantanosos de turbera de la península de Malasia
+  Peninsular Malaysian rain forests: Selvas tropicales de Malasia peninsular
+  Pernambuco coastal forests: Bosques costeros de Pernambuco
+  Pernambuco interior forests: Bosques interiores de Pernambuco
+  Peruvian Yungas: Peruvian Yungas
+  Petén-Veracruz moist forests: Bosques húmedos Petén-Veracruz
+  Pilbara shrublands: Matorral de Pilbara
+  Pindus Mountains mixed forests: Bosques mixtos de las montañas Pindo
+  Piney Woods: Bosques de pinos
+  Po Basin mixed forests: Bosques mixtos de la cuenca del Po
+  Pontic steppe: Estepa póntica
+  Prince Charles Mountains tundra: Tundra de las montañas del Príncipe Carlos
+  Puerto Rican dry forests: Bosques secos puertorriqueños
+  Puerto Rican moist forests: Bosques húmedos puertorriqueños
+  Puget lowland forests: Bosques de tierras bajas de Puget
+  Purus-Madeira moist forests: Bosques húmedos de Purús-Madeira
+  Purus várzea: Purus várzea
+  Pyrenees conifer and mixed forests: Bosques de coníferas y mixtos del Pirineo
+  Qaidam Basin semi-desert: Semidesértico de la cuenca de Qaidam
+  Qilian Mountains conifer forests: Bosques de coníferas de las montañas Qilian
+  Qilian Mountains subalpine meadows: Praderas subalpinas de las montañas Qilian
+  Qin Ling Mountains deciduous forests: Bosques caducifolios de las montañas Qin Ling
+  Qionglai-Minshan conifer forests: Bosques de coníferas de Qionglai-Minshan
+  Queen Charlotte Islands conifer forests: Bosques de coníferas de las Islas Reina Carlota
+  Queensland tropical rain forests: Selvas tropicales de Queensland
+  Rakiura Island temperate forests: Bosques templados de la isla Rakiura
+  Rann of Kutch seasonal salt marsh: Marisma salada estacional de Rann of Kutch
+  Rapa Nui and Sala y Gómez subtropical forests: Bosques subtropicales Rapa Nui y Sala y Gómez
+  Red River freshwater swamp forests: Bosques pantanosos de agua dulce del Río Rojo
+  Red Sea-Arabian Desert shrublands: Matorral del Mar Rojo y Desierto Arábigo
+  Red Sea coastal desert: Desierto costero del Mar Rojo
+  Red Sea mangroves: Manglares del Mar Rojo
+  Registan-North Pakistan sandy desert: Desierto arenoso de Registan-Norte de Pakistán
+  Renosterveld shrubland: Matorral de Renosterveld
+  Richmond temperate forests: Bosques templados de Richmond
+  Rio Negro campinarana: Campinarana de Río Negro
+  Rock and Ice (Antarctica): Roca y Hielo (Antártida)
+  Rock and Ice (Nearctic): Roca y hielo (Nártico)
+  Rock and Ice (Neotropic): Roca y Hielo (Neotrópico)
+  Rock and Ice (Palearctic): Roca y Hielo (Paleártico)
+  Rodope montane mixed forests: Bosques mixtos montanos de ródope
+  Russian Arctic desert: Desierto ártico ruso
+  Russian Bering tundra: Tundra rusa de Bering
+  Rwenzori-Virunga montane moorlands: Páramos montanos de Rwenzori-Virunga
+  Saharan Atlantic coastal desert: Desierto costero del Atlántico sahariano
+  Saharan halophytics: Saharan halophytics
+  Sahelian Acacia savanna: Sabana saheliana de acacias
+  Sakhalin Island taiga: Taiga de la isla Sajalín
+  Samoan tropical moist forests: Bosques húmedos tropicales de Samoa
+  San Félix-San Ambrosio Islands temperate forests: Bosques templados de las islas San Félix-San Ambrosio
+  San Lucan xeric scrub: Exfoliante xérico sanlucano
+  Santa Lucia Montane Chaparral & Woodlands: Chaparral Montano y Bosques de Santa Lucía
+  Santa Marta montane forests: Bosques montanos de Santa Marta
+  Santa Marta páramo: Santa Marta páramo
+  São Tomé, Príncipe, and Annobón forests: Bosques de Santo Tomé, Príncipe y Annobón
+  Sarmatic mixed forests: Bosques mixtos sarmáticos
+  Sayan alpine meadows and tundra: Tundra y prados alpinos de Sayan
+  Sayan Intermontane steppe: Estepa intermontana de Sayan
+  Sayan montane conifer forests: Bosques de coníferas montanos de Sayan
+  Scandinavian and Russian taiga: Taiga escandinava y rusa
+  Scandinavian coastal conifer forests: Bosques de coníferas costeros escandinavos
+  Scandinavian Montane Birch forest and grasslands: Bosques y praderas de abedules montanos escandinavos
+  Scotia Sea Islands tundra: Tundra de las islas del mar de Escocia
+  Sechura desert: Sechura desert
+  Selenge-Orkhon forest steppe: Estepa forestal de Selenge-Orkhon
+  Seram rain forests: Selvas tropicales de Seram
+  Serengeti volcanic grasslands: Pastizales volcánicos del Serengeti
+  Serra do Mar coastal forests: Bosques costeros de la Serra do Mar
+  Sichuan Basin evergreen broadleaf forests: Bosques latifoliados siempre verdes de la cuenca de Sichuan
+  Sierra de la Laguna dry forests: Bosques secos de la Sierra de la Laguna
+  Sierra de la Laguna pine-oak forests: Bosques de pino-encino de la Sierra de la Laguna
+  Sierra de los Tuxtlas: Sierra de los Tuxtlas
+  Sierra Madre de Chiapas moist forests: Bosques húmedos de la Sierra Madre de Chiapas
+  Sierra Madre de Oaxaca pine-oak forests: Bosques de pino-encino de la Sierra Madre de Oaxaca
+  Sierra Madre del Sur pine-oak forests: Bosques de pino-encino de la Sierra Madre del Sur
+  Sierra Madre Occidental pine-oak forests: Bosques de pino-encino de la Sierra Madre Occidental
+  Sierra Madre Oriental pine-oak forests: Bosques de pino y encino de la Sierra Madre Oriental
+  Sierra Nevada forests: Bosques de Sierra Nevada
+  Simpson desert: Simpson desert
+  Sinaloan dry forests: Bosques secos sinaloenses
+  Sinú Valley dry forests: Bosques secos del Valle del Sinú
+  Snake-Columbia shrub steppe: Estepa arbustiva de Serpiente-Columbia
+  Society Islands tropical moist forests: Bosques húmedos tropicales de las Islas de la Sociedad
+  Socotra Island xeric shrublands: Matorral xérico de la isla de Socotra
+  Solimões-Japurá moist forests: Bosques húmedos de Solimões-Japurá
+  Solomon Islands rain forests: Selvas tropicales de las Islas Salomón
+  Somali Acacia-Commiphora bushlands and thickets: Matorrales y matorrales somalíes de Acacia-Commiphora
+  Somali montane xeric woodlands: Bosques xéricos montanos de Somalia
+  Sonoran-Sinaloan subtropical dry forest: Bosque seco subtropical sonorense-sinaloense
+  Sonoran desert: Sonoran desert
+  South American Pacific mangroves: Manglares del Pacífico sudamericano
+  South Antarctic Peninsula tundra: Tundra del sur de la Península Antártica
+  South Apennine mixed montane forests: Bosques montanos mixtos del sur de los Apeninos
+  South Arabian fog woodlands, shrublands, and dune: Bosques de niebla, matorrales y dunas del sur de Arabia
+  South Arabian plains and plateau desert: Llanuras del sur de Arabia y desierto de meseta
+  South Central Rockies forests: Bosques de las Montañas Rocosas del centro sur
+  South China-Vietnam subtropical evergreen forests: Bosques siempre verdes subtropicales del sur de China y Vietnam
+  South China Sea Islands: Islas del Mar de China Meridional
+  South Deccan Plateau dry deciduous forests: Bosques caducifolios secos de la meseta sur de Deccan
+  South Iran Nubo-Sindian desert and semi-desert: Desierto y semidesierto nubo-sindio del sur de Irán
+  South Orkney Islands tundra: Tundra de las Islas Orcadas del Sur
+  South Sahara desert: South Sahara desert
+  South Siberian forest steppe: Estepa forestal del sur de Siberia
+  South Taiwan monsoon rain forests: Selvas tropicales monzónicas del sur de Taiwán
+  South Victoria Land tundra: Tundra del sur de la Tierra de Victoria
+  South Western Ghats moist deciduous forests: Bosques caducifolios húmedos del suroeste de Ghats
+  South Western Ghats montane rain forests: Selvas tropicales montanas del suroeste de Ghats
+  Southeast Australia temperate forests: Bosques templados del sudeste de Australia
+  Southeast Australia temperate savanna: Sabana templada del sudeste de Australia
+  Southeast Iberian shrubs and woodlands: Arbustos y bosques del Sudeste Ibérico
+  Southeast Indochina dry evergreen forests: Bosques secos siempre verdes del sudeste de Indochina
+  Southeast Papuan rain forests: Selvas tropicales del sudeste de Papúa
+  Southeast Tibet shrublands and meadows: Matorrales y prados del sudeste del Tíbet
+  Southeast US conifer savannas: Sabanas de coníferas del sudeste de EE. UU.
+  Southeast US mixed woodlands and savannas: Bosques y sabanas mixtas del sudeste de EE. UU.
+  Southern Acacia-Commiphora bushlands and thickets: Matorrales y matorrales del sur de Acacia-Commiphora
+  Southern Africa mangroves: Manglares del sur de África
+  Southern Anatolian montane conifer and deciduous forests: Bosques caducifolios y de coníferas montanos del sur de Anatolia
+  Southern Andean steppe: Southern Andean steppe
+  Southern Andean Yungas: Yungas Andinas del Sur
+  Southern Annamites montane rain forests: Selvas tropicales montanas de los Annamitas del Sur
+  Southern Atlantic Brazilian mangroves: Manglares brasileños del Atlántico sur
+  Southern Cone Mesopotamian savanna: Sabana mesopotámica del Cono Sur
+  Southern Congolian forest-savanna: Sabana forestal del sur del Congo
+  Southern Great Lakes forests: Bosques del sur de los Grandes Lagos
+  Southern Hudson Bay taiga: Taiga del sur de la Bahía de Hudson
+  Southern Indian Ocean Islands tundra: Tundra de las islas del Océano Índico Meridional
+  Southern Korea evergreen forests: Bosques siempre verdes de Corea del Sur
+  Southern Mesoamerican Pacific mangroves: Manglares del Pacífico mesoamericano sur
+  Southern New Guinea freshwater swamp forests: Bosques pantanosos de agua dulce del sur de Nueva Guinea
+  Southern New Guinea lowland rain forests: Selvas tropicales de tierras bajas del sur de Nueva Guinea
+  Southern Pacific dry forests: Bosques secos del Pacífico sur
+  Southern Rift Montane forest-grassland: Pastizales y bosques montanos del Rift Sur
+  Southern Swahili coastal forests and woodlands: Bosques y bosques costeros del sur de Swahili
+  Southern Vietnam lowland dry forests: Bosques secos de las tierras bajas del sur de Vietnam
+  Southwest Amazon moist forests: Bosques húmedos del suroeste amazónico
+  Southwest Arabian coastal xeric shrublands: Matorral xerófilo costero del suroeste de Arabia
+  Southwest Arabian Escarpment shrublands and woodlands: Matorrales y bosques de la escarpa del suroeste de Arabia
+  Southwest Arabian highland xeric scrub: Matorral xérico de las tierras altas del suroeste de Arabia
+  Southwest Arabian montane woodlands and grasslands: Bosques y praderas montanos del suroeste de Arabia
+  Southwest Australia savanna: Sabana del suroeste de Australia
+  Southwest Australia woodlands: Bosques del suroeste de Australia
+  Southwest Borneo freshwater swamp forests: Bosques pantanosos de agua dulce del suroeste de Borneo
+  Southwest Iberian Mediterranean sclerophyllous and mixed forests: Bosques esclerófilos y mixtos del suroeste ibérico mediterráneo
+  Sri Lanka dry-zone dry evergreen forests: Bosques secos siempre verdes de la zona seca de Sri Lanka
+  Sri Lanka lowland rain forests: Selvas tropicales de tierras bajas de Sri Lanka
+  Sri Lanka montane rain forests: Selvas tropicales montanas de Sri Lanka
+  St. Helena scrub and woodlands: Matorrales y bosques de Santa Elena
+  St. Peter and St. Paul Rocks: Rocas de San Pedro y San Pablo
+  Succulent Karoo xeric shrublands: Suculentos matorrales xéricos de Karoo
+  Sudd flooded grasslands: Pastizales inundados repentinamente
+  Suiphun-Khanka meadows and forest meadows: Praderas y praderas forestales de Suiphun-Khanka
+  Sulaiman Range alpine meadows: Praderas alpinas de la cordillera Sulaiman
+  Sulawesi lowland rain forests: Selvas tropicales de tierras bajas de Sulawesi
+  Sulawesi montane rain forests: Selvas tropicales montanas de Sulawesi
+  Sulu Archipelago rain forests: Selvas tropicales del archipiélago de Sulu
+  Sumatran freshwater swamp forests: Bosques pantanosos de agua dulce de Sumatra
+  Sumatran lowland rain forests: Selvas tropicales de las tierras bajas de Sumatra
+  Sumatran montane rain forests: Selvas tropicales montanas de Sumatra
+  Sumatran peat swamp forests: Bosques pantanosos de turba de Sumatra
+  Sumatran tropical pine forests: Bosques de pinos tropicales de Sumatra
+  Sumba deciduous forests: Bosques caducifolios de Sumba
+  Sunda Shelf mangroves: Manglares de la plataforma de la Sonda
+  Sundaland heath forests: Bosques de brezales de Sundaland
+  Sundarbans freshwater swamp forests: Bosques pantanosos de agua dulce de Sundarbans
+  Sundarbans mangroves: Manglares de Sundarbans
+  Syrian xeric grasslands and shrublands: Pastizales y matorrales xéricos sirios
+  Taiheiyo evergreen forests: Bosques siempre verdes de Taiheiyo
+  Taiheiyo montane deciduous forests: Bosques caducifolios montanos de Taiheiyo
+  Taimyr-Central Siberian tundra: Tundra de Taimyr-Siberia central
+  Taiwan subtropical evergreen forests: Bosques siempre verdes subtropicales de Taiwán
+  Taklimakan desert: Desierto de Taklimakán
+  Talamancan montane forests: Bosques montanos de Talamanca
+  Tamaulipan matorral: Tamaulipan matorral
+  Tamaulipan mezquital: Tamaulipan mezquital
+  Tapajós-Xingu moist forests: Bosques húmedos de Tapajós-Xingu
+  Tarim Basin deciduous forests and steppe: Bosques caducifolios y estepa de la cuenca del Tarim
+  Tasmanian Central Highland forests: Bosques de las tierras altas centrales de Tasmania
+  Tasmanian temperate forests: Bosques templados de Tasmania
+  Tasmanian temperate rain forests: Selvas tropicales templadas de Tasmania
+  Tehuacán Valley matorral: Matorral del Valle de Tehuacán
+  Tenasserim-South Thailand semi-evergreen rain forests: Selvas tropicales semiperennes de Tenasserim-sur de Tailandia
+  Terai-Duar savanna and grasslands: Sabanas y pastizales de Terai-Duar
+  Texas blackland prairies: Praderas de las tierras negras de Texas
+  Thar desert: Thar desert
+  Tian Shan foothill arid steppe: Estepa árida al pie de las estribaciones de Tian Shan
+  Tian Shan montane conifer forests: Bosques de coníferas montanos de Tian Shan
+  Tian Shan montane steppe and meadows: Estepa y prados montanos de Tian Shan
+  Tibesti-Jebel Uweinat montane xeric woodlands: Bosques xéricos montanos de Tibesti-Jebel Uweinat
+  Tibetan Plateau alpine shrublands and meadows: Prados y matorrales alpinos de la meseta tibetana
+  Tigris-Euphrates alluvial salt marsh: Marisma aluvial del Tigris-Éufrates
+  Timor and Wetar deciduous forests: Bosques caducifolios de Timor y Wetar
+  Tirari-Sturt stony desert: Desierto pedregoso de Tirari-Sturt
+  Tocantins/Pindare moist forests: Bosques húmedos de Tocantins/Pindare
+  Tongan tropical moist forests: Bosques húmedos tropicales de Tonga
+  Tonle Sap-Mekong peat swamp forests: Bosques pantanosos de turbera de Tonle Sap-Mekong
+  Tonle Sap freshwater swamp forests: Bosques pantanosos de agua dulce de Tonle Sap
+  Torngat Mountain tundra: Tundra de la montaña Torngat
+  Trans-Baikal Bald Mountain tundra: Tundra de la Montaña Calva Trans-Baikal
+  Trans-Baikal conifer forests: Bosques de coníferas de Trans-Baikal
+  Trans-Mexican Volcanic Belt pine-oak forests: Bosques de pino-encino de la Faja Volcánica Transmexicana
+  Trans Fly savanna and grasslands: Sabanas y pastizales Trans Fly
+  Transantarctic Mountains tundra: Tundra de las Montañas Transantárticas
+  Trindade-Martin Vaz Islands tropical forests: Bosques tropicales de las islas Trindade-Martin Vaz
+  Trinidad and Tobago dry forest: Bosque seco de Trinidad y Tobago
+  Trinidad and Tobago moist forest: Bosque húmedo de Trinidad y Tobago
+  Tristan Da Cunha-Gough Islands shrub and grasslands: Arbustos y pastizales de las islas Tristan Da Cunha-Gough
+  Trobriand Islands rain forests: Selvas tropicales de las islas Trobriand
+  Tuamotu tropical moist forests: Bosques húmedos tropicales de Tuamotu
+  Tubuai tropical moist forests: Bosques húmedos tropicales de Tubuai
+  Tumbes-Piura dry forests: Bosques secos Tumbes-Piura
+  Tyrrhenian-Adriatic sclerophyllous and mixed forests: Bosques esclerófilos y mixtos del Tirreno-Adriático
+  Uatumã-Trombetas moist forests: Bosques húmedos de Uatumã-Trombetas
+  Ucayali moist forests: Bosques húmedos de Ucayali
+  Upper Gangetic Plains moist deciduous forests: Bosques caducifolios húmedos de las llanuras superiores del Ganges
+  Upper Midwest US forest-savanna transition: Transición bosque-sabana del medio oeste superior de EE. UU.
+  Urals montane forest and taiga: Bosque montano y taiga de los Urales
+  Uruguayan savanna: Uruguayan savanna
+  Ussuri broadleaf and mixed forests: Bosques latifoliados y mixtos de Ussuri
+  Valdivian temperate forests: Bosques templados valdivianos
+  Vanuatu rain forests: Selvas tropicales de Vanuatu
+  Venezuelan Andes montane forests: Bosques montanos de los Andes venezolanos
+  Veracruz dry forests: Bosques secos de Veracruz
+  Veracruz moist forests: Bosques húmedos de Veracruz
+  Veracruz montane forests: Bosques montanos de Veracruz
+  Victoria Basin forest-savanna: Bosque-sabana de la Cuenca Victoria
+  Victoria Plains tropical savanna: Sabana tropical de las llanuras de Victoria
+  Vogelkop-Aru lowland rain forests: Selvas tropicales de tierras bajas de Vogelkop-Aru
+  Vogelkop montane rain forests: Selvas tropicales montanas de Vogelkop
+  Wasatch and Uinta montane forests: Bosques montanos de Wasatch y Uinta
+  Watson Highlands taiga: Taiga de las Tierras Altas de Watson
+  West Sahara desert: Desierto del Sahara Occidental
+  West Saharan montane xeric woodlands: Bosques xéricos montanos del Sahara Occidental
+  West Siberian taiga: Taiga de Siberia Occidental
+  West Sudanian savanna: Sabana del oeste de Sudán
+  Western Australian Mulga shrublands: Matorrales de Mulga en Australia Occidental
+  Western Congolian forest-savanna: Sabana forestal del oeste del Congo
+  Western Congolian swamp forests: Bosques pantanosos del oeste del Congo
+  Western Ecuador moist forests: Bosques húmedos del oeste de Ecuador
+  Western European broadleaf forests: Bosques latifoliados de Europa occidental
+  Western Great Lakes forests: Bosques de los Grandes Lagos occidentales
+  Western Guinean lowland forests: Bosques de tierras bajas de Guinea occidental
+  Western Gulf coastal grasslands: Pastizales costeros del Golfo occidental
+  Western Himalayan alpine shrub and meadows: Arbustos y prados alpinos del Himalaya occidental
+  Western Himalayan broadleaf forests: Bosques latifoliados del Himalaya occidental
+  Western Himalayan subalpine conifer forests: Bosques de coníferas subalpinos del Himalaya occidental
+  Western Java montane rain forests: Selvas tropicales montanas de Java occidental
+  Western Java rain forests: Selvas tropicales de Java occidental
+  Western Polynesian tropical moist forests: Bosques húmedos tropicales de la Polinesia occidental
+  Western shortgrass prairie: Pradera occidental de pasto corto
+  Western Siberian hemiboreal forests: Bosques hemiboreales de Siberia occidental
+  Westland temperate forests: Bosques templados de Westland
+  Willamette Valley oak savanna: Sabana de robles del valle de Willamette
+  Windward Islands moist forests: Bosques húmedos de las Islas de Barlovento
+  Wrangel Island Arctic desert: Desierto ártico de la isla Wrangel
+  Wyoming Basin shrub steppe: Estepa arbustiva de la cuenca de Wyoming
+  Xingu-Tocantins-Araguaia moist forests: Bosques húmedos Xingu-Tocantins-Araguaia
+  Yamal-Gydan tundra: Tundra de Yamal-Gydan
+  Yap tropical dry forests: Bosques secos tropicales
+  Yapen rain forests: Selvas tropicales de Yapen
+  Yarlung Zanbo arid steppe: Estepa árida de Yarlung Zanbo
+  Yellow Sea saline meadow: Pradera salina del Mar Amarillo
+  Yucatán dry forests: Bosques secos de Yucatán
+  Yucatán moist forests: Bosques húmedos de Yucatán
+  Yunnan Plateau subtropical evergreen forests: Bosques siempre verdes subtropicales de la meseta de Yunnan
+  Zagros Mountains forest steppe: Estepa forestal de las montañas de Zagros
+  Zambezian-Limpopo mixed woodlands: Bosques mixtos de Zambez y Limpopo
+  Zambezian Baikiaea woodlands: Bosques de Baikiaea de Zambez
+  Zambezian coastal flooded savanna: Sabana costera inundada de Zambez
+  Zambezian evergreen dry forests: Bosques secos siempre verdes de Zambez
+  Zambezian flooded grasslands: Pastizales inundados de Zambez
+  Zambezian mopane woodlands: Bosques de mopane de Zambez

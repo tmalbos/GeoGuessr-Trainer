@@ -29,7 +29,7 @@ def print_analysis(
         stream.write(
             "\n"
             + translate("⚠️  No zones with {n}+ rounds for this level.", n=MIN_ZONE_ROUNDS)
-            + "\n"
+            + "\n",
         )
         return
 
@@ -48,12 +48,12 @@ def _print_header(result: AnalysisResult, stream: TextIO) -> None:
             low=LOW_CONFIDENCE_WINDOW,
             mid=MEDIUM_CONFIDENCE_WINDOW,
         )
-        + "\n"
+        + "\n",
     )
     stream.write("═" * 68 + "\n")
 
 
-def _fmt(val: float | int | None) -> str:
+def _fmt(val: float | None) -> str:
     return f"{val:,}" if val is not None else "—"
 
 
@@ -72,69 +72,83 @@ def _print_zones(
     for zone, s in sorted_zones:
         title = "GLOBAL" if zone == "_global_" else zone
 
-        stream.write("\n  ▸ " + title + "  (" + translate("{n} rounds total", n=s.total) + ")\n")
+        stream.write("\n")
+        stream.write(translate("  ▸ {title}  ({n} rounds total)", title=title, n=s.total))
+        stream.write("\n")
         stream.write(f"  {'─' * 60}\n")
 
         ci_str = (
-            "  ("
-            + translate("reliable range: {lo} – {hi} km", lo=_fmt(s.ci_lo), hi=_fmt(s.ci_hi))
-            + ")"
+            translate("  (reliable range: {lo} - {hi} km)", lo=_fmt(s.ci_lo), hi=_fmt(s.ci_hi))
             if s.ci_lo is not None
             else ""
         )
         stream.write(
             translate(
-                "  Current level    : {label} {arrow}", label=s.level_label, arrow=s.level_arrow
+                "  Current level    : {label} {arrow} {ci_str}",
+                label=s.level_label,
+                arrow=s.level_arrow,
+                ci_str=ci_str,
             )
-            + ci_str
-            + "\n"
         )
-        stream.write(
-            translate("  Worst rounds     : {label} {arrow}", label=s.p90_label, arrow=s.p90_arrow)
-            + "  ("
-            + translate("in your worst 10%, equivalent to {km} km error", km=_fmt(s.p90_now_km))
-            + ")\n"
-        )
+        stream.write("\n")
         stream.write(
             translate(
-                "  Consistency      : {label} {arrow}", label=s.cons_label, arrow=s.cons_arrow
+                "  Worst rounds     : {label} {arrow}  (in your worst 10%, equivalent to {km} km error)",
+                label=s.p90_label,
+                arrow=s.p90_arrow,
+                km=_fmt(s.p90_now_km),
             )
-            + "  ("
-            + translate("your typical variation is ±{km} km", km=_fmt(s.std_now_km))
-            + ")\n"
         )
+        stream.write("\n")
+        stream.write(
+            translate(
+                "  Consistency      : {label} {arrow}  (your typical variation is ±{km} km)",
+                label=s.cons_label,
+                arrow=s.cons_arrow,
+                km=_fmt(s.std_now_km),
+            )
+        )
+        stream.write("\n")
 
         if level != "general":
             zone_rounds = groups.get(zone, [])
             main_conf = _confusion(zone_rounds, level, top_n=1)
+
             if main_conf:
                 c = main_conf[0]
                 stream.write(
                     translate(
-                        "  Key confusion    : you mix up {real} → {guess}",
+                        "  Key confusion    : you mix up {real} → {guess}  ({freq}x, ~{km} km penalty)",
                         real=c["real"],
                         guess=c["guess"],
+                        freq=c["freq"],
+                        km=_fmt(c["avg_km"]),
                     )
-                    + "  ("
-                    + translate("{freq}x, ~{km} km penalty", freq=c["freq"], km=_fmt(c["avg_km"]))
-                    + ")\n"
                 )
+                stream.write("\n")
 
             child_level = _CHILD_LEVEL.get(level)
+
             if child_level:
                 child_rounds = [
                     r for r in zone_rounds if (r.get("real_geo") or {}).get(level, "") == zone
                 ]
                 sec_conf = _confusion(child_rounds, child_level, top_n=3)
+
                 if sec_conf:
                     child_label = label_map.get(child_level, child_level)
                     stream.write(translate("  Confusions ({label}):", label=child_label) + "\n")
+
                     for c in sec_conf:
                         stream.write(
-                            f"    • {c['real']} → {c['guess']}"
-                            + "  ("
-                            + translate("{freq}x, ~{km} km", freq=c["freq"], km=_fmt(c["avg_km"]))
-                            + ")\n"
+                            translate(
+                                "    • {real} → {guess}  ({freq}x, ~{km} km)",
+                                real=c["real"],
+                                guess=c["guess"],
+                                freq=c["freq"],
+                                km=_fmt(c["avg_km"]),
+                            )
                         )
+                        stream.write("\n")
 
     stream.write("\n" + "═" * 68 + "\n")
