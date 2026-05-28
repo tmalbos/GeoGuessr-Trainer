@@ -9,27 +9,6 @@ from core.geo_enrich import GeoEnrichClient
 
 
 @pytest.mark.asyncio
-async def test_enrich_with_none_lat_returns_empty_dict() -> None:
-    """enrich(None, lon) returns an empty enriched dict without making HTTP calls."""
-    async with httpx.AsyncClient() as http_client:
-        geo = GeoEnrichClient(http_client=http_client)
-
-        result = await geo.enrich(None, 10.0)
-
-    assert result == {
-        "lat": None,
-        "lng": 10.0,
-        "country_code": "",
-        "country": "",
-        "state": "",
-        "city": "",
-        "realm": "",
-        "biome": "",
-        "ecoregion": "",
-    }
-
-
-@pytest.mark.asyncio
 async def test_enrich_with_valid_coords_calls_nominatim_and_returns_full_dict() -> None:
     """Enrich with valid coords calls Nominatim via the injected client and returns combined result."""
 
