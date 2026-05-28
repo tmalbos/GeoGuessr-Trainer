@@ -26,14 +26,15 @@ async def test_wiring_with_init_does_not_break() -> None:
     """After await ctx.init(), the shared http_client wiring is still intact."""
     # Arrange
     ctx = AppContext(db_dsn="postgresql://localhost:5432/geoguessr")
-    mock_pool = AsyncMock()
 
-    with patch("core.app_context.asyncpg.create_pool", new_callable=AsyncMock) as mock_create:
-        mock_create.return_value = mock_pool
+    with (
+        patch("core.app_context.init_pool", new_callable=AsyncMock, return_value=AsyncMock()),
+        patch("core.app_context.close_pool", new_callable=AsyncMock),
+    ):
         await ctx.init()
         await ctx.anki_ready.wait()
         await ctx.geo_ready.wait()
 
-    # Assert
-    assert ctx.geo_client._client is ctx.http_client
-    assert ctx.anki_client._client is ctx.http_client
+        # Assert — both clients share the same http_client instance
+        assert ctx.geo_client._client is ctx.http_client
+        assert ctx.anki_client._client is ctx.http_client
