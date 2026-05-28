@@ -49,8 +49,14 @@ line-length = 100
 [tool.ruff.lint]
 select = ["ALL"]
 ignore = [
-    "T201" # 'print' found # TODO: Remove after UI migration
+    "T201",     # 'print' found # TODO: Remove after UI migration
+    "D105",     # missing docstring in magic method
+    "D107",     # missing docstring in __init__
+    "PLR2004"   # magic value used in comparison
 ]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = ["S101", "SLF001", "D1"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["src"]

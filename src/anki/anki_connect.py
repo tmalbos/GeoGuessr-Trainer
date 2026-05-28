@@ -39,7 +39,10 @@ class AnkiConnectClient:
         await self._invoke("createDeck", deck=deck_name)
 
     async def ensure_model(
-        self, model_name: str, fields: list[str], card_templates: list[dict]
+        self,
+        model_name: str,
+        fields: list[str],
+        card_templates: list[dict],
     ) -> None:
         existing = await self._invoke("modelNames")
         if model_name not in existing:

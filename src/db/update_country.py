@@ -217,7 +217,10 @@ def sync_country(cur, country_code: str, country_name: str, data: dict) -> None:
 
             if biome_id is None:
                 log.error(
-                    "[%s] Biome not found: biome=%s, realm=%s", country_code, biome_name, realm
+                    "[%s] Biome not found: biome=%s, realm=%s",
+                    country_code,
+                    biome_name,
+                    realm,
                 )
                 continue
 

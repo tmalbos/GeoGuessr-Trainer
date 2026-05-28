@@ -6,7 +6,7 @@ from db.db import DbAdapter
 
 
 @pytest.fixture
-def mock_db():
+def mock_db() -> tuple[DbAdapter, MagicMock]:
     mock_pool = MagicMock()
     mock_conn = MagicMock()
     mock_ctx = AsyncMock()
@@ -20,7 +20,9 @@ def mock_db():
 
 
 @pytest.mark.asyncio
-async def test_game_and_rounds_are_saved_with_geo_resolution(mock_db) -> None:
+async def test_game_and_rounds_are_saved_with_geo_resolution(
+    mock_db: tuple[DbAdapter, MagicMock],
+) -> None:
     # Arrange
     adapter, mock_conn = mock_db
 
@@ -71,7 +73,7 @@ async def test_game_and_rounds_are_saved_with_geo_resolution(mock_db) -> None:
 
 
 @pytest.mark.asyncio
-async def test_save_game_succeeds_with_empty_rounds(mock_db) -> None:
+async def test_save_game_succeeds_with_empty_rounds(mock_db: tuple[DbAdapter, MagicMock]) -> None:
     # Arrange
     adapter, mock_conn = mock_db
 
