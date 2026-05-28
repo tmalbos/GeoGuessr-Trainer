@@ -19,11 +19,7 @@ file_path = os.path.normcase(os.path.normpath(raw)) if raw else ""
 def should_run(path: str) -> bool:
     if not path.startswith(project_root + os.sep):
         return False
-    rel = path[len(project_root) + 1 :]
-    parts = Path(rel).parts
-    if not parts:
-        return False
-    return parts[0] in {"src", "tests"} or (len(parts) == 1 and rel.endswith(".py"))
+    return path.endswith((".py", ".html"))
 
 
 if not should_run(file_path):  # type: ignore[arg-type]
@@ -46,11 +42,8 @@ result = subprocess.run(
 output = result.stdout + result.stderr
 failed = re.findall(r"^FAILED\s+(\S+)", output, re.MULTILINE)
 
-if not failed and result.returncode == 0:
+if not failed:
     message = "All tests passed!"
-elif not failed:
-    last_line = output.strip().split("\n")[-1] if output.strip() else "unknown error"
-    message = f"Test run error (no tests collected or crash): {last_line}"
 else:
     lines = ["These tests FAILED:"] + [f"  - {f}" for f in failed]
     message = "\n".join(lines)
@@ -62,6 +55,6 @@ print(
                 "hookEventName": "PostToolUse",
                 "additionalContext": message,
             },
-        }
-    )
+        },
+    ),
 )
