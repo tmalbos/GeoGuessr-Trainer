@@ -1,3 +1,5 @@
+"""PostToolUse hook: run unit tests after editing project Python/HTML files."""
+
 import json
 import os
 import re
@@ -9,7 +11,7 @@ project_root = os.path.normcase(os.path.normpath(Path(__file__).parent.parent))
 
 try:
     hook_input = json.load(sys.stdin)
-except Exception:
+except ValueError:
     hook_input = {}
 
 raw = hook_input.get("tool_input", {}).get("file_path", "")
@@ -17,12 +19,20 @@ file_path = os.path.normcase(os.path.normpath(raw)) if raw else ""
 
 
 def should_run(path: str) -> bool:
+    """Check whether unit tests should run for the given file path.
+
+    Returns
+    -------
+    bool
+        True if the path is inside the project and is a .py or .html file.
+
+    """
     if not path.startswith(project_root + os.sep):
         return False
     return path.endswith((".py", ".html"))
 
 
-if not should_run(file_path):  # type: ignore[arg-type]
+if not should_run(file_path):
     sys.exit(0)
 
 result = subprocess.run(
@@ -37,6 +47,7 @@ result = subprocess.run(
     ],
     capture_output=True,
     text=True,
+    check=False,
 )
 
 output = result.stdout + result.stderr
