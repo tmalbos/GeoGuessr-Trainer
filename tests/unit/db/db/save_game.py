@@ -20,7 +20,7 @@ def mock_db():
 
 
 @pytest.mark.asyncio
-async def test_game_and_rounds_are_saved_with_geo_resolution(mock_db):
+async def test_game_and_rounds_are_saved_with_geo_resolution(mock_db) -> None:
     # Arrange
     adapter, mock_conn = mock_db
 
@@ -53,7 +53,7 @@ async def test_game_and_rounds_are_saved_with_geo_resolution(mock_db):
                     "lat": 52.52,
                     "lng": 13.405,
                 },
-            }
+            },
         ],
     }
 
@@ -71,7 +71,7 @@ async def test_game_and_rounds_are_saved_with_geo_resolution(mock_db):
 
 
 @pytest.mark.asyncio
-async def test_save_game_succeeds_with_empty_rounds(mock_db):
+async def test_save_game_succeeds_with_empty_rounds(mock_db) -> None:
     # Arrange
     adapter, mock_conn = mock_db
 

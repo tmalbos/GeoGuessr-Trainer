@@ -1,6 +1,4 @@
-"""
-generator.py — Orquesta la generación de tarjetas Anki para una partida.
-"""
+"""generator.py — Orquesta la generación de tarjetas Anki para una partida."""
 
 import httpx
 
@@ -18,8 +16,7 @@ async def generate_cards_for_game(
     anki_client: AnkiConnectClient,
     http_client: httpx.AsyncClient,
 ) -> list[str]:
-    """
-    Genera tarjetas para los países vistos en las rondas.
+    """Genera tarjetas para los países vistos en las rondas.
     Devuelve lista de errores (vacía si todo fue bien).
     """
     seen = {r["real_geo"]["country_code"] for r in rounds if r["real_geo"].get("country_code")}
@@ -63,7 +60,7 @@ async def generate_cards_for_game(
             "  ✅ Cards created: {created}  |  Already existed: {skipped}",
             created=created,
             skipped=skipped,
-        )
+        ),
     )
     return errors
 
@@ -80,7 +77,8 @@ async def wait_for_anki(anki_client: AnkiConnectClient) -> bool:
 
     while True:
         await asyncio.get_event_loop().run_in_executor(
-            None, lambda: input(translate("  Press Enter when Anki is ready... "))
+            None,
+            lambda: input(translate("  Press Enter when Anki is ready... ")),
         )
         if await anki_client.is_running():
             print(translate("  ✅ Anki detected"))

@@ -6,7 +6,7 @@ from db.db import DbAdapter
 
 
 @pytest.mark.asyncio
-async def test_returns_roads_and_plates_when_country_has_signals():
+async def test_returns_roads_and_plates_when_country_has_signals() -> None:
     # Arrange
     mock_pool = MagicMock()
     mock_conn = AsyncMock()
@@ -29,7 +29,7 @@ async def test_returns_roads_and_plates_when_country_has_signals():
 
 
 @pytest.mark.asyncio
-async def test_returns_empty_lists_when_country_has_no_signals():
+async def test_returns_empty_lists_when_country_has_no_signals() -> None:
     # Arrange
     mock_pool = MagicMock()
     mock_conn = AsyncMock()

@@ -4,7 +4,7 @@ from .base import Note
 
 
 class FlagNote(Note):
-    def __init__(self, country_data: dict, *, http_client=None, anki_client=None):
+    def __init__(self, country_data: dict, *, http_client=None, anki_client=None) -> None:
         Note.__init__(self, country_data, http_client=http_client, anki_client=anki_client)
         self.SEPARATOR = "<br>"
         self.MODEL = "Básico (teclear la respuesta)"

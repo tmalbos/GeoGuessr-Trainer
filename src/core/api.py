@@ -18,7 +18,7 @@ def extract_game_id(raw: str) -> str:
 
 
 class GeoguessrClient:
-    def __init__(self, ncfa_cookie: str, http_client: httpx.AsyncClient | None = None):
+    def __init__(self, ncfa_cookie: str, http_client: httpx.AsyncClient | None = None) -> None:
         self._ncfa_cookie = ncfa_cookie
         self._client = http_client or httpx.AsyncClient(
             headers={
@@ -35,13 +35,14 @@ class GeoguessrClient:
         }
         r = await self._client.get(url, headers=headers)
         if r.status_code == 401:
-            raise CookieExpiredError()
+            raise CookieExpiredError
         return r
 
     async def fetch_game(self, game_token: str) -> dict:
         r = await self._get(f"{BASE_URL_V3}/games/{game_token}")
         if r.status_code == 404:
-            raise ValueError(f"Juego '{game_token}' no encontrado.")
+            msg = f"Juego '{game_token}' no encontrado."
+            raise ValueError(msg)
         r.raise_for_status()
         return r.json()
 
@@ -71,7 +72,7 @@ class GeoguessrClient:
                         "challenge_token": token,
                         "is_daily": payload.get("isDailyChallenge", False),
                         "date_str": date_str,
-                    }
+                    },
                 )
 
         return entries
@@ -101,7 +102,7 @@ class GeoguessrClient:
             return None
         return match.get("game", {}).get("token")
 
-    async def aclose(self):
+    async def aclose(self) -> None:
         await self._client.aclose()
 
 

@@ -8,7 +8,7 @@ from core.app_context import AppContext
 
 
 @pytest.mark.asyncio
-async def test_http_client_is_closed_on_aclose():
+async def test_http_client_is_closed_on_aclose() -> None:
     """aclose() triggers http_client.aclose()."""
     # Arrange
     ctx = AppContext(db_dsn="postgresql://localhost:5432/geoguessr")
@@ -22,7 +22,7 @@ async def test_http_client_is_closed_on_aclose():
 
 
 @pytest.mark.asyncio
-async def test_wiring_with_init_does_not_break():
+async def test_wiring_with_init_does_not_break() -> None:
     """After await ctx.init(), the shared http_client wiring is still intact."""
     # Arrange
     ctx = AppContext(db_dsn="postgresql://localhost:5432/geoguessr")

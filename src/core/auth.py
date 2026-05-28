@@ -1,10 +1,10 @@
-"""
-auth.py — Manejo de cookie _ncfa de GeoGuessr.
+"""auth.py — Manejo de cookie _ncfa de GeoGuessr.
 Intenta extraerla automáticamente via Playwright.
 Si no puede, pide que el usuario la ingrese manualmente.
 """
 
 import os
+import pathlib
 
 from src.i18n.lang import translate
 
@@ -37,8 +37,8 @@ except ImportError:
 
 
 def load_cookie() -> str | None:
-    if os.path.exists(COOKIE_FILE):
-        with open(COOKIE_FILE) as f:
+    if pathlib.Path(COOKIE_FILE).exists():
+        with pathlib.Path(COOKIE_FILE).open(encoding="utf-8") as f:
             cookie = f.read().strip()
         if cookie:
             return cookie
@@ -46,9 +46,8 @@ def load_cookie() -> str | None:
     return None
 
 
-def save_cookie(cookie: str):
-    with open(COOKIE_FILE, "w") as f:
-        f.write(cookie)
+def save_cookie(cookie: str) -> None:
+    pathlib.Path(COOKIE_FILE).write_text(cookie, encoding="utf-8")
 
 
 import shutil
@@ -57,19 +56,18 @@ import tempfile
 
 
 async def extract_cookie_playwright() -> str | None:
-    """
-    Tries to read _ncfa directly from the browser's cookie SQLite DB.
+    """Tries to read _ncfa directly from the browser's cookie SQLite DB.
     Avoids launching a browser entirely (no lock conflicts, no headless detection).
     Note: Chrome 80+ encrypts cookie values with DPAPI on Windows.
           This works if the cookie 'value' column is populated (some builds still store it).
     """
     for cfg in browsers:
-        if not os.path.exists(cfg["user_data"]):
+        if not pathlib.Path(cfg["user_data"]).exists():
             continue
 
         for sub in ["Default/Network/Cookies", "Default/Cookies"]:
             cookie_db = os.path.join(cfg["user_data"], sub.replace("/", os.sep))
-            if not os.path.exists(cookie_db):
+            if not pathlib.Path(cookie_db).exists():
                 continue
 
             with tempfile.NamedTemporaryFile(delete=False, suffix=".db") as tmp:
@@ -80,7 +78,7 @@ async def extract_cookie_playwright() -> str | None:
                 con = sqlite3.connect(tmp_path)
                 cur = con.execute(
                     "SELECT value FROM cookies "
-                    "WHERE host_key LIKE '%geoguessr.com' AND name = '_ncfa'"
+                    "WHERE host_key LIKE '%geoguessr.com' AND name = '_ncfa'",
                 )
                 row = cur.fetchone()
                 con.close()
@@ -89,7 +87,7 @@ async def extract_cookie_playwright() -> str | None:
             except Exception as e:
                 print(f"  [SQLite] Error reading {cookie_db}: {e}")
             finally:
-                os.unlink(tmp_path)
+                pathlib.Path(tmp_path).unlink()
 
     # Fallback: Playwright with non-headless + copied profile
     if not PLAYWRIGHT_OK:
@@ -100,7 +98,11 @@ async def extract_cookie_playwright() -> str | None:
 
 async def _extract_via_playwright_fallback() -> str | None:
     cfg = next(
-        (b for b in browsers if os.path.exists(b["user_data"]) and os.path.exists(b["executable"])),
+        (
+            b
+            for b in browsers
+            if pathlib.Path(b["user_data"]).exists() and pathlib.Path(b["executable"]).exists()
+        ),
         None,
     )
     if not cfg:
@@ -134,8 +136,7 @@ async def _extract_via_playwright_fallback() -> str | None:
 
 
 async def refresh_cookie() -> str | None:
-    """
-    Llamado cuando la cookie expira.
+    """Llamado cuando la cookie expira.
     Intenta renovarla automáticamente antes de pedir intervención manual.
     """
     cookie = await extract_cookie_playwright()

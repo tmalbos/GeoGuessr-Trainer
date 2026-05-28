@@ -6,7 +6,7 @@ from db.db import DbAdapter
 
 
 @pytest.mark.asyncio
-async def test_connection_reported_alive_when_pool_responds():
+async def test_connection_reported_alive_when_pool_responds() -> None:
     # Arrange
     mock_pool = MagicMock()
     mock_conn = AsyncMock()
@@ -24,7 +24,7 @@ async def test_connection_reported_alive_when_pool_responds():
 
 
 @pytest.mark.asyncio
-async def test_connection_reported_dead_when_pool_raises():
+async def test_connection_reported_dead_when_pool_raises() -> None:
     # Arrange
     mock_pool = MagicMock()
     mock_ctx = AsyncMock()

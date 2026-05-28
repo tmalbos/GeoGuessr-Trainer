@@ -4,7 +4,7 @@ from .base import Note
 
 
 class CapitalNote(Note):
-    def __init__(self, country_data: dict, **kwargs):
+    def __init__(self, country_data: dict, **kwargs) -> None:
         Note.__init__(self, country_data, **kwargs)
         self.MODEL = "Básico (teclear la respuesta)"
         self.capital = (country_data.get("capital") or [None])[0]
@@ -16,7 +16,8 @@ class CapitalNote(Note):
     def fields(self) -> dict | None:
         return {
             "Anverso": translate(
-                "Which country is {capital} the capital of?", capital=self.capital
+                "Which country is {capital} the capital of?",
+                capital=self.capital,
             ),
             "Reverso": self._remove_accents(self.country_name),
         }

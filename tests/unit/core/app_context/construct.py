@@ -3,7 +3,7 @@
 from core.app_context import AppContext
 
 
-def test_resources_are_exposed_as_attributes_when_context_is_created():
+def test_resources_are_exposed_as_attributes_when_context_is_created() -> None:
     """AppContext exposes db_pool, http_client, geo_client, anki_client as None until init()."""
     # Arrange
     dsn = "postgresql://localhost:5432/geoguessr"

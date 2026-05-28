@@ -5,7 +5,7 @@ from src.i18n.lang import lang_code
 
 
 class Note(ABC):
-    def __init__(self, country_data: dict, *, http_client=None, anki_client=None):
+    def __init__(self, country_data: dict, *, http_client=None, anki_client=None) -> None:
         self.country_name = country_data["translations"][lang_code()]["common"]
         self._http_client = http_client
         self._anki_client = anki_client

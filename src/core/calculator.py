@@ -1,6 +1,4 @@
-"""
-calculator.py — Pure computation functions for GeoGuessr performance analysis.
-"""
+"""calculator.py — Pure computation functions for GeoGuessr performance analysis."""
 
 import math
 import random
@@ -65,11 +63,11 @@ HIGH_CONFIDENCE_WINDOW = 100
 MIN_ZONE_ROUNDS = 10
 
 
-def _pct(a, b):
+def _pct(a, b) -> str:
     return f"{round(a / b * 100)}%" if b else "—"
 
 
-def _fmt(val):
+def _fmt(val) -> str:
     return f"{val:,}" if val is not None else "—"
 
 
@@ -81,7 +79,7 @@ def _confusion(zone_rounds: list[dict], level: str, top_n: int = 5) -> list[dict
         guess = (r.get("guess_geo") or {}).get(level, "")
         d = r.get("distance_km")
         if real and guess and real != guess and d is not None:
-            pairs[(real, guess)].append(d)
+            pairs[real, guess].append(d)
     rows = []
     for (real, guess), dists in pairs.items():
         freq = len(dists)
@@ -93,7 +91,7 @@ def _confusion(zone_rounds: list[dict], level: str, top_n: int = 5) -> list[dict
                 "freq": freq,
                 "avg_km": avg_d,
                 "impact": round(freq * avg_d),
-            }
+            },
         )
     return sorted(rows, key=lambda x: -x["impact"])[:top_n]
 

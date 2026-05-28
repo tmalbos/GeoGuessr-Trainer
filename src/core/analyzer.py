@@ -29,8 +29,7 @@ async def process_game(
     anki_client: AnkiConnectClient,
     http_client: httpx.AsyncClient,
 ) -> list[str]:
-    """
-    Enriquece, muestra, guarda y genera cards para una partida.
+    """Enriquece, muestra, guarda y genera cards para una partida.
     Devuelve lista de errores de Anki.
     """
     rounds_raw = game_data.get("rounds", [])
@@ -94,7 +93,7 @@ async def process_game(
                 "distance_km": dist_km,
                 "steps": steps,
                 "time_sec": time_sec,
-            }
+            },
         )
 
     cant = len(guesses)
@@ -107,7 +106,7 @@ async def process_game(
             cant=cant,
             total_score=f"{total_score:,}",
             avg_dist=f"{avg_dist:,}",
-        )
+        ),
     )
     print("═" * 65 + "\n")
 
@@ -119,10 +118,13 @@ async def process_game(
             "played_at": played_at,
             "map_name": map_name,
             "rounds": rounds_to_save,
-        }
+        },
     )
 
     print(translate("  🃏 Generating Anki cards..."))
     return await generate_cards_for_game(
-        rounds_to_save, db=db, anki_client=anki_client, http_client=http_client
+        rounds_to_save,
+        db=db,
+        anki_client=anki_client,
+        http_client=http_client,
     )

@@ -8,7 +8,7 @@ from core.app_context import AppContext
 
 
 @pytest.mark.asyncio
-async def test_db_pool_is_set_when_context_is_initialized():
+async def test_db_pool_is_set_when_context_is_initialized() -> None:
     """init() creates a pool via init_pool() and assigns it to db_pool."""
     # Arrange
     ctx = AppContext(db_dsn="postgresql://localhost:5432/geoguessr")

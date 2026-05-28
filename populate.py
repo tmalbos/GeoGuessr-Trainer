@@ -1,5 +1,4 @@
-"""
-populate_pg.py — Puebla country, state, biome y ecoregion directo en PostgreSQL.
+"""populate_pg.py — Puebla country, state, biome y ecoregion directo en PostgreSQL.
 
 Fuente única para nombres geográficos: Overpass API (OSM) — misma fuente que Nominatim.
 
@@ -246,7 +245,7 @@ def populate_eco(cur, shapefile_path: str) -> None:
 # =============================================================
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--no-states", action="store_true", help="Skip states")
     parser.add_argument("--no-eco", action="store_true", help="Skip biomes and ecoregions")

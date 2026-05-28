@@ -7,7 +7,7 @@ from anki.anki_connect import AnkiConnectClient
 
 
 @pytest.mark.asyncio
-async def test_is_running_returns_true_when_server_responds():
+async def test_is_running_returns_true_when_server_responds() -> None:
     """is_running() returns True when the AnkiConnect server responds."""
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -22,11 +22,12 @@ async def test_is_running_returns_true_when_server_responds():
 
 
 @pytest.mark.asyncio
-async def test_is_running_returns_false_on_connection_error():
+async def test_is_running_returns_false_on_connection_error() -> None:
     """is_running() returns False when the server is unreachable."""
 
     def handler(request: httpx.Request) -> httpx.Response:
-        raise httpx.ConnectError("Connection refused")
+        msg = "Connection refused"
+        raise httpx.ConnectError(msg)
 
     transport = httpx.MockTransport(handler)
     async with httpx.AsyncClient(transport=transport) as http_client:

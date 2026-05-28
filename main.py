@@ -1,6 +1,4 @@
-"""
-GeoGuessr Analyzer — Punto de entrada principal.
-"""
+"""GeoGuessr Analyzer — Punto de entrada principal."""
 
 import asyncio
 import os
@@ -21,11 +19,11 @@ from src.i18n.lang import translate
 MIN_ROUNDS = 10
 
 
-def clear():
+def clear() -> None:
     os.system("cls" if os.name == "nt" else "clear")
 
 
-async def menu_insert(db, app_ctx: AppContext):
+async def menu_insert(db, app_ctx: AppContext) -> None:
     cookie = load_cookie()
 
     if not cookie:
@@ -70,7 +68,7 @@ async def menu_insert(db, app_ctx: AppContext):
     clear()
 
 
-async def menu_analysis(levels: list[tuple], db):
+async def menu_analysis(levels: list[tuple], db) -> None:
     options = {str(i + 1): lv for i, lv in enumerate(levels)}
 
     while True:
@@ -96,7 +94,7 @@ async def menu_analysis(levels: list[tuple], db):
             print(translate("  Invalid option."))
 
 
-async def main():
+async def main() -> None:
     clear()
     load_dotenv()
     await load_lang(os.environ.get("GEOGUESSR_LANG", "en"))

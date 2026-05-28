@@ -88,7 +88,7 @@ def _print_zones(
                 label=s.level_label,
                 arrow=s.level_arrow,
                 ci_str=ci_str,
-            )
+            ),
         )
         stream.write("\n")
         stream.write(
@@ -97,7 +97,7 @@ def _print_zones(
                 label=s.p90_label,
                 arrow=s.p90_arrow,
                 km=_fmt(s.p90_now_km),
-            )
+            ),
         )
         stream.write("\n")
         stream.write(
@@ -106,7 +106,7 @@ def _print_zones(
                 label=s.cons_label,
                 arrow=s.cons_arrow,
                 km=_fmt(s.std_now_km),
-            )
+            ),
         )
         stream.write("\n")
 
@@ -123,7 +123,7 @@ def _print_zones(
                         guess=c["guess"],
                         freq=c["freq"],
                         km=_fmt(c["avg_km"]),
-                    )
+                    ),
                 )
                 stream.write("\n")
 
@@ -147,7 +147,7 @@ def _print_zones(
                                 guess=c["guess"],
                                 freq=c["freq"],
                                 km=_fmt(c["avg_km"]),
-                            )
+                            ),
                         )
                         stream.write("\n")
 

@@ -42,7 +42,8 @@ async def load(lang: str) -> None:
 
 def translate(text: str, **kwargs) -> str:
     """Return the translated string for text, or text itself if no translation exists.
-    String kwargs are themselves translated before substitution."""
+    String kwargs are themselves translated before substitution.
+    """
     translated = _translations.get(text, text)
     if kwargs:
         translated_kwargs = {

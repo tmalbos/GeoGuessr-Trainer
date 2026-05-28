@@ -1,6 +1,4 @@
-"""
-sync.py — Pipeline async: fetch → enrich+save → anki
-"""
+"""sync.py — Pipeline async: fetch → enrich+save → anki."""
 
 import asyncio
 
@@ -18,7 +16,7 @@ USER_ID = "68daf785000ba2a268744f99"
 _SENTINEL = None
 
 
-async def _fetch_worker(client: GeoguessrClient, entries: list[dict], queue: asyncio.Queue):
+async def _fetch_worker(client: GeoguessrClient, entries: list[dict], queue: asyncio.Queue) -> None:
     """Resuelve game tokens y encola (entry, game_data)."""
     for entry in entries:
         challenge_token = entry["challenge_token"]
@@ -57,7 +55,7 @@ async def _process_worker(
     geo_client: GeoEnrichClient,
     anki_client: AnkiConnectClient,
     http_client: httpx.AsyncClient,
-):
+) -> None:
     """Consume la queue, enriquece, guarda y genera cards."""
     while True:
         item = await queue.get()

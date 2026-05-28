@@ -36,7 +36,7 @@ def _make_row(**overrides) -> dict:
 
 
 @pytest.mark.asyncio
-async def test_returns_all_rounds_with_geo_fields():
+async def test_returns_all_rounds_with_geo_fields() -> None:
     # Arrange
     mock_pool = MagicMock()
     mock_conn = AsyncMock()
@@ -70,7 +70,7 @@ async def test_returns_all_rounds_with_geo_fields():
 
 
 @pytest.mark.asyncio
-async def test_returns_empty_list_when_no_rounds():
+async def test_returns_empty_list_when_no_rounds() -> None:
     # Arrange
     mock_pool = MagicMock()
     mock_conn = AsyncMock()

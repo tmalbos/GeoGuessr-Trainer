@@ -1,11 +1,9 @@
-"""
-app_context.py — Owns all long-lived resources (pool, http clients, shapefile, cookie).
-"""
+"""app_context.py — Owns all long-lived resources (pool, http clients, shapefile, cookie)."""
 
 import asyncio
 from pathlib import Path
+from typing import TYPE_CHECKING
 
-import asyncpg
 import geopandas as gpd
 import httpx
 
@@ -13,6 +11,9 @@ from src.anki.anki_connect import AnkiConnectClient
 from src.core.auth import load_cookie
 from src.core.geo_enrich import GeoEnrichClient
 from src.db.db import DbAdapter, close_pool, init_pool
+
+if TYPE_CHECKING:
+    import asyncpg
 
 _DEFAULT_SHP = Path("Ecoregions2017/Ecoregions2017.shp")
 
@@ -53,7 +54,8 @@ class AppContext:
     def db_adapter(self) -> DbAdapter:
         """Return the DbAdapter instance. Raises RuntimeError if not initialized."""
         if self._db_adapter is None:
-            raise RuntimeError("AppContext not initialized — call await init() first")
+            msg = "AppContext not initialized — call await init() first"
+            raise RuntimeError(msg)
         return self._db_adapter
 
     async def init(self) -> None:
@@ -79,9 +81,12 @@ class AppContext:
         self._shp_path = Path(_DEFAULT_SHP) if _DEFAULT_SHP else None
 
         if self._shp_path is not None and not self._shp_path.exists():
-            raise FileNotFoundError(
+            msg = (
                 f"Shapefile not found: {self._shp_path.resolve()}\n"
                 "Download from https://ecoregions.appspot.com/ and place it at the expected path."
+            )
+            raise FileNotFoundError(
+                msg,
             )
 
         try:

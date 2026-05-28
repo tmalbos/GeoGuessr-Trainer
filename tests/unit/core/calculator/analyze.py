@@ -14,7 +14,7 @@ def _make_zone_rounds(n: int, country: str, base_dist: float = 200, step: float 
     ]
 
 
-def test_analyze_returns_analysis_result_with_zone_stats():
+def test_analyze_returns_analysis_result_with_zone_stats() -> None:
     """analyze() returns AnalysisResult populated with ZoneStats dataclasses."""
     # Arrange
     rounds = _make_zone_rounds(150, "France", base_dist=300, step=1)
@@ -32,7 +32,7 @@ def test_analyze_returns_analysis_result_with_zone_stats():
     assert zone.total == 150
 
 
-def test_analyze_uses_general_label_when_level_is_none():
+def test_analyze_uses_general_label_when_level_is_none() -> None:
     """level=None → level_label "General", zone key is _global_."""
     # Arrange
     rounds = _make_zone_rounds(150, "France", base_dist=300, step=1)
@@ -46,7 +46,7 @@ def test_analyze_uses_general_label_when_level_is_none():
     assert "_global_" in result.zones
 
 
-def test_analyze_excludes_zones_below_threshold():
+def test_analyze_excludes_zones_below_threshold() -> None:
     """Zones with fewer than 10 rounds are omitted from results."""
     # Arrange
     rounds = _make_zone_rounds(80, "France", base_dist=300)
@@ -62,7 +62,7 @@ def test_analyze_excludes_zones_below_threshold():
     assert "Spain" not in result.zones
 
 
-def test_analyze_returns_empty_zones_when_no_rounds():
+def test_analyze_returns_empty_zones_when_no_rounds() -> None:
     """Empty rounds list → empty zones dict."""
     # Arrange
     rounds = []

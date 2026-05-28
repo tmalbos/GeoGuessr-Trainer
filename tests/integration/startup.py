@@ -9,8 +9,8 @@ import pytest
 pytestmark = pytest.mark.integration
 
 
-def test_application_starts_without_crashing():
-    """python main.py must reach the interactive menu without raising during startup."""
+def test_application_starts_without_crashing() -> None:
+    """Python main.py must reach the interactive menu without raising during startup."""
     env = {**os.environ, "PYTHONUTF8": "1"}
     proc = subprocess.Popen(
         [sys.executable, "main.py"],

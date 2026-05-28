@@ -4,7 +4,7 @@ from .base import Note
 
 
 class DomainNote(Note):
-    def __init__(self, country_data: dict, **kwargs):
+    def __init__(self, country_data: dict, **kwargs) -> None:
         Note.__init__(self, country_data, **kwargs)
         self.MODEL = "Básico (teclear la respuesta)"
         self.tld = (country_data.get("tld") or [None])[0]

@@ -8,7 +8,7 @@ from core.app_context import AppContext
 
 
 @pytest.mark.asyncio
-async def test_resources_are_released_when_context_is_closed():
+async def test_resources_are_released_when_context_is_closed() -> None:
     """aclose() closes the pool and http client, clears resource attributes."""
     # Arrange
     ctx = AppContext(db_dsn="postgresql://localhost:5432/geoguessr")
@@ -28,7 +28,7 @@ async def test_resources_are_released_when_context_is_closed():
 
 
 @pytest.mark.asyncio
-async def test_aclose_is_idempotent_when_called_twice():
+async def test_aclose_is_idempotent_when_called_twice() -> None:
     """Calling aclose() twice does not raise."""
     # Arrange
     ctx = AppContext(db_dsn="postgresql://localhost:5432/geoguessr")

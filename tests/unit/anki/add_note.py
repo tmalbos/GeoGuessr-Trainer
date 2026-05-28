@@ -7,7 +7,7 @@ from anki.anki_connect import AnkiConnectClient
 
 
 @pytest.mark.asyncio
-async def test_add_note_invokes_ankiconnect_api():
+async def test_add_note_invokes_ankiconnect_api() -> None:
     """add_note posts the correct payload to the AnkiConnect API."""
 
     def handler(request: httpx.Request) -> httpx.Response:

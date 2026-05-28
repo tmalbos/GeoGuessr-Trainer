@@ -1,5 +1,4 @@
-"""
-stats.py — Análisis de performance en GeoGuessr.
+"""stats.py — Análisis de performance en GeoGuessr.
 DB access and level discovery.
 """
 

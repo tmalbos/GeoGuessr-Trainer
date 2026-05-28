@@ -1,5 +1,4 @@
-"""
-update_geo_signals.py
+"""update_geo_signals.py
 Sincroniza los YAMLs de src/db/data con PostgreSQL.
 
 Dependencias:
@@ -166,7 +165,7 @@ def _pascal(name: str) -> str:
     return "".join(
         word.capitalize()
         for word in re.split(r"[\s\-_]+", cleaned)
-        if word.lower() not in ("y", "and")
+        if word.lower() not in {"y", "and"}
     )
 
 
@@ -181,7 +180,7 @@ def _normalize_name(name: str) -> str:
 
 def sync_country(cur, country_code: str, country_name: str, data: dict) -> None:
     if not get_country_exists(cur, country_code):
-        log.error(f"[{country_code}] Country not found in DB")
+        log.error("[%s] Country not found in DB", country_code)
         return
 
     cur.execute(
@@ -206,7 +205,7 @@ def sync_country(cur, country_code: str, country_name: str, data: dict) -> None:
         state_id = get_state_id(cur, country_code, state_name)
 
         if state_id is None:
-            log.error(f"[{country_code}] State not found: {state_name}")
+            log.error("[%s] State not found: %s", country_code, state_name)
             continue
 
         for terrain in state.get("terrain", []):
@@ -217,13 +216,15 @@ def sync_country(cur, country_code: str, country_name: str, data: dict) -> None:
             biome_id = get_biome_id(cur, biome_name, realm)
 
             if biome_id is None:
-                log.error(f"[{country_code}] Biome not found: biome={biome_name}, realm={realm}")
+                log.error(
+                    "[%s] Biome not found: biome=%s, realm=%s", country_code, biome_name, realm
+                )
                 continue
 
             ecoregion_id = get_ecoregion_id(cur, ecoregion_name, biome_id)
 
             if ecoregion_id is None:
-                log.error(f"[{country_code}] Ecoregion not found: {ecoregion_name}")
+                log.error("[%s] Ecoregion not found: %s", country_code, ecoregion_name)
                 continue
 
     for plate in data.get("license_plates", []):
@@ -414,7 +415,7 @@ def sync_country(cur, country_code: str, country_name: str, data: dict) -> None:
 # =============================================================
 
 
-def main():
+def main() -> None:
     conn = psycopg2.connect(os.environ["PG_DSN"])
 
     with conn.cursor() as cur:
@@ -437,13 +438,13 @@ def main():
         country_name = pg_countries.get(code)
 
         if not country_name:
-            log.error(f"Country code not in DB: {code}")
+            log.error("Country code not in DB: %s", code)
             continue
 
         yaml_path = DATA_DIR / f"{_pascal(country_name)}.yaml"
 
         if not yaml_path.exists():
-            log.error(f"YAML not found for {code}: {yaml_path}")
+            log.error("YAML not found for %s: %s", code, yaml_path)
             continue
 
         try:
@@ -453,11 +454,11 @@ def main():
                 sync_country(cur, code, country_name, data)
 
             conn.commit()
-            log.info(f"[{code}] {country_name} — OK")
+            log.info("[%s] %s — OK", code, country_name)
 
         except Exception as e:
             conn.rollback()
-            log.error(f"[{code}] {country_name} — FAILED: {e}")
+            log.exception("[%s] %s — FAILED: %s", code, country_name, e)
 
     conn.close()
 

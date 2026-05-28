@@ -11,7 +11,7 @@ def _make_round(real_country: str, guess_country: str, dist_km: float) -> dict:
     }
 
 
-def test_confusion_is_empty_when_no_rounds():
+def test_confusion_is_empty_when_no_rounds() -> None:
     """No rounds → empty list."""
     # Arrange
     rounds = []
@@ -23,7 +23,7 @@ def test_confusion_is_empty_when_no_rounds():
     assert result == []
 
 
-def test_confusion_is_empty_when_all_guesses_match():
+def test_confusion_is_empty_when_all_guesses_match() -> None:
     """All real == guess → no confusion entries."""
     # Arrange
     rounds = [_make_round("France", "France", 100) for _ in range(40)]
@@ -35,7 +35,7 @@ def test_confusion_is_empty_when_all_guesses_match():
     assert result == []
 
 
-def test_confusion_returns_mismatches_sorted_by_impact():
+def test_confusion_returns_mismatches_sorted_by_impact() -> None:
     """Known mismatches appear sorted by impact (freq × avg_km), descending."""
     # Arrange
     rounds = [_make_round("France", "France", 100) for _ in range(40)]
@@ -54,7 +54,7 @@ def test_confusion_returns_mismatches_sorted_by_impact():
     assert result[1]["guess"] == "Spain"
 
 
-def test_confusion_respects_top_n_limit():
+def test_confusion_respects_top_n_limit() -> None:
     """top_n parameter caps the number of returned entries."""
     # Arrange
     rounds = [_make_round("France", "France", 100) for _ in range(40)]
@@ -69,7 +69,7 @@ def test_confusion_respects_top_n_limit():
     assert len(result) == 2
 
 
-def test_confusion_skips_rounds_with_missing_geo():
+def test_confusion_skips_rounds_with_missing_geo() -> None:
     """Round with no real_geo or guess_geo is silently ignored."""
     # Arrange
     rounds = [

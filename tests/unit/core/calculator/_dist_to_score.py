@@ -5,7 +5,7 @@ import math
 from core.calculator import _dist_to_score
 
 
-def test_score_is_perfect_when_distance_is_zero():
+def test_score_is_perfect_when_distance_is_zero() -> None:
     """0 km → maximum 5000 points."""
     # Arrange
     km = 0
@@ -17,7 +17,7 @@ def test_score_is_perfect_when_distance_is_zero():
     assert result == 5000
 
 
-def test_score_decreases_as_distance_increases():
+def test_score_decreases_as_distance_increases() -> None:
     """Score is monotonic decreasing with distance."""
     # Arrange
     closer = 100
@@ -31,7 +31,7 @@ def test_score_decreases_as_distance_increases():
     assert closer_score > farther_score
 
 
-def test_score_follows_exponential_decay_formula():
+def test_score_follows_exponential_decay_formula() -> None:
     """Score matches int(5000 * exp(-0.000673 * km) + 0.5)."""
     # Arrange
     km = 500
@@ -43,7 +43,7 @@ def test_score_follows_exponential_decay_formula():
     assert result == int(5000 * math.exp(-0.000673 * km) + 0.5)
 
 
-def test_score_approaches_zero_at_extreme_distance():
+def test_score_approaches_zero_at_extreme_distance() -> None:
     """20000 km → score below 5."""
     # Arrange
     km = 20000
@@ -56,7 +56,7 @@ def test_score_approaches_zero_at_extreme_distance():
     assert result >= 0
 
 
-def test_score_is_rounded_to_nearest_integer():
+def test_score_is_rounded_to_nearest_integer() -> None:
     """Result is always an int."""
     # Arrange
     km = 1234

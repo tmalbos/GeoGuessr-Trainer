@@ -7,7 +7,7 @@ from .base import Note
 
 
 class LicensePlatesNote(Note):
-    def __init__(self, country_data: dict, **kwargs):
+    def __init__(self, country_data: dict, **kwargs) -> None:
         Note.__init__(self, country_data, **kwargs)
         self.MODEL = "GeoGuessr License Plates"
         self.license_plates = country_data.get("license_plates")
@@ -27,7 +27,8 @@ class LicensePlatesNote(Note):
 
         return {
             "Pregunta": translate(
-                "What are the license plates of {country} like?", country=self.country_name
+                "What are the license plates of {country} like?",
+                country=self.country_name,
             ),
             "YamlData": f"<pre>{raw}</pre>",
         }

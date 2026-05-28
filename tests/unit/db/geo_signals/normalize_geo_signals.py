@@ -3,7 +3,7 @@
 from db.geo_signals import LICENSE_PLATE_SPEC, ROAD_LINE_SPEC, normalize_geo_signals
 
 
-def test_passes_through_scalar_fields():
+def test_passes_through_scalar_fields() -> None:
     """Scalar fields in spec are copied verbatim from the row."""
     # Arrange
     spec = {"scalars": ["car_type"]}
@@ -16,7 +16,7 @@ def test_passes_through_scalar_fields():
     assert result == {"car_type": "normal"}
 
 
-def test_builds_section_from_prefixed_fields():
+def test_builds_section_from_prefixed_fields() -> None:
     """Prefixed row fields are grouped into a nested section dict."""
     # Arrange
     spec = {
@@ -36,7 +36,7 @@ def test_builds_section_from_prefixed_fields():
     assert result == {"inner": {"color": "white", "count": 1}}
 
 
-def test_omits_section_when_no_fields_match():
+def test_omits_section_when_no_fields_match() -> None:
     """Section is omitted when none of its prefixed fields exist in row."""
     # Arrange
     spec = {
@@ -56,7 +56,7 @@ def test_omits_section_when_no_fields_match():
     assert result == {}
 
 
-def test_omits_section_with_all_null_fields():
+def test_omits_section_with_all_null_fields() -> None:
     """Section is omitted when all its fields are null."""
     # Arrange
     spec = {
@@ -76,7 +76,7 @@ def test_omits_section_with_all_null_fields():
     assert result == {}
 
 
-def test_applies_transform_to_scalar():
+def test_applies_transform_to_scalar() -> None:
     """Transforms in spec are applied to scalar values before insertion."""
     # Arrange
     spec = {"scalars": ["rule"], "transforms": {"rule": lambda v: v.replace("_", "-")}}
@@ -89,7 +89,7 @@ def test_applies_transform_to_scalar():
     assert result == {"rule": "region-dependant"}
 
 
-def test_omits_section_identical_to_reference():
+def test_omits_section_identical_to_reference() -> None:
     """Section is dropped when omit_if_identical pairs it with a matching section."""
     # Arrange
     spec = {
@@ -109,7 +109,7 @@ def test_omits_section_identical_to_reference():
     assert result["front"] == {"color": "white"}
 
 
-def test_keeps_section_when_different_from_reference():
+def test_keeps_section_when_different_from_reference() -> None:
     """Section is kept when omit_if_identical sections differ."""
     # Arrange
     spec = {
@@ -128,7 +128,7 @@ def test_keeps_section_when_different_from_reference():
     assert result["back"] == {"color": "yellow"}
 
 
-def test_omits_array_in_section_when_all_slots_empty():
+def test_omits_array_in_section_when_all_slots_empty() -> None:
     """Array is absent from output when none of its numbered slots have data."""
     # Arrange
     spec = {
@@ -159,7 +159,7 @@ def test_omits_array_in_section_when_all_slots_empty():
 # ── LICENSE_PLATE_SPEC integration ────────────────────────────────────────────────
 
 
-def test_license_plate_minimal_front():
+def test_license_plate_minimal_front() -> None:
     """LICENSE_PLATE_SPEC: front fields only → front section, no strips, no back."""
     # Arrange
     row = {
@@ -185,7 +185,7 @@ def test_license_plate_minimal_front():
     }
 
 
-def test_license_plate_front_with_strip():
+def test_license_plate_front_with_strip() -> None:
     """LICENSE_PLATE_SPEC: front with strip, different back → both sections."""
     # Arrange
     row = {
@@ -222,7 +222,7 @@ def test_license_plate_front_with_strip():
     }
 
 
-def test_license_plate_electric_omits_back():
+def test_license_plate_electric_omits_back() -> None:
     """LICENSE_PLATE_SPEC: no back fields → back section absent."""
     # Arrange
     row = {
@@ -248,7 +248,7 @@ def test_license_plate_electric_omits_back():
     }
 
 
-def test_license_plate_keeps_back_when_sections_differ():
+def test_license_plate_keeps_back_when_sections_differ() -> None:
     """LICENSE_PLATE_SPEC: back kept despite similar values (omit_if_identical checks full dict)."""
     # Arrange
     row = {
@@ -285,7 +285,7 @@ def test_license_plate_keeps_back_when_sections_differ():
 # ── ROAD_LINE_SPEC integration ────────────────────────────────────────────────────
 
 
-def test_road_line_rule_only():
+def test_road_line_rule_only() -> None:
     """ROAD_LINE_SPEC: rule scalar only, no sections."""
     # Arrange
     row = {"rule": "whole-country"}
@@ -297,7 +297,7 @@ def test_road_line_rule_only():
     assert result == {"rule": "whole-country"}
 
 
-def test_road_line_all_sections():
+def test_road_line_all_sections() -> None:
     """ROAD_LINE_SPEC: all three line sections (inner, outer, extra) populated."""
     # Arrange
     row = {
@@ -324,7 +324,7 @@ def test_road_line_all_sections():
     }
 
 
-def test_road_line_inner_only():
+def test_road_line_inner_only() -> None:
     """ROAD_LINE_SPEC: only inner section present."""
     # Arrange
     row = {
@@ -344,7 +344,7 @@ def test_road_line_inner_only():
     }
 
 
-def test_road_line_outer_only():
+def test_road_line_outer_only() -> None:
     """ROAD_LINE_SPEC: only outer section present."""
     # Arrange
     row = {
@@ -364,7 +364,7 @@ def test_road_line_outer_only():
     }
 
 
-def test_road_line_transforms_rule_underscore():
+def test_road_line_transforms_rule_underscore() -> None:
     """ROAD_LINE_SPEC: underscore in rule value is transformed to hyphen."""
     # Arrange
     row = {

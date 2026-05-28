@@ -13,7 +13,7 @@ from db.db import DbAdapter
 
 
 @pytest.mark.asyncio
-async def test_sync_from_feed_uses_injected_geoguessr_client():
+async def test_sync_from_feed_uses_injected_geoguessr_client() -> None:
     """sync_from_feed uses the injected GeoguessrClient, does not create one internally."""
     gg_client = AsyncMock(spec=GeoguessrClient)
     gg_client.fetch_feed_entries = AsyncMock(return_value=[])

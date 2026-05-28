@@ -6,7 +6,7 @@ from db.db import close_pool, init_pool
 
 
 @pytest.mark.asyncio
-async def test_init_pool_creates_pool_with_dsn():
+async def test_init_pool_creates_pool_with_dsn() -> None:
     mock_pool = AsyncMock()
     with patch("src.db.db.asyncpg.create_pool", new_callable=AsyncMock) as mock_create:
         mock_create.return_value = mock_pool
@@ -14,12 +14,14 @@ async def test_init_pool_creates_pool_with_dsn():
 
     assert pool is mock_pool
     mock_create.assert_called_once_with(
-        dsn="postgres://user:pass@localhost/test", min_size=2, max_size=10
+        dsn="postgres://user:pass@localhost/test",
+        min_size=2,
+        max_size=10,
     )
 
 
 @pytest.mark.asyncio
-async def test_init_pool_creates_pool_with_default_dsn():
+async def test_init_pool_creates_pool_with_default_dsn() -> None:
     mock_pool = AsyncMock()
     with patch("src.db.db.asyncpg.create_pool", new_callable=AsyncMock) as mock_create:
         mock_create.return_value = mock_pool
@@ -30,7 +32,7 @@ async def test_init_pool_creates_pool_with_default_dsn():
 
 
 @pytest.mark.asyncio
-async def test_close_pool_closes_when_not_none():
+async def test_close_pool_closes_when_not_none() -> None:
     mock_pool = MagicMock()
     mock_pool.close = AsyncMock()
 
@@ -40,6 +42,6 @@ async def test_close_pool_closes_when_not_none():
 
 
 @pytest.mark.asyncio
-async def test_close_pool_does_nothing_when_none():
+async def test_close_pool_does_nothing_when_none() -> None:
     # Should not raise
     await close_pool(None)

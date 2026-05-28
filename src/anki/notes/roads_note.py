@@ -7,7 +7,7 @@ from .base import Note
 
 
 class RoadsNote(Note):
-    def __init__(self, country_data: dict, **kwargs):
+    def __init__(self, country_data: dict, **kwargs) -> None:
         Note.__init__(self, country_data, **kwargs)
         self.MODEL = "GeoGuessr Roads"
         self.roads = country_data.get("roads")
@@ -22,12 +22,15 @@ class RoadsNote(Note):
         normalized = [normalize_geo_signals(line, ROAD_LINE_SPEC) for line in self.roads]
 
         raw = yaml.dump(
-            {"roads": {"lines": normalized}}, allow_unicode=True, sort_keys=False
+            {"roads": {"lines": normalized}},
+            allow_unicode=True,
+            sort_keys=False,
         ).strip()
 
         return {
             "Pregunta": translate(
-                "What do the road lines of {country} look like?", country=self.country_name
+                "What do the road lines of {country} look like?",
+                country=self.country_name,
             ),
             "YamlData": f"<pre>{raw}</pre>",
         }

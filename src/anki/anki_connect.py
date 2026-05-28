@@ -1,6 +1,4 @@
-"""
-anki_connect.py — Wrapper async para AnkiConnect API (puerto 8765).
-"""
+"""anki_connect.py — Wrapper async para AnkiConnect API (puerto 8765)."""
 
 import httpx
 
@@ -23,10 +21,11 @@ class AnkiConnectClient:
             r = await self._client.post(ANKI_URL, json=payload)
             response = r.json()
         except httpx.ConnectError as e:
-            raise AnkiNotRunningError() from e
+            raise AnkiNotRunningError from e
 
         if response.get("error"):
-            raise Exception(f"AnkiConnect: {response['error']}")
+            msg = f"AnkiConnect: {response['error']}"
+            raise Exception(msg)
         return response["result"]
 
     async def is_running(self) -> bool:
@@ -36,10 +35,12 @@ class AnkiConnectClient:
         except AnkiNotRunningError:
             return False
 
-    async def ensure_deck(self, deck_name: str):
+    async def ensure_deck(self, deck_name: str) -> None:
         await self._invoke("createDeck", deck=deck_name)
 
-    async def ensure_model(self, model_name: str, fields: list[str], card_templates: list[dict]):
+    async def ensure_model(
+        self, model_name: str, fields: list[str], card_templates: list[dict]
+    ) -> None:
         existing = await self._invoke("modelNames")
         if model_name not in existing:
             await self._invoke(

@@ -1,6 +1,4 @@
-"""
-cards.py — Generación de tarjetas Anki para GeoGuessr.
-"""
+"""cards.py — Generación de tarjetas Anki para GeoGuessr."""
 
 import base64
 import importlib
@@ -26,7 +24,7 @@ def _pascal(name: str) -> str:
     return "".join(
         w.capitalize()
         for w in re.split(r"[\s\-]+", name.strip())
-        if w.lower() not in ("y", "and", "de", "america")
+        if w.lower() not in {"y", "and", "de", "america"}
     )
 
 
@@ -34,7 +32,8 @@ async def _download_flag(flag_url: str, http_client: httpx.AsyncClient) -> str |
     r = await http_client.get(flag_url, timeout=10)
 
     if r.status_code != 200:
-        raise RuntimeError("Couldn't download flag")
+        msg = "Couldn't download flag"
+        raise RuntimeError(msg)
 
     return base64.b64encode(r.content).decode()
 
@@ -43,7 +42,10 @@ _cache: dict[str, dict] = {}
 
 
 async def build_notes(
-    country_code: str, db: DbAdapter, http_client: httpx.AsyncClient, anki_client: AnkiConnectClient
+    country_code: str,
+    db: DbAdapter,
+    http_client: httpx.AsyncClient,
+    anki_client: AnkiConnectClient,
 ) -> list[dict]:
 
     async def _rest(cca2: str) -> dict:
@@ -92,7 +94,8 @@ async def build_notes(
         cls
         for _, module_name, _ in pkgutil.iter_modules(notes_pkg.__path__)
         for _, cls in inspect.getmembers(
-            importlib.import_module(f"src.anki.notes.{module_name}"), inspect.isclass
+            importlib.import_module(f"src.anki.notes.{module_name}"),
+            inspect.isclass,
         )
         if issubclass(cls, Note) and cls is not Note
     ]

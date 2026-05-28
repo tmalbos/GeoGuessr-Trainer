@@ -1,6 +1,4 @@
-"""
-db.py — Capa de acceso a datos PostgreSQL async con asyncpg.
-"""
+"""db.py — Capa de acceso a datos PostgreSQL async con asyncpg."""
 
 from datetime import datetime
 
@@ -26,7 +24,7 @@ def _parse_datetime(value: str | None) -> datetime | None:
         import re
 
         value = re.sub(r"(\.\d{6})\d+", r"\1", value)
-        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+        return datetime.fromisoformat(value)
     except Exception:
         return None
 
@@ -164,42 +162,40 @@ class DbAdapter:
                 LEFT JOIN biome    guess_b ON guess_b.biome_id = r.guess_biome_id
 
                 ORDER BY g.played_at ASC, r.round_number ASC
-                """
+                """,
             )
 
-        result = []
-        for row in rows:
-            result.append(
-                {
-                    "challenge_token": row["challenge_token"],
-                    "game_id": row["game_id"],
-                    "round_number": row["round_number"],
-                    "score": row["score"],
-                    "distance_km": float(row["distance_km"]),
-                    "steps": row["steps"],
-                    "time_sec": row["time_sec"],
-                    "played_at": row["played_at"],
-                    "real_geo": {
-                        "continent": row["real_continent"],
-                        "country": row["real_country"],
-                        "state": row["real_state"],
-                        "city": row["real_city"],
-                        "realm": row["real_realm"],
-                        "biome": row["real_biome"],
-                        "ecoregion": row["real_ecoregion"],
-                    },
-                    "guess_geo": {
-                        "continent": row["guess_continent"],
-                        "country": row["guess_country"],
-                        "state": row["guess_state"],
-                        "city": row["guess_city"],
-                        "realm": row["guess_realm"],
-                        "biome": row["guess_biome"],
-                        "ecoregion": row["guess_ecoregion"],
-                    },
-                }
-            )
-        return result
+        return [
+            {
+                "challenge_token": row["challenge_token"],
+                "game_id": row["game_id"],
+                "round_number": row["round_number"],
+                "score": row["score"],
+                "distance_km": float(row["distance_km"]),
+                "steps": row["steps"],
+                "time_sec": row["time_sec"],
+                "played_at": row["played_at"],
+                "real_geo": {
+                    "continent": row["real_continent"],
+                    "country": row["real_country"],
+                    "state": row["real_state"],
+                    "city": row["real_city"],
+                    "realm": row["real_realm"],
+                    "biome": row["real_biome"],
+                    "ecoregion": row["real_ecoregion"],
+                },
+                "guess_geo": {
+                    "continent": row["guess_continent"],
+                    "country": row["guess_country"],
+                    "state": row["guess_state"],
+                    "city": row["guess_city"],
+                    "realm": row["guess_realm"],
+                    "biome": row["guess_biome"],
+                    "ecoregion": row["guess_ecoregion"],
+                },
+            }
+            for row in rows
+        ]
 
     async def fetch_saved_challenge_tokens(self, challenge_tokens: list[str]) -> set[str]:
         """Return the subset of the given challenge tokens that are already in the DB."""
@@ -242,7 +238,9 @@ class DbAdapter:
 
                 # Resolve state IDs (nullable)
                 real_state_id = await _resolve_state_id(
-                    conn, real_country, real_geo.get("state", "")
+                    conn,
+                    real_country,
+                    real_geo.get("state", ""),
                 )
                 guess_state_id = (
                     await _resolve_state_id(conn, guess_country, guess_geo.get("state", ""))
@@ -252,7 +250,8 @@ class DbAdapter:
 
                 # Resolve ecoregion IDs
                 real_biome_id, real_eco_id = await _resolve_ecoregion(
-                    conn, real_geo.get("ecoregion", "")
+                    conn,
+                    real_geo.get("ecoregion", ""),
                 )
                 guess_biome_id, guess_eco_id = (
                     await _resolve_ecoregion(conn, guess_geo.get("ecoregion", ""))

@@ -11,9 +11,8 @@ from db.db import DbAdapter
 
 
 @pytest.mark.asyncio
-async def test_build_notes_uses_injected_http_client():
+async def test_build_notes_uses_injected_http_client() -> None:
     """build_notes uses the injected AsyncClient for REST Countries calls."""
-
     request_captured = None
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -33,7 +32,7 @@ async def test_build_notes_uses_injected_http_client():
                     "car": {"side": "right"},
                     "tld": [".ar"],
                     "flags": {"png": "https://flagcdn.com/ar.png"},
-                }
+                },
             ],
         )
 

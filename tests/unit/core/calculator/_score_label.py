@@ -3,7 +3,7 @@
 from core.calculator import _score_label
 
 
-def test_label_is_terrible_when_score_is_2500_or_below():
+def test_label_is_terrible_when_score_is_2500_or_below() -> None:
     """Boundary: 0, 2500 → Terrible."""
     # Arrange & Act
     low = _score_label(0)
@@ -14,7 +14,7 @@ def test_label_is_terrible_when_score_is_2500_or_below():
     assert boundary == "Terrible"
 
 
-def test_label_is_decent_when_score_is_2501_to_3750():
+def test_label_is_decent_when_score_is_2501_to_3750() -> None:
     """Boundary: 2501, 3750 → Decent."""
     # Arrange & Act
     just_above = _score_label(2501)
@@ -25,7 +25,7 @@ def test_label_is_decent_when_score_is_2501_to_3750():
     assert upper == "Decent"
 
 
-def test_label_is_high_when_score_is_3751_to_4375():
+def test_label_is_high_when_score_is_3751_to_4375() -> None:
     """Boundary: 3751, 4375 → High."""
     # Arrange & Act
     just_above = _score_label(3751)
@@ -36,7 +36,7 @@ def test_label_is_high_when_score_is_3751_to_4375():
     assert upper == "High"
 
 
-def test_label_is_exceptional_when_score_is_4376_to_4713():
+def test_label_is_exceptional_when_score_is_4376_to_4713() -> None:
     """Boundary: 4376, 4713 → Exceptional."""
     # Arrange & Act
     just_above = _score_label(4376)
@@ -47,7 +47,7 @@ def test_label_is_exceptional_when_score_is_4376_to_4713():
     assert upper == "Exceptional"
 
 
-def test_label_is_elite_when_score_is_4714_to_4857():
+def test_label_is_elite_when_score_is_4714_to_4857() -> None:
     """Boundary: 4714, 4857 → Elite."""
     # Arrange & Act
     just_above = _score_label(4714)
@@ -58,7 +58,7 @@ def test_label_is_elite_when_score_is_4714_to_4857():
     assert upper == "Elite"
 
 
-def test_label_is_inhuman_when_score_is_4858_or_above():
+def test_label_is_inhuman_when_score_is_4858_or_above() -> None:
     """4858, 5000 → Inhuman."""
     # Arrange & Act
     just_above = _score_label(4858)

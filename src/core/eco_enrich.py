@@ -1,5 +1,4 @@
-"""
-eco_enrich.py
+"""eco_enrich.py
 Lookup de ecoregión, bioma y reino a partir de coordenadas.
 
 Estrategia: point-in-polygon directo contra un GeoDataFrame de
@@ -12,7 +11,8 @@ de AppContext que pasa el GeoDataFrame a ``lookup()``.
 
 def lookup(lat: float, lon: float, gdf) -> dict[str, str]:
     if lat is None or lon is None:
-        raise ValueError(f"lookup() requires valid coordinates, got lat={lat!r} lon={lon!r}")
+        msg = f"lookup() requires valid coordinates, got lat={lat!r} lon={lon!r}"
+        raise ValueError(msg)
 
     from shapely.geometry import Point
 

@@ -16,7 +16,7 @@ def _make_gdf(realm: str = "Palearctic", biome: str = "Temperate Broadleaf", eco
     except ImportError:
         pytest.skip("geopandas not installed")
 
-    gdf = gpd.GeoDataFrame(
+    return gpd.GeoDataFrame(
         {
             "REALM": [realm],
             "BIOME_NAME": [biome],
@@ -25,7 +25,6 @@ def _make_gdf(realm: str = "Palearctic", biome: str = "Temperate Broadleaf", eco
         },
         crs="EPSG:4326",
     )
-    return gdf
 
 
 # ---------------------------------------------------------------------------
@@ -33,7 +32,7 @@ def _make_gdf(realm: str = "Palearctic", biome: str = "Temperate Broadleaf", eco
 # ---------------------------------------------------------------------------
 
 
-def test_returns_all_fields_when_point_is_inside_a_polygon():
+def test_returns_all_fields_when_point_is_inside_a_polygon() -> None:
     # Arrange
     gdf = _make_gdf(realm="Neotropical", biome="Tropical Moist Broadleaf", eco="Amazon")
 
@@ -46,7 +45,7 @@ def test_returns_all_fields_when_point_is_inside_a_polygon():
     assert result["ecoregion"] == "Amazon"
 
 
-def test_returns_nearest_polygon_when_point_falls_outside_all_polygons():
+def test_returns_nearest_polygon_when_point_falls_outside_all_polygons() -> None:
     # Arrange — polígono que NO contiene el punto (costa)
     try:
         import geopandas as gpd
@@ -74,7 +73,7 @@ def test_returns_nearest_polygon_when_point_falls_outside_all_polygons():
     assert result["ecoregion"] != ""
 
 
-def test_raises_when_latitude_is_none():
+def test_raises_when_latitude_is_none() -> None:
     # Arrange
     gdf = _make_gdf()
 
@@ -83,7 +82,7 @@ def test_raises_when_latitude_is_none():
         lookup(None, 10.0, gdf)
 
 
-def test_raises_when_longitude_is_none():
+def test_raises_when_longitude_is_none() -> None:
     # Arrange
     gdf = _make_gdf()
 
@@ -92,13 +91,13 @@ def test_raises_when_longitude_is_none():
         lookup(55.0, None, gdf)
 
 
-def test_raises_when_gdf_is_none():
+def test_raises_when_gdf_is_none() -> None:
     # Act & Assert
     with pytest.raises(Exception):
         lookup(55.0, 10.0, None)
 
 
-def test_result_never_contains_empty_strings_for_valid_coordinates():
+def test_result_never_contains_empty_strings_for_valid_coordinates() -> None:
     # Arrange
     gdf = _make_gdf(realm="Afrotropic", biome="Tropical Grasslands", eco="Serengeti")
 

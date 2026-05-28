@@ -38,8 +38,7 @@ REGION_OVERRIDES: dict[tuple[str, str], str] = {
 
 
 def get_override(country_code: str, state: str) -> str | None:
-    """
-    Devuelve el cca2 de la región si corresponde un override,
+    """Devuelve el cca2 de la región si corresponde un override,
     None si hay que tratar el país normalmente.
     """
     return REGION_OVERRIDES.get((country_code.upper(), state))

@@ -14,7 +14,7 @@ def _make_zone_rounds(n: int, country: str, base_dist: float = 200, step: float 
     ]
 
 
-def test_zone_is_excluded_when_below_min_rounds():
+def test_zone_is_excluded_when_below_min_rounds() -> None:
     """Zone with fewer than 10 rounds → excluded from results."""
     # Arrange
     rounds = _make_zone_rounds(5, "France")
@@ -26,7 +26,7 @@ def test_zone_is_excluded_when_below_min_rounds():
     assert result == {}
 
 
-def test_zone_returns_expected_stats_when_above_threshold():
+def test_zone_returns_expected_stats_when_above_threshold() -> None:
     """Single zone with enough rounds returns dict with total, score, windows."""
     # Arrange
     rounds = _make_zone_rounds(150, "France", base_dist=300, step=1)
@@ -44,7 +44,7 @@ def test_zone_returns_expected_stats_when_above_threshold():
     assert "level_arrow" in s
 
 
-def test_global_level_returns_global_zone():
+def test_global_level_returns_global_zone() -> None:
     """level=None produces a _global_ zone regardless of country data."""
     # Arrange
     rounds = _make_zone_rounds(150, "France", base_dist=300, step=1)
@@ -57,7 +57,7 @@ def test_global_level_returns_global_zone():
     assert result["_global_"]["total"] == 150
 
 
-def test_multiple_zones_each_get_their_own_stats():
+def test_multiple_zones_each_get_their_own_stats() -> None:
     """Each zone with >= 10 rounds has independent stats."""
     # Arrange
     rounds = _make_zone_rounds(80, "France", base_dist=300)
@@ -73,7 +73,7 @@ def test_multiple_zones_each_get_their_own_stats():
     assert "Spain" not in result
 
 
-def test_zone_with_no_distance_data_returns_none_values():
+def test_zone_with_no_distance_data_returns_none_values() -> None:
     """Rounds without distance_km produce None stats instead of crashing."""
     # Arrange
     rounds = [

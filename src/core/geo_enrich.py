@@ -1,10 +1,10 @@
-"""
-geo_enrich.py
+"""geo_enrich.py
 Enriquece coordenadas con jerarquía geográfica completa.
 Todas las llamadas de red son async; eco_enrich (CPU/disco) se corre en executor.
 """
 
 import asyncio
+from itertools import starmap
 
 import httpx
 
@@ -72,7 +72,8 @@ class GeoEnrichClient:
         nominatim_data = await self._nominatim(lat, lon)
 
         override_cca2 = get_override(
-            nominatim_data["country_code"], nominatim_data["state"]
+            nominatim_data["country_code"],
+            nominatim_data["state"],
         ) or get_override(nominatim_data["country_code"], nominatim_data["city"])
 
         effective_cca2 = override_cca2 or nominatim_data["country_code"]
@@ -98,4 +99,4 @@ class GeoEnrichClient:
 
     async def enrich_all(self, coords: list[tuple[float | None, float | None]]) -> list[dict]:
         """Enriquece todas las coordenadas respetando el semáforo de Nominatim."""
-        return await asyncio.gather(*[self.enrich(lat, lon) for lat, lon in coords])
+        return await asyncio.gather(*list(starmap(self.enrich, coords)))

@@ -6,7 +6,7 @@ from core.calculator import AnalysisResult, ZoneStats
 from core.printer import print_analysis
 
 
-def test_header_shows_level_label_when_zones_exist():
+def test_header_shows_level_label_when_zones_exist() -> None:
     # Arrange
     result = AnalysisResult(level="country", level_label="Country", zones={})
     out = StringIO()
@@ -20,7 +20,7 @@ def test_header_shows_level_label_when_zones_exist():
     assert "═" in output
 
 
-def test_warning_when_no_zones_available():
+def test_warning_when_no_zones_available() -> None:
     # Arrange
     result = AnalysisResult(level="country", level_label="Country", zones={})
     out = StringIO()
@@ -33,7 +33,7 @@ def test_warning_when_no_zones_available():
     assert "No zones with" in output
 
 
-def test_zone_stats_rendered_for_each_zone():
+def test_zone_stats_rendered_for_each_zone() -> None:
     # Arrange
     zones = {
         "France": ZoneStats(
@@ -50,7 +50,7 @@ def test_zone_stats_rendered_for_each_zone():
             std_now_km=300.0,
             ci_lo=None,
             ci_hi=None,
-        )
+        ),
     }
     result = AnalysisResult(level="country", level_label="Country", zones=zones)
     groups = {"France": [{}] * 150}
@@ -68,7 +68,7 @@ def test_zone_stats_rendered_for_each_zone():
     assert "Consistency" in output
 
 
-def test_zones_sorted_by_score_ascending():
+def test_zones_sorted_by_score_ascending() -> None:
     # Arrange
     zones = {
         "Germany": ZoneStats(
@@ -115,7 +115,7 @@ def test_zones_sorted_by_score_ascending():
     assert france_idx < germany_idx
 
 
-def test_confidence_interval_when_bootstrap_available():
+def test_confidence_interval_when_bootstrap_available() -> None:
     # Arrange
     zones = {
         "France": ZoneStats(
@@ -132,7 +132,7 @@ def test_confidence_interval_when_bootstrap_available():
             std_now_km=300.0,
             ci_lo=500.0,
             ci_hi=1200.0,
-        )
+        ),
     }
     result = AnalysisResult(level="country", level_label="Country", zones=zones)
     groups = {"France": [{}] * 150}
@@ -148,7 +148,7 @@ def test_confidence_interval_when_bootstrap_available():
     assert "1,200" in output
 
 
-def test_confusion_section_when_geo_level_has_conflicts():
+def test_confusion_section_when_geo_level_has_conflicts() -> None:
     # Arrange
     zones = {
         "France": ZoneStats(
@@ -165,7 +165,7 @@ def test_confusion_section_when_geo_level_has_conflicts():
             std_now_km=300.0,
             ci_lo=None,
             ci_hi=None,
-        )
+        ),
     }
     result = AnalysisResult(level="country", level_label="Country", zones=zones)
     groups = {
@@ -186,7 +186,7 @@ def test_confusion_section_when_geo_level_has_conflicts():
                 "distance_km": 50,
             },
         ]
-        * 50
+        * 50,
     }
     out = StringIO()
 

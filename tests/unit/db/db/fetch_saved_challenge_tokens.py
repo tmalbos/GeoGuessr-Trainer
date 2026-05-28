@@ -6,7 +6,7 @@ from db.db import DbAdapter
 
 
 @pytest.mark.asyncio
-async def test_returns_subset_of_tokens_that_exist_in_db():
+async def test_returns_subset_of_tokens_that_exist_in_db() -> None:
     # Arrange
     mock_pool = MagicMock()
     mock_conn = AsyncMock()
@@ -26,7 +26,7 @@ async def test_returns_subset_of_tokens_that_exist_in_db():
 
 
 @pytest.mark.asyncio
-async def test_returns_empty_set_when_no_tokens_exist():
+async def test_returns_empty_set_when_no_tokens_exist() -> None:
     # Arrange
     mock_pool = MagicMock()
     mock_conn = AsyncMock()
