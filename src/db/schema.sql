@@ -290,3 +290,19 @@ CREATE TABLE country_paints_road_line (
     FOREIGN KEY (country_code) REFERENCES country(code) ON DELETE CASCADE,
     FOREIGN KEY (road_line_id) REFERENCES road_line(road_line_id) ON DELETE CASCADE
 );
+
+CREATE TABLE city (
+    city_id      BIGSERIAL    PRIMARY KEY,
+    country_code CHAR(2)      NOT NULL REFERENCES country(code),
+    state_id     INTEGER,
+    county       VARCHAR(120),
+    name         VARCHAR(120) NOT NULL,
+    area_code    VARCHAR(20),
+    geometry     TEXT         NOT NULL,
+
+    CONSTRAINT uq_city_identity UNIQUE NULLS NOT DISTINCT (country_code, state_id, county, name),
+    FOREIGN KEY (country_code, state_id) REFERENCES state(country_code, state_id)
+);
+
+CREATE INDEX idx_city_country_code ON city (country_code);
+CREATE INDEX idx_city_country_area_code ON city (country_code, area_code);
