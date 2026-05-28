@@ -5,8 +5,6 @@ import pytest
 import i18n.lang as _lang_mod
 from i18n.lang import load, translate
 
-pytestmark = pytest.mark.integration
-
 
 @pytest.fixture(autouse=True)
 def reset_lang_state():

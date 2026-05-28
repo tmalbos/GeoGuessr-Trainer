@@ -6,8 +6,6 @@ import sys
 
 import pytest
 
-pytestmark = pytest.mark.integration
-
 
 def test_application_starts_without_crashing() -> None:
     """Python main.py must reach the interactive menu without raising during startup."""
