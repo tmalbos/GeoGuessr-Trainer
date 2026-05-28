@@ -13,6 +13,7 @@ from src.core.calculator import analyze
 from src.core.printer import print_analysis as print_stats_analysis
 from src.core.stats import available_levels, build_groups, load_rounds
 from src.core.sync import sync_from_feed
+from src.db.db import DbAdapter
 from src.i18n.lang import load as load_lang
 from src.i18n.lang import translate
 
@@ -20,10 +21,12 @@ MIN_ROUNDS = 10
 
 
 def clear() -> None:
+    """Clear the terminal screen."""
     os.system("cls" if os.name == "nt" else "clear")
 
 
-async def menu_insert(db, app_ctx: AppContext) -> None:
+async def menu_insert(db: DbAdapter, app_ctx: AppContext) -> None:
+    """Run the sync-games menu flow."""
     cookie = load_cookie()
 
     if not cookie:
@@ -64,11 +67,12 @@ async def menu_insert(db, app_ctx: AppContext) -> None:
     finally:
         await gg_client.aclose()
 
-    input("\n  " + translate("Press Enter to continue..."))
+    await asyncio.to_thread(input, "\n  " + translate("Press Enter to continue..."))
     clear()
 
 
-async def menu_analysis(levels: list[tuple], db) -> None:
+async def menu_analysis(levels: list[tuple], db: DbAdapter) -> None:
+    """Run the data-analysis submenu."""
     options = {str(i + 1): lv for i, lv in enumerate(levels)}
 
     while True:
@@ -78,7 +82,7 @@ async def menu_analysis(levels: list[tuple], db) -> None:
             print(translate("  [{key}] {label}  ({n} rounds)", key=key, label=label, n=n))
         print("  [0] " + translate("Back"))
 
-        choice = input("\n> ").strip()
+        choice = (await asyncio.to_thread(input, "\n> ")).strip()
         if choice == "0":
             return
         if choice in options:
@@ -89,12 +93,13 @@ async def menu_analysis(levels: list[tuple], db) -> None:
             result = analyze(rounds, geo_level)
             groups = build_groups(rounds, geo_level)
             print_stats_analysis(result, level, groups)
-            input("\n  " + translate("Press Enter to continue..."))
+            await asyncio.to_thread(input, "\n  " + translate("Press Enter to continue..."))
         else:
             print(translate("  Invalid option."))
 
 
 async def main() -> None:
+    """Entry point: initialise the app and run the main menu loop."""
     clear()
     load_dotenv()
     await load_lang(os.environ.get("GEOGUESSR_LANG", "en"))
@@ -110,7 +115,7 @@ async def main() -> None:
     print("─" * 30)
 
     if not db_live:
-        print(translate("  ℹ️  PostgreSQL unavailable — data will not be saved."))
+        print(translate("  ℹ️  PostgreSQL unavailable — data will not be saved."))  # noqa: RUF001
         print(translate("     Make sure Postgres is running and PG_DSN is configured.\n"))
 
     while True:
@@ -122,7 +127,7 @@ async def main() -> None:
             print("  [2] " + translate("Data analysis"))
         print("  [3] " + translate("Change cookie"))
 
-        choice = input("\n> ").strip()
+        choice = (await asyncio.to_thread(input, "\n> ")).strip()
 
         if choice == "1":
             await menu_insert(db, app_ctx)
