@@ -3,6 +3,7 @@
 import base64
 import importlib
 import inspect
+import os
 import pkgutil
 import re
 import unicodedata
@@ -47,23 +48,40 @@ async def build_notes(
     http_client: httpx.AsyncClient,
     anki_client: AnkiConnectClient,
 ) -> list[dict]:
+    """Build Anki notes for all cities in a country.
+
+    Returns:
+        List of note dicts ready for AnkiConnect, empty if country data is unavailable.
+
+    """
 
     async def _rest(cca2: str) -> dict:
         key = cca2.lower()
         if key in _cache:
             return _cache[key]
         try:
+            api_key = os.environ["REST_COUNTRIES_API_KEY"]
             r = await http_client.get(
-                f"https://restcountries.com/v3.1/alpha/{cca2}",
-                params={"fields": "translations,capital,car,tld,cca2,flags"},
+                f"https://api.restcountries.com/countries/v5/codes.alpha_2/{cca2}",
+                headers={"Authorization": f"Bearer {api_key}"},
             )
             if r.status_code == 200:
-                data = r.json()
-                entry = data[0] if isinstance(data, list) else data
+                obj = r.json()["data"]["objects"][0]
+                cars = obj.get("cars") or {}
+                capitals = obj.get("capitals") or []
+                entry = {
+                    "cca2": obj["codes"]["alpha_2"],
+                    "flags": {"png": obj["flag"]["url_png"]},
+                    "translations": obj["names"]["translations"],
+                    "capital": [c["name"] for c in capitals],
+                    "car": {"side": cars.get("driving_side", ""), "signs": cars.get("signs", [])},
+                    "tld": obj.get("tlds", []),
+                }
                 _cache[key] = entry
                 return entry
-        except Exception:
-            pass
+            print(f"  [WARN] restcountries.com returned HTTP {r.status_code} for '{cca2}'")
+        except httpx.RequestError as e:
+            print(f"  [WARN] restcountries.com request failed for '{cca2}': {e}")
         return {}
 
     data = await _rest(country_code)
@@ -72,7 +90,7 @@ async def build_notes(
         return []
 
     cca2 = data.get("cca2", "").lower()
-    flag_url = data["flags"]["png"]
+    flag_url = f"https://flagcdn.com/w320/{cca2}.png"
     flag = await _download_flag(flag_url, http_client)
     flag_filename = f"flag_{cca2}.png"
     await anki_client.store_media(flag_filename, flag)
