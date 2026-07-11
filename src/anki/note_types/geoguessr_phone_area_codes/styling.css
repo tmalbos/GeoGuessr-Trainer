@@ -1,0 +1,124 @@
+.card {
+text-align: center;
+font-family: arial;
+}
+
+.question {
+font-size: 1.1em;
+margin-bottom: 6px;
+}
+
+.phone-number {
+font-size: 1.4em;
+font-weight: bold;
+letter-spacing: 1px;
+margin-bottom: 12px;
+}
+
+#map-controls {
+display: flex;
+justify-content: center;
+align-items: center;
+gap: 8px;
+margin-bottom: 8px;
+}
+
+.zoom-btn {
+width: 32px;
+height: 32px;
+font-size: 1.2em;
+font-weight: bold;
+line-height: 1;
+border: 1px solid #999;
+border-radius: 6px;
+background: #f2f2f2;
+color: #222;
+cursor: pointer;
+}
+.zoom-btn:active {
+background: #ddd;
+}
+
+#no-regional-btn {
+padding: 6px 12px;
+border: 1px solid #999;
+border-radius: 6px;
+background: #f2f2f2;
+color: #222;
+cursor: pointer;
+font-size: 0.95em;
+}
+#no-regional-btn.selected-btn {
+background: #90caf9;
+border-color: #4a90d9;
+}
+#no-regional-btn.correct-btn {
+background: #4caf50;
+border-color: #388e3c;
+color: #fff;
+}
+#no-regional-btn.wrong-btn {
+background: #e53935;
+border-color: #b71c1c;
+color: #fff;
+}
+
+#map-viewport {
+width: 100%;
+max-width: 1440px;
+height: 300px; /* initial value before the SVG loads; JS overrides it */
+margin: 0 auto;
+overflow: hidden;
+position: relative;
+border: 1px solid #999;
+border-radius: 8px;
+background: #1e1e1e;
+cursor: grab;
+touch-action: none;
+user-select: none;
+}
+#map-viewport.dragging {
+cursor: grabbing;
+}
+
+#map-stage {
+position: absolute;
+top: 0;
+left: 0;
+transform-origin: 0 0;
+will-change: transform;
+}
+
+#map-wrapper svg {
+display: block;
+}
+
+#map-viewport.dragging #map-wrapper svg path {
+pointer-events: none;
+}
+
+#map-wrapper svg path {
+cursor: pointer;
+transition: fill 0.1s;
+}
+
+#map-wrapper svg path:hover {
+filter: brightness(0.85);
+}
+
+#map-wrapper svg .selected {
+fill: #90caf9 !important;
+}
+
+#map-wrapper svg .correct {
+fill: #4caf50 !important;
+}
+
+#map-wrapper svg .wrong {
+fill: #e53935 !important;
+}
+
+.answer-text {
+margin-top: 10px;
+font-size: 1.1em;
+}

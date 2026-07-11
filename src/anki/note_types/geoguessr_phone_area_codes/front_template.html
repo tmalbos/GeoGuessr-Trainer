@@ -1,0 +1,213 @@
+<div class="question" id="question-text"></div>
+<div class="phone-number" id="phone-number"></div>
+
+<div id="map-controls">
+  <button type="button" class="zoom-btn" data-zoom="out">&minus;</button>
+  <button type="button" class="zoom-btn" data-zoom="in">+</button>
+  <button type="button" id="no-regional-btn">Teléfono no regional</button>
+</div>
+
+<div id="map-viewport">
+  <div id="map-stage">
+    <div id="map-wrapper">Cargando mapa...</div>
+  </div>
+</div>
+
+<script>
+(function () {
+  var BLACKLIST = ['doc', 'map', 'muni', 'ocean', 'defs', 'mapclip', 'cliprect', 'svg', 'map-viewport', 'map-stage', 'map-wrapper'];
+
+  function findRegionId(el) {
+    while (el && el.nodeType === 1) {
+      if (el.id && BLACKLIST.indexOf(el.id) === -1) return el.id;
+      el = el.parentElement;
+    }
+    return null;
+  }
+
+  function pathsForId(svg, id) {
+    var el = svg.querySelector('[id="' + id + '"]');
+    if (!el) return [];
+    return el.tagName.toLowerCase() === 'path'
+      ? [el]
+      : Array.prototype.slice.call(el.querySelectorAll('path'));
+  }
+  window.pathsForId = pathsForId;
+
+  var isAnswer = !!document.getElementById('answer');
+
+  if (!isAnswer) {
+    var questionRaw = "{{text:Pregunta}}";
+    var codeMatch = questionRaw.match(/\{([^{}]*)\}/);
+    var code = codeMatch ? codeMatch[1].trim() : '';
+    window.__questionDisplay = codeMatch
+      ? (questionRaw.slice(0, codeMatch.index) + questionRaw.slice(codeMatch.index + codeMatch[0].length)).trim()
+      : questionRaw;
+
+    var nsnLength = parseInt("{{NSNLength}}", 10) || 0;
+    var format = "{{text:Format}}";
+    var full = code;
+    var needed = Math.max(0, nsnLength - full.length);
+    for (var i = 0; i < needed; i++) full += Math.floor(Math.random() * 10);
+    var idx = 0, out = "";
+    for (var j = 0; j < format.length; j++) {
+      if (format[j] === '#') { out += (idx < full.length) ? full[idx] : ''; idx++; }
+      else out += format[j];
+    }
+    window.__phoneNumber = out;
+
+    window.__zoom = 1;
+    window.__panX = 0;
+    window.__panY = 0;
+    window.selectedRegion = undefined;
+    window.onMapReady = undefined;
+  }
+
+  var questionEl = document.getElementById('question-text');
+  if (questionEl) questionEl.textContent = window.__questionDisplay;
+  var phoneEl = document.getElementById('phone-number');
+  if (phoneEl) phoneEl.textContent = window.__phoneNumber;
+
+  var viewport = document.getElementById('map-viewport');
+  var stage = document.getElementById('map-stage');
+  var wrapper = document.getElementById('map-wrapper');
+  var noRegionalBtn = document.getElementById('no-regional-btn');
+  if (!wrapper || !viewport || !stage) return;
+
+  var baseW = 0, baseH = 0;
+  var vpDims = { w: 0, h: 0 };
+
+  function clamp(v, lo, hi) { return Math.min(Math.max(v, lo), hi); }
+
+  function render() {
+    var scaledW = baseW * window.__zoom;
+    var scaledH = baseH * window.__zoom;
+
+    window.__panX = (scaledW <= vpDims.w) ? (vpDims.w - scaledW) / 2 : clamp(window.__panX, vpDims.w - scaledW, 0);
+    window.__panY = (scaledH <= vpDims.h) ? (vpDims.h - scaledH) / 2 : clamp(window.__panY, vpDims.h - scaledH, 0);
+
+    stage.style.transform = 'translate(' + window.__panX + 'px,' + window.__panY + 'px) scale(' + window.__zoom + ')';
+  }
+
+  function zoomTo(newZoom) {
+    newZoom = clamp(newZoom, 1, 4);
+    var cx = vpDims.w / 2, cy = vpDims.h / 2;
+    var stageX = (cx - window.__panX) / window.__zoom;
+    var stageY = (cy - window.__panY) / window.__zoom;
+    window.__zoom = newZoom;
+    window.__panX = cx - stageX * window.__zoom;
+    window.__panY = cy - stageY * window.__zoom;
+    render();
+  }
+
+  document.querySelectorAll('.zoom-btn').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      zoomTo(window.__zoom + (btn.dataset.zoom === 'in' ? 0.5 : -0.5));
+    });
+  });
+
+  if (noRegionalBtn && !isAnswer) {
+    noRegionalBtn.addEventListener('click', function () {
+      window.selectedRegion = 'NON_REGIONAL_PHONE';
+      noRegionalBtn.classList.add('selected-btn');
+      wrapper.querySelectorAll('.selected').forEach(function (elx) {
+        elx.classList.remove('selected');
+      });
+    });
+  }
+
+  var dragging = false, dragStart = null, moved = 0;
+
+  viewport.addEventListener('pointerdown', function (e) {
+    dragging = true;
+    moved = 0;
+    dragStart = { x: e.clientX, y: e.clientY, panX: window.__panX, panY: window.__panY };
+    viewport.classList.add('dragging');
+    try { viewport.setPointerCapture(e.pointerId); } catch (err) {}
+  });
+
+  var rafPending = false;
+  viewport.addEventListener('pointermove', function (e) {
+    if (!dragging || !dragStart) return;
+    var dx = e.clientX - dragStart.x;
+    var dy = e.clientY - dragStart.y;
+    moved = Math.max(moved, Math.abs(dx), Math.abs(dy));
+    window.__panX = dragStart.panX + dx;
+    window.__panY = dragStart.panY + dy;
+    if (!rafPending) {
+      rafPending = true;
+      requestAnimationFrame(function () {
+        rafPending = false;
+        render();
+      });
+    }
+  });
+
+  function endDrag(e) {
+    if (!dragging) return;
+    dragging = false;
+    viewport.classList.remove('dragging');
+    try { viewport.releasePointerCapture(e.pointerId); } catch (err) {}
+
+    if (moved < 5 && !isAnswer) {
+      var real = document.elementFromPoint(e.clientX, e.clientY);
+      var id = findRegionId(real);
+      if (id) {
+        window.selectedRegion = id;
+        var svg = wrapper.querySelector('svg');
+        if (svg) {
+          svg.querySelectorAll('.selected').forEach(function (elx) { elx.classList.remove('selected'); });
+          pathsForId(svg, id).forEach(function (p) { p.classList.add('selected'); });
+        }
+        if (noRegionalBtn) noRegionalBtn.classList.remove('selected-btn');
+      }
+    }
+  }
+  viewport.addEventListener('pointerup', endDrag);
+  viewport.addEventListener('pointercancel', endDrag);
+
+  fetch('{{text:ArchivoSVG}}')
+    .then(function (r) { return r.text(); })
+    .then(function (svgText) {
+      wrapper.innerHTML = svgText;
+      var svg = wrapper.querySelector('svg');
+      if (!svg) return;
+
+      if (!svg.getAttribute('viewBox')) {
+        var w = parseFloat(svg.getAttribute('width'));
+        var h = parseFloat(svg.getAttribute('height'));
+        if (w && h) svg.setAttribute('viewBox', '0 0 ' + w + ' ' + h);
+      }
+      var vb = svg.getAttribute('viewBox').split(/\s+/).map(Number);
+      var vbW = vb[2], vbH = vb[3];
+      svg.removeAttribute('width');
+      svg.removeAttribute('height');
+
+      var maxW = 1440;
+      var maxH = 810;
+      var fitScale = Math.min(maxW / vbW, maxH / vbH);
+
+      baseW = vbW * fitScale;
+      baseH = vbH * fitScale;
+      viewport.style.width = baseW + 'px';
+      viewport.style.height = baseH + 'px';
+      vpDims.w = baseW;
+      vpDims.h = baseH;
+
+      wrapper.style.width = baseW + 'px';
+      wrapper.style.height = baseH + 'px';
+      svg.style.width = baseW + 'px';
+      svg.style.height = baseH + 'px';
+
+      render();
+
+      if (isAnswer) {
+        svg.querySelectorAll('path').forEach(function (p) { p.style.pointerEvents = 'none'; });
+      }
+
+      if (typeof window.onMapReady === 'function') {
+        window.onMapReady(svg);
+      }
+    });
+})();
+</script>

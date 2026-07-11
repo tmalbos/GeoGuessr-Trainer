@@ -1,0 +1,34 @@
+{{FrontSide}}
+<hr id="answer">
+<div class="answer-text" id="answer-text"></div>
+
+<script>
+(function () {
+  window.onMapReady = function (svg) {
+    var noRegionalBtn = document.getElementById('no-regional-btn');
+    var correct = "{{text:Respuesta}}".trim();
+    var selected = (window.selectedRegion || "").trim();
+
+    var correctPaths = (correct === 'NON_REGIONAL_PHONE') ? [] : window.pathsForId(svg, correct);
+    var wrongPaths = (selected && selected !== correct && selected !== 'NON_REGIONAL_PHONE')
+      ? window.pathsForId(svg, selected)
+      : [];
+
+    wrongPaths = wrongPaths.filter(function (p) { return correctPaths.indexOf(p) === -1; });
+
+    if (correct === 'NON_REGIONAL_PHONE') {
+      if (noRegionalBtn) noRegionalBtn.classList.add('correct-btn');
+    } else {
+      correctPaths.forEach(function (p) { p.classList.add('correct'); });
+    }
+
+    if (selected !== correct) {
+      if (selected === 'NON_REGIONAL_PHONE') {
+        if (noRegionalBtn) noRegionalBtn.classList.add('wrong-btn');
+      } else {
+        wrongPaths.forEach(function (p) { p.classList.add('wrong'); });
+      }
+    }
+  };
+})();
+</script>
