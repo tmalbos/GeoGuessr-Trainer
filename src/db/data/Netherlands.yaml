@@ -53,8 +53,8 @@ license_plates:
   - car_type: taxi
     front:
       is_required: true
-      color: blue
+      color: light blue
       strips: null
-      letter_color: black
+      letter_color: white
       shape: wide
     back: null

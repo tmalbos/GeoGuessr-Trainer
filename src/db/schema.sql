@@ -28,7 +28,7 @@ CREATE TYPE car_type AS ENUM (
     'normal', 'commercial', 'taxi', 'motorcycle', 'military', 'government', 'electric'
 );
 CREATE TYPE plate_color AS ENUM (
-    'white', 'yellow', 'pastel yellow', 'blue', 'green', 'orange', 'brown', 'red', 'black'
+    'white', 'yellow', 'pastel yellow', 'blue', 'light blue', 'green', 'orange', 'brown', 'red', 'black'
 );
 CREATE TYPE strip_side  AS ENUM ('left', 'right', 'top', 'bottom');
 CREATE TYPE plate_shape AS ENUM ('wide', 'short', 'tall', 'standard');

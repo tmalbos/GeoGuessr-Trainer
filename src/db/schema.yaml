@@ -95,6 +95,7 @@ license_plates: # list
       - yellow
       - pastel yellow
       - blue
+      - light blue
       - green
       - orange
       - brown
@@ -137,6 +138,7 @@ license_plates: # list
       - yellow
       - pastel yellow
       - blue
+      - light blue
       - green
       - orange
       - brown
@@ -173,13 +175,6 @@ license_plates: # list
       - short
       - tall
       - standard
-terrain:
-  biome: string
-  dominant_relief: string
-  coverage_pct:
-    type: float
-    min: 0.0
-    max: 100.0
 chevrons: # Optional
   background_color: hex
   arrow_color: hex

@@ -68,9 +68,9 @@
         count:   innerCount,
         color:   normalizeColor(inn.color),
         pattern: normalizePattern(inn.pattern),
-        extra:   inn.extra ? {
-          color:   normalizeColor(inn.extra.color),
-          pattern: normalizePattern(inn.extra.pattern)
+        extra:   r.extra ? {
+          color:   normalizeColor(r.extra.color),
+          pattern: normalizePattern(r.extra.pattern)
         } : null
       },
       rule: (r.rule || '').trim()
