@@ -10,16 +10,24 @@ roads:
       pattern: solid
     extra: null
     rule: whole-country
+  - inner:
+      color: white
+      count: 2
+      pattern: solid
+    outer:
+      color: yellow
+      count: 1
+      pattern: solid
+    extra:
+      color: white
+      pattern: dashed
+    rule: whole-country
 license_plates:
   - car_type: normal
     front:
       is_required: true
       color: white
       strips: null
-      letter_color: black
-      shape: standard
-    back:
-      color: yellow
-      strips: null
-      letter_color: black
-      shape: standard
+      letter_color: blue
+      shape: wide
+    back: null
