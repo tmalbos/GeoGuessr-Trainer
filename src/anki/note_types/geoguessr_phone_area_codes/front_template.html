@@ -1,16 +1,13 @@
 <div class="question" id="question-text"></div>
 <div class="phone-number" id="phone-number"></div>
 
-<div id="map-controls">
-  <button type="button" class="zoom-btn" data-zoom="out">&minus;</button>
-  <button type="button" class="zoom-btn" data-zoom="in">+</button>
-  <button type="button" id="no-regional-btn">Teléfono no regional</button>
-</div>
-
-<div id="map-viewport">
-  <div id="map-stage">
-    <div id="map-wrapper">Cargando mapa...</div>
+<div id="map-row">
+  <div id="map-viewport">
+    <div id="map-stage">
+      <div id="map-wrapper">Cargando mapa...</div>
+    </div>
   </div>
+  <button type="button" id="no-regional-btn">Teléfono no regional</button>
 </div>
 
 <script>
@@ -79,32 +76,47 @@
 
   function clamp(v, lo, hi) { return Math.min(Math.max(v, lo), hi); }
 
+  // Resizes the wrapper/svg to their real target pixel size (instead of
+  // scaling via CSS transform) so the SVG is re-rendered crisply at every
+  // zoom level rather than upscaled from a cached raster.
   function render() {
     var scaledW = baseW * window.__zoom;
     var scaledH = baseH * window.__zoom;
 
+    wrapper.style.width = scaledW + 'px';
+    wrapper.style.height = scaledH + 'px';
+    var svgEl = wrapper.querySelector('svg');
+    if (svgEl) {
+      svgEl.style.width = scaledW + 'px';
+      svgEl.style.height = scaledH + 'px';
+    }
+
     window.__panX = (scaledW <= vpDims.w) ? (vpDims.w - scaledW) / 2 : clamp(window.__panX, vpDims.w - scaledW, 0);
     window.__panY = (scaledH <= vpDims.h) ? (vpDims.h - scaledH) / 2 : clamp(window.__panY, vpDims.h - scaledH, 0);
 
-    stage.style.transform = 'translate(' + window.__panX + 'px,' + window.__panY + 'px) scale(' + window.__zoom + ')';
+    stage.style.transform = 'translate(' + window.__panX + 'px,' + window.__panY + 'px)';
   }
 
-  function zoomTo(newZoom) {
+  // Zooms while keeping the point at (localX, localY), in viewport-local
+  // coordinates, visually fixed in place.
+  function zoomAtPoint(newZoom, localX, localY) {
     newZoom = clamp(newZoom, 1, 4);
-    var cx = vpDims.w / 2, cy = vpDims.h / 2;
-    var stageX = (cx - window.__panX) / window.__zoom;
-    var stageY = (cy - window.__panY) / window.__zoom;
+    var stageX = (localX - window.__panX) / window.__zoom;
+    var stageY = (localY - window.__panY) / window.__zoom;
     window.__zoom = newZoom;
-    window.__panX = cx - stageX * window.__zoom;
-    window.__panY = cy - stageY * window.__zoom;
+    window.__panX = localX - stageX * window.__zoom;
+    window.__panY = localY - stageY * window.__zoom;
     render();
   }
 
-  document.querySelectorAll('.zoom-btn').forEach(function (btn) {
-    btn.addEventListener('click', function () {
-      zoomTo(window.__zoom + (btn.dataset.zoom === 'in' ? 0.5 : -0.5));
-    });
-  });
+  viewport.addEventListener('wheel', function (e) {
+    e.preventDefault();
+    var rect = viewport.getBoundingClientRect();
+    var localX = e.clientX - rect.left;
+    var localY = e.clientY - rect.top;
+    var factor = Math.exp(-e.deltaY * 0.001);
+    zoomAtPoint(window.__zoom * factor, localX, localY);
+  }, { passive: false });
 
   if (noRegionalBtn && !isAnswer) {
     noRegionalBtn.addEventListener('click', function () {
@@ -194,8 +206,6 @@
       vpDims.w = baseW;
       vpDims.h = baseH;
 
-      wrapper.style.width = baseW + 'px';
-      wrapper.style.height = baseH + 'px';
       svg.style.width = baseW + 'px';
       svg.style.height = baseH + 'px';
 
