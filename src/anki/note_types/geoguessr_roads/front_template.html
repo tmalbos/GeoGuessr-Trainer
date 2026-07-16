@@ -7,28 +7,28 @@
 (function() {
   sessionStorage.removeItem('geoguessr_roads');
     let roadsData = [];
-
+    
     function saveState() {
       sessionStorage.setItem('geoguessr_roads', JSON.stringify(roadsData));
     }
-
+    
     const INNER_COLORS = ['white', 'faded white', 'yellow', 'orange-tinted yellow'];
     const EXTRA_COLORS = ['white', 'yellow', 'green'];
     const OUTER_COLORS = ['white', 'yellow', 'red'];
-
+    
     const INNER_PATTERNS = ['solid', 'dashed', 'short-dashed'];
     const EXTRA_PATTERNS = ['solid', 'dashed'];
     const OUTER_PATTERNS = ['solid', 'dashed', 'short-dashed', 'squares'];
-
+    
     const RULES = ['whole-country', 'region-dependant', 'urban', 'rural'];
-
+    
     const RULE_LABELS = {
       'whole-country': 'Nacional',
       'region-dependant': 'Regional',
       'urban': 'Urbano',
       'rural': 'Rural'
     };
-
+    
     function getColorHex(color) {
       if (color === 'white') return '#F5F5F5';
       if (color === 'faded white') return '#B0B0B0';
@@ -38,12 +38,12 @@
       if (color === 'red') return '#EF5350';
       return '#F5F5F5';
     }
-
+    
     function getPatternBackground(pattern, color) {
       if (pattern === 'solid') {
         return color;
       }
-
+    
       if (pattern === 'dashed') {
         return `repeating-linear-gradient(
           to bottom,
@@ -53,7 +53,7 @@
           transparent 40px
         )`;
       }
-
+    
       if (pattern === 'short-dashed') {
         return `repeating-linear-gradient(
           to bottom,
@@ -63,7 +63,7 @@
           transparent 25px
         )`;
       }
-
+    
       if (pattern === 'squares') {
         return `repeating-linear-gradient(
           to bottom,
@@ -73,30 +73,30 @@
           transparent 12px
         )`;
       }
-
+    
       return color;
     }
-
+    
     function getInnerPositions(innerCount, hasExtra) {
       const total = innerCount + (hasExtra ? 1 : 0);
-
+    
       const preview = document.querySelector('.preview-box');
-
+    
       const center = preview.offsetWidth / 2;
-
+    
       const spacing = 10;
-
+    
       if (total === 1) {
         return [center];
       }
-
+    
       if (total === 2) {
         return [
           center - spacing / 2,
           center + spacing / 2
         ];
       }
-
+    
       if (total === 3) {
         return [
           center - spacing,
@@ -104,10 +104,10 @@
           center + spacing
         ];
       }
-
+    
       return [];
     }
-
+    
     function patternPicker(index, path, patternList, selected) {
       return `
         <div class="pattern-picker">
@@ -130,41 +130,41 @@
         </div>
       `;
     }
-
+    
     function createLine(styles) {
       const line = document.createElement('div');
       line.className = 'line';
       Object.assign(line.style, styles);
       return line;
     }
-
+    
     function updatePreview(index) {
       const road = roadsData[index];
       const preview = document.getElementById('preview-' + index);
-
+    
       if (!preview) return;
-
+    
       preview.innerHTML = '';
-
+    
       // ===== OUTER =====
-
+    
       if (road.outer.count > 0) {
         const offsets = road.outer.count === 1
           ? [6]
           : [4, 14];
-
+    
         const background = getPatternBackground(
           road.outer.pattern,
           getColorHex(road.outer.color)
         );
-
+    
         offsets.forEach(offset => {
           preview.appendChild(createLine({
             left: offset + 'px',
             background
           }));
         });
-
+    
         [...offsets].reverse().forEach(offset => {
           preview.appendChild(createLine({
             right: offset + 'px',
@@ -172,30 +172,30 @@
           }));
         });
       }
-
+    
       // ===== INNER =====
-
-      const hasExtra = road.inner.extra !== null;
+    
+      const hasExtra = road.extra !== null;
       const positions = getInnerPositions(road.inner.count, hasExtra);
       const total = road.inner.count + (hasExtra ? 1 : 0);
-
+    
       positions.forEach((p, i) => {
         let cfg;
-
+    
         if (total === 1) {
           cfg = road.inner.count === 1
             ? road.inner
-            : road.inner.extra;
+            : road.extra;
         } else if (total === 2) {
           cfg = (road.inner.count === 1 && hasExtra)
-            ? (i === 0 ? road.inner : road.inner.extra)
+            ? (i === 0 ? road.inner : road.extra)
             : road.inner;
         } else {
           cfg = (i === 1)
-            ? road.inner.extra
+            ? road.extra
             : road.inner;
         }
-
+    
         preview.appendChild(createLine({
           left: (p - 2) + 'px',
           background: getPatternBackground(
@@ -204,14 +204,14 @@
           )
         }));
       });
-
+    
       saveState();
     }
-
+    
     function colorPicker(index, path, colorList, selected) {
       return colorList.map(c => {
         const isSel = selected === c;
-
+    
         return '<div class="color-option' + (isSel ? ' color-selected' : '') + '"'
           + ' title="' + c + '"'
           + ' style="background:' + getColorHex(c) + '"'
@@ -221,33 +221,33 @@
           + ' onclick="setColor(this)"></div>';
       }).join('');
     }
-
+    
     function createForm(index, label, colorList, patternList, pathPrefix) {
       let obj = roadsData[index];
-
+    
       pathPrefix.split('.').forEach(p => {
         obj = obj[p];
       });
-
+    
       const pp = pathPrefix + '.';
-
+    
       const patOptions = patternList.map(p =>
         '<option value="' + p + '"' +
         (obj.pattern === p ? ' selected' : '') +
         '>' + p + '</option>'
       ).join('');
-
+    
       return `
         <div class="form-section">
           <h4>${label}</h4>
-
+    
           <div class="form-group">
             <label>Color</label>
             <div style="display:flex;gap:4px;flex-wrap:wrap;">
               ${colorPicker(index, pp + 'color', colorList, obj.color)}
             </div>
           </div>
-
+    
           <div class="form-group">
             <label>Cantidad</label>
             <input
@@ -259,15 +259,15 @@
               onchange="handleInput(${index}, '${pp}count', this.value)"
             >
           </div>
-
+    
           ${patternPicker(index, pp + 'pattern', patternList, obj.pattern)}
         </div>
       `;
     }
-
+    
     function createExtraForm(index) {
-      const extra = roadsData[index].inner.extra;
-
+      const extra = roadsData[index].extra;
+    
       if (extra === null) {
         return `
           <div class="extra-section">
@@ -277,18 +277,18 @@
           </div>
         `;
       }
-
+    
       const patOptions = EXTRA_PATTERNS.map(p =>
         '<option value="' + p + '"' +
         (extra.pattern === p ? ' selected' : '') +
         '>' + p + '</option>'
       ).join('');
-
+    
       return `
         <div class="form-section">
           <div class="extra-header">
             <h4>Extra</h4>
-
+    
             <button
               onclick="toggleExtra(${index})"
               class="extra-remove-btn"
@@ -296,48 +296,48 @@
               ✕
             </button>
           </div>
-
+    
           <div class="form-group">
             <label>Color</label>
-
+    
             <div style="display:flex;gap:4px;flex-wrap:wrap;">
-              ${colorPicker(index, 'inner.extra.color', EXTRA_COLORS, extra.color)}
+              ${colorPicker(index, 'extra.color', EXTRA_COLORS, extra.color)}
             </div>
           </div>
-
-          ${patternPicker(index, 'inner.extra.pattern', EXTRA_PATTERNS, extra.pattern)}
+    
+          ${patternPicker(index, 'extra.pattern', EXTRA_PATTERNS, extra.pattern)}
         </div>
       `;
     }
-
+    
     function createRuleForm(index) {
       const options = RULES.map(r =>
         '<option value="' + r + '"' +
         (roadsData[index].rule === r ? ' selected' : '') +
         '>' + RULE_LABELS[r] + '</option>'
       ).join('');
-
+    
       return `
         <span class="rule-label">Distribución</span>
-
+    
         <select onchange="handleInput(${index}, 'rule', this.value)">
           ${options}
         </select>
       `;
     }
-
+    
     function addRoadFromData(index) {
       const wrapper = document.getElementById('roads-wrapper');
-
+    
       const rowDiv = document.createElement('div');
       rowDiv.className = 'road-row';
-
+    
       const spacer = document.createElement('div');
       spacer.className = 'spacer';
-
+    
       const roadDiv = document.createElement('div');
       roadDiv.className = 'road-container';
-
+    
       roadDiv.innerHTML =
         '<div class="rule-header">' + createRuleForm(index) + '</div>' +
         '<div class="road-body">' +
@@ -346,37 +346,37 @@
           createExtraForm(index) +
         '</div>' +
         '<div class="preview-box" id="preview-' + index + '"></div>';
-
+    
       rowDiv.appendChild(spacer);
       rowDiv.appendChild(roadDiv);
-
+    
       if (index > 0) {
         const deleteBtn = document.createElement('button');
-
+    
         deleteBtn.className = 'delete-btn';
-
+    
         deleteBtn.innerHTML =
           '<svg width="28" height="28" viewBox="0 0 24 24" fill="#F44336">' +
           '<path d="M9 3V4H4V6H5V19C5 20.1 5.9 21 7 21H17C18.1 21 19 20.1 19 19V6H20V4H15V3H9ZM7 6H17V19H7V6ZM9 8V17H11V8H9ZM13 8V17H15V8H13Z"/>' +
           '</svg>';
-
+    
         deleteBtn.onclick = () => removeRoad(index);
-
+    
         rowDiv.appendChild(deleteBtn);
       } else {
         const slot = document.createElement('div');
         slot.className = 'delete-slot';
         rowDiv.appendChild(slot);
       }
-
+    
       wrapper.appendChild(rowDiv);
-
+    
       requestAnimationFrame(() => updatePreview(index));
     }
-
+    
     function rebuildRoads() {
       document.getElementById('roads-wrapper').innerHTML = '';
-
+    
       roadsData.forEach((_, i) => addRoadFromData(i));
     }
 
@@ -387,17 +387,18 @@
           count: 1,
           pattern: 'solid'
         },
-
+    
         inner: {
           color: 'yellow',
           count: 1,
           pattern: 'solid',
-          extra: null
         },
 
+        extra: null,
+    
         rule: 'whole-country'
       });
-
+    
       addRoadFromData(roadsData.length - 1);
     };
 
@@ -405,24 +406,24 @@
       const index = parseInt(el.dataset.index);
       const path = el.dataset.path;
       const pattern = el.dataset.pattern;
-
+    
       const parts = path.split('.');
-
+    
       let obj = roadsData[index];
-
+    
       for (let i = 0; i < parts.length - 1; i++) {
         obj = obj[parts[i]];
       }
-
+    
       obj[parts[parts.length - 1]] = pattern;
-
+    
       el.parentElement
         .querySelectorAll('.pattern-line')
         .forEach(line => line.classList.remove('pattern-active'));
-
+    
       el.querySelector('.pattern-line')
         .classList.add('pattern-active');
-
+    
       updatePreview(index);
     };
 
@@ -430,32 +431,32 @@
       const index = parseInt(el.dataset.index);
       const path = el.dataset.path;
       const color = el.dataset.color;
-
+    
       const parts = path.split('.');
-
+    
       let obj = roadsData[index];
-
+    
       for (let i = 0; i < parts.length - 1; i++) {
         obj = obj[parts[i]];
       }
-
+    
       obj[parts[parts.length - 1]] = color;
-
+    
       el.parentElement
         .querySelectorAll('.color-option')
         .forEach(o => o.classList.remove('color-selected'));
-
+    
       el.classList.add('color-selected');
-
+    
       updatePreview(index);
     };
 
     window.toggleExtra = function(index) {
-      roadsData[index].inner.extra =
-        roadsData[index].inner.extra === null
+      roadsData[index].extra =
+        roadsData[index].extra === null
           ? { pattern: 'solid', color: 'white' }
           : null;
-
+    
       rebuildRoads();
     };
 
@@ -466,22 +467,22 @@
 
     window.handleInput = function(index, path, value) {
       const parts = path.split('.');
-
+    
       let obj = roadsData[index];
-
+    
       for (let i = 0; i < parts.length - 1; i++) {
         obj = obj[parts[i]];
       }
-
+    
       const key = parts[parts.length - 1];
-
+    
       obj[key] = (key === 'count')
         ? (parseInt(value) || 0)
         : value;
-
+    
       updatePreview(index);
     };
-
+    
     window.addRoad();
 })();
 </script>

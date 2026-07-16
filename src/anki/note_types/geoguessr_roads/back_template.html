@@ -68,11 +68,11 @@
         count:   innerCount,
         color:   normalizeColor(inn.color),
         pattern: normalizePattern(inn.pattern),
-        extra:   r.extra ? {
-          color:   normalizeColor(r.extra.color),
-          pattern: normalizePattern(r.extra.pattern)
-        } : null
       },
+      extra:   r.extra ? {
+        color:   normalizeColor(r.extra.color),
+        pattern: normalizePattern(r.extra.pattern)
+      } : null,
       rule: (r.rule || '').trim()
     };
   }
@@ -80,7 +80,7 @@
   function roadKey(road) {
     const o   = road.outer;
     const inn = road.inner;
-    const ex  = inn?.extra;
+    const ex = road.extra;
 
     let innerStr, extraStr;
 
@@ -189,7 +189,7 @@
 
     const o = road.outer;
     const inn = road.inner;
-    const ex = inn?.extra ?? null;
+    const ex = road.extra;
 
     // ===== OUTER =====
 
@@ -271,7 +271,7 @@
     const parts = [];
     const o   = road.outer;
     const inn = road.inner;
-    const ex  = inn?.extra ?? null;
+    const ex  = road.extra;
     if (o.count > 0)   parts.push(o.count + ' lateral' + (o.count > 1 ? 'es' : '') + ' · ' + o.pattern + ' · ' + o.color);
     if (inn && inn.count > 0) parts.push(inn.count + ' interna' + (inn.count > 1 ? 's' : '') + ' · ' + inn.pattern + ' · ' + inn.color);
     if (ex)            parts.push('1 central · ' + ex.pattern + ' · ' + ex.color);
