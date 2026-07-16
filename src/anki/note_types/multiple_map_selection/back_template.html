@@ -1,0 +1,26 @@
+{{FrontSide}}
+<hr id="answer">
+<div class="answer-text" id="answer-text"></div>
+
+<script>
+(function () {
+window.onMapReady = function (svg) {
+  var correct = "{{text:Respuestas}}".split('\n')
+    .map(function (s) { return s.trim(); })
+    .filter(function (s) { return s.length > 0; });
+  var selected = (window.selectedRegions || []).map(function (s) { return s.trim(); });
+
+  correct.forEach(function (id) {
+    window.pathsForId(svg, id).forEach(function (p) { p.classList.add('correct'); });
+  });
+
+  selected.forEach(function (id) {
+    if (correct.indexOf(id) === -1) {
+      window.pathsForId(svg, id).forEach(function (p) {
+        if (!p.classList.contains('correct')) p.classList.add('wrong');
+      });
+    }
+  });
+};
+})();
+</script>

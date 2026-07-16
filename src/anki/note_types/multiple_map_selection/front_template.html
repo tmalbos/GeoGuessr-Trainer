@@ -1,0 +1,186 @@
+<div class="question" id="question-text"></div>
+
+<div id="map-row">
+  <div id="map-viewport">
+    <div id="map-stage">
+      <div id="map-wrapper">Cargando mapa...</div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  var BLACKLIST = ['doc', 'map', 'muni', 'ocean', 'defs', 'mapclip', 'cliprect', 'svg', 'map-viewport', 'map-stage', 'map-wrapper'];
+
+  function findRegionId(el) {
+    while (el && el.nodeType === 1) {
+      if (el.id && BLACKLIST.indexOf(el.id) === -1) return el.id;
+      el = el.parentElement;
+    }
+    return null;
+  }
+
+  function pathsForId(svg, id) {
+    var el = svg.querySelector('[id="' + id + '"]');
+    if (!el) return [];
+    return el.tagName.toLowerCase() === 'path'
+      ? [el]
+      : Array.prototype.slice.call(el.querySelectorAll('path'));
+  }
+  window.pathsForId = pathsForId;
+
+  var isAnswer = !!document.getElementById('answer');
+
+  if (!isAnswer) {
+    window.__zoom = 1;
+    window.__panX = 0;
+    window.__panY = 0;
+    window.selectedRegions = [];
+    window.onMapReady = undefined;
+  }
+
+  var questionEl = document.getElementById('question-text');
+  if (questionEl) questionEl.textContent = "{{text:Pregunta}}";
+
+  var viewport = document.getElementById('map-viewport');
+  var stage = document.getElementById('map-stage');
+  var wrapper = document.getElementById('map-wrapper');
+  if (!wrapper || !viewport || !stage) return;
+
+  var baseW = 0, baseH = 0;
+  var vpDims = { w: 0, h: 0 };
+
+  function clamp(v, lo, hi) { return Math.min(Math.max(v, lo), hi); }
+
+  function render() {
+    var scaledW = baseW * window.__zoom;
+    var scaledH = baseH * window.__zoom;
+
+    wrapper.style.width = scaledW + 'px';
+    wrapper.style.height = scaledH + 'px';
+    var svgEl = wrapper.querySelector('svg');
+    if (svgEl) {
+      svgEl.style.width = scaledW + 'px';
+      svgEl.style.height = scaledH + 'px';
+    }
+
+    window.__panX = (scaledW <= vpDims.w) ? (vpDims.w - scaledW) / 2 : clamp(window.__panX, vpDims.w - scaledW, 0);
+    window.__panY = (scaledH <= vpDims.h) ? (vpDims.h - scaledH) / 2 : clamp(window.__panY, vpDims.h - scaledH, 0);
+
+    stage.style.transform = 'translate(' + window.__panX + 'px,' + window.__panY + 'px)';
+  }
+
+  function zoomAtPoint(newZoom, localX, localY) {
+    newZoom = clamp(newZoom, 1, 4);
+    var stageX = (localX - window.__panX) / window.__zoom;
+    var stageY = (localY - window.__panY) / window.__zoom;
+    window.__zoom = newZoom;
+    window.__panX = localX - stageX * window.__zoom;
+    window.__panY = localY - stageY * window.__zoom;
+    render();
+  }
+
+  viewport.addEventListener('wheel', function (e) {
+    e.preventDefault();
+    var rect = viewport.getBoundingClientRect();
+    var localX = e.clientX - rect.left;
+    var localY = e.clientY - rect.top;
+    var factor = Math.exp(-e.deltaY * 0.001);
+    zoomAtPoint(window.__zoom * factor, localX, localY);
+  }, { passive: false });
+
+  var dragging = false, dragStart = null, moved = 0;
+
+  viewport.addEventListener('pointerdown', function (e) {
+    dragging = true;
+    moved = 0;
+    dragStart = { x: e.clientX, y: e.clientY, panX: window.__panX, panY: window.__panY };
+    viewport.classList.add('dragging');
+    try { viewport.setPointerCapture(e.pointerId); } catch (err) {}
+  });
+
+  var rafPending = false;
+  viewport.addEventListener('pointermove', function (e) {
+    if (!dragging || !dragStart) return;
+    var dx = e.clientX - dragStart.x;
+    var dy = e.clientY - dragStart.y;
+    moved = Math.max(moved, Math.abs(dx), Math.abs(dy));
+    window.__panX = dragStart.panX + dx;
+    window.__panY = dragStart.panY + dy;
+    if (!rafPending) {
+      rafPending = true;
+      requestAnimationFrame(function () {
+        rafPending = false;
+        render();
+      });
+    }
+  });
+
+  function endDrag(e) {
+    if (!dragging) return;
+    dragging = false;
+    viewport.classList.remove('dragging');
+    try { viewport.releasePointerCapture(e.pointerId); } catch (err) {}
+
+    if (moved < 5 && !isAnswer) {
+      var real = document.elementFromPoint(e.clientX, e.clientY);
+      var id = findRegionId(real);
+      if (id) {
+        var svg = wrapper.querySelector('svg');
+        var idx = window.selectedRegions.indexOf(id);
+        if (idx === -1) {
+          window.selectedRegions.push(id);
+          if (svg) pathsForId(svg, id).forEach(function (p) { p.classList.add('selected'); });
+        } else {
+          window.selectedRegions.splice(idx, 1);
+          if (svg) pathsForId(svg, id).forEach(function (p) { p.classList.remove('selected'); });
+        }
+      }
+    }
+  }
+  viewport.addEventListener('pointerup', endDrag);
+  viewport.addEventListener('pointercancel', endDrag);
+
+  fetch('{{text:ArchivoSVG}}')
+    .then(function (r) { return r.text(); })
+    .then(function (svgText) {
+      wrapper.innerHTML = svgText;
+      var svg = wrapper.querySelector('svg');
+      if (!svg) return;
+
+      if (!svg.getAttribute('viewBox')) {
+        var w = parseFloat(svg.getAttribute('width'));
+        var h = parseFloat(svg.getAttribute('height'));
+        if (w && h) svg.setAttribute('viewBox', '0 0 ' + w + ' ' + h);
+      }
+      var vb = svg.getAttribute('viewBox').split(/\s+/).map(Number);
+      var vbW = vb[2], vbH = vb[3];
+      svg.removeAttribute('width');
+      svg.removeAttribute('height');
+
+      var maxW = 1440;
+      var maxH = 810;
+      var fitScale = Math.min(maxW / vbW, maxH / vbH);
+
+      baseW = vbW * fitScale;
+      baseH = vbH * fitScale;
+      viewport.style.width = baseW + 'px';
+      viewport.style.height = baseH + 'px';
+      vpDims.w = baseW;
+      vpDims.h = baseH;
+
+      svg.style.width = baseW + 'px';
+      svg.style.height = baseH + 'px';
+
+      render();
+
+      if (isAnswer) {
+        svg.querySelectorAll('path').forEach(function (p) { p.style.pointerEvents = 'none'; });
+      }
+
+      if (typeof window.onMapReady === 'function') {
+        window.onMapReady(svg);
+      }
+    });
+})();
+</script>

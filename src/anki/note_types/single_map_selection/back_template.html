@@ -1,0 +1,22 @@
+{{FrontSide}}
+<hr id="answer">
+<div class="answer-text" id="answer-text"></div>
+
+<script>
+(function () {
+window.onMapReady = function (svg) {
+  var correct = "{{text:Respuesta}}".trim();
+  var selected = (window.selectedRegion || "").trim();
+
+  var correctPaths = window.pathsForId(svg, correct);
+  var wrongPaths = (selected && selected !== correct)
+    ? window.pathsForId(svg, selected)
+    : [];
+
+  wrongPaths = wrongPaths.filter(function (p) { return correctPaths.indexOf(p) === -1; });
+
+  correctPaths.forEach(function (p) { p.classList.add('correct'); });
+  wrongPaths.forEach(function (p) { p.classList.add('wrong'); });
+};
+})();
+</script>

@@ -1,0 +1,71 @@
+.card {
+  text-align: center;
+  font-family: arial;
+}
+
+.question {
+  font-size: 1.1em;
+  margin-bottom: 12px;
+}
+
+#map-row {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 8px;
+}
+
+#map-viewport {
+  max-width: 1440px;
+  height: 300px; /* initial value before the SVG loads; JS overrides it */
+  overflow: hidden;
+  position: relative;
+  border: 1px solid #999;
+  border-radius: 8px;
+  background: #1e1e1e;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+#map-viewport.dragging {
+  cursor: grabbing;
+}
+
+#map-stage {
+  position: absolute;
+  top: 0;
+  left: 0;
+}
+
+#map-wrapper svg {
+  display: block;
+}
+
+#map-viewport.dragging #map-wrapper svg path {
+  pointer-events: none;
+}
+
+#map-wrapper svg path {
+  cursor: pointer;
+  transition: fill 0.1s;
+}
+
+#map-wrapper svg path:hover {
+  filter: brightness(0.85);
+}
+
+#map-wrapper svg .selected {
+  fill: #90caf9 !important;
+}
+
+#map-wrapper svg .correct {
+  fill: #4caf50 !important;
+}
+
+#map-wrapper svg .wrong {
+  fill: #e53935 !important;
+}
+
+.answer-text {
+  margin-top: 10px;
+  font-size: 1.1em;
+}
