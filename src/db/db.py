@@ -161,6 +161,8 @@ class DbAdapter:
                     AND guess_e.biome_id     = r.guess_biome_id
                 LEFT JOIN biome    guess_b ON guess_b.biome_id = r.guess_biome_id
 
+                WHERE g.is_daily = TRUE
+
                 ORDER BY g.played_at ASC, r.round_number ASC
                 """,
             )

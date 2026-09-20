@@ -256,23 +256,23 @@ CREATE TABLE round (
     CONSTRAINT chk_round_guess_longitude_range CHECK (guess_longitude IS NULL OR guess_longitude BETWEEN -180 AND 180),
     CONSTRAINT chk_round_real_latitude_range CHECK (real_latitude BETWEEN -90 AND 90),
     CONSTRAINT chk_round_real_longitude_range CHECK (real_longitude BETWEEN -180 AND 180),
-    CONSTRAINT chk_round_guess_all_or_none CHECK (
+    CONSTRAINT chk_round_real_all_or_none CHECK (
         (
-            guess_latitude IS NULL
-            AND guess_longitude IS NULL
-            AND guess_country_code IS NULL
-            AND guess_biome_id IS NULL
-            AND guess_ecoregion_id IS NULL
-            AND guess_state_id IS NULL
-            AND guess_city IS NULL
+            real_latitude IS NULL
+            AND real_longitude IS NULL
+            AND real_country_code IS NULL
+            AND real_biome_id IS NULL
+            AND real_ecoregion_id IS NULL
+            AND real_state_id IS NULL
+            AND real_city IS NULL
         )
         OR
         (
-            guess_latitude IS NOT NULL
-            AND guess_longitude IS NOT NULL
-            AND guess_country_code IS NOT NULL
-            AND guess_biome_id IS NOT NULL
-            AND guess_ecoregion_id IS NOT NULL
+            real_latitude IS NOT NULL
+            AND real_longitude IS NOT NULL
+            AND real_country_code IS NOT NULL
+            AND real_biome_id IS NOT NULL
+            AND real_ecoregion_id IS NOT NULL
         )
     )
 );
