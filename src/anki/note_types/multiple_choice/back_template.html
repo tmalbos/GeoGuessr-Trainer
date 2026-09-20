@@ -6,13 +6,13 @@
     var indicesCorrectas = ("{{Respuestas}}".match(/\d+/g) || []).map(function(numero) {
         return parseInt(numero, 10) - 1;
     });
-
+    
     var seleccionadas = JSON.parse(sessionStorage.getItem("seleccionadas") || "[]");
     var orden = JSON.parse(sessionStorage.getItem("orden") || "[]");
 
     var textoOpciones = `{{Opciones}}`.replace(/<br\s*\/?>/gi, "\\n");
-    var lineasOpciones = textoOpciones.split("\\n").map(function(linea) {
-        return linea.trim();
+    var lineasOpciones = textoOpciones.split("\\n").map(function(linea) { 
+        return linea.trim(); 
     });
 
     if (orden.length === 0) {
@@ -34,7 +34,7 @@
         if (esSeleccionada) {
             cajaOpcion.classList.add("selected");
         }
-
+        
         if (esCorrecta) {
             cajaOpcion.classList.add("correct");
         } else if (esSeleccionada && !esCorrecta) {

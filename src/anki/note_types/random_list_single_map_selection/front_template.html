@@ -1,5 +1,5 @@
 <div class="question" id="question-text">{{Pregunta}}</div>
-<div class="phone-number" id="phone-number"></div>
+<div class="phrase-display" id="phrase-display"></div>
 
 <!-- Hidden container where Anki renders the file as an <img> tag -->
 <div id="svg-source" style="display:none;">{{SvgFile}}</div>
@@ -36,91 +36,13 @@
   var isAnswer = !!document.getElementById('answer');
 
   if (!isAnswer) {
-    var questionElTemp = document.getElementById('question-text');
-    var questionRaw = questionElTemp ? questionElTemp.innerHTML : "";
-    var tempDiv = document.createElement('div');
-    tempDiv.innerHTML = questionRaw;
-    var questionTextOnly = tempDiv.textContent || tempDiv.innerText || "";
+    var phrases = `{{Phrases}}`
+      .split("<br>")
+      .filter(function (s) { return s.length > 0; });
 
-    var codeMatch = questionTextOnly.match(/\{([^{}]*)\}/);
-    var rawPattern = codeMatch ? codeMatch[1].trim() : '';
-
-    if (codeMatch) {
-      var plainClean = (questionTextOnly.slice(0, codeMatch.index) + questionTextOnly.slice(codeMatch.index + codeMatch[0].length)).trim();
-      var imgTag = questionRaw.match(/<img[^>]*>/i);
-      window.__questionDisplay = (imgTag ? imgTag[0] + " " : "") + plainClean;
-    } else {
-      window.__questionDisplay = questionRaw;
-    }
-
-    rawPattern = rawPattern.replace(/\[\[(.*?)\]\]/g, function (_, charSet) {
-      return charSet.length > 0 ? charSet[Math.floor(Math.random() * charSet.length)] : '';
-    });
-
-    var format = "";
-    var full = "";
-
-    var i = 0;
-    while (i < rawPattern.length) {
-      if (rawPattern.substr(i, 2) === '((') {
-        var depth = 1;
-        var scan = i + 2;
-        var closeIdx = -1;
-
-        while (scan < rawPattern.length) {
-          if (rawPattern.substr(scan, 2) === '((') {
-            depth++;
-            scan += 2;
-            continue;
-          }
-          if (rawPattern.substr(scan, 2) === '))') {
-            depth--;
-            if (depth === 0) {
-              closeIdx = scan;
-              break;
-            }
-            scan += 2;
-            continue;
-          }
-          scan++;
-        }
-
-        if (closeIdx !== -1) {
-          if (Math.random() < 0.5) {
-            var optionalPart = rawPattern.substring(i + 2, closeIdx);
-            for (var k = 0; k < optionalPart.length; k++) {
-              format += optionalPart[k];
-              if (optionalPart[k] === '#') {
-                full += Math.floor(Math.random() * 10);
-              }
-            }
-          }
-          i = closeIdx + 2;
-          continue;
-        }
-      }
-
-      var c = rawPattern[i];
-      format += c;
-      if (c === '#') {
-        full += Math.floor(Math.random() * 10);
-      } else if (c === '_') {
-        full += String.fromCharCode(65 + Math.floor(Math.random() * 26));
-      }
-      i++;
-    }
-
-    var idx = 0;
-    var out = "";
-    for (var j = 0; j < format.length; j++) {
-      if (format[j] === '#' || format[j] === '_') {
-        out += (idx < full.length) ? full[idx] : '';
-        idx++;
-      } else {
-        out += format[j];
-      }
-    }
-    window.__phoneNumber = out;
+    window.__randomPhrase = phrases.length
+      ? phrases[Math.floor(Math.random() * phrases.length)]
+      : "";
 
     window.__zoom = 1;
     window.__panX = 0;
@@ -129,7 +51,6 @@
     window.__pinBase = null;
     window.onMapReady = undefined;
 
-    // --- Highlight field validation ---
     var highlightRaw = "{{Highlight}}".trim().toLowerCase();
     if (highlightRaw === "") {
       window.__highlight = false;
@@ -139,15 +60,18 @@
       window.__highlight = false;
     } else {
       var errWrapper = document.getElementById('map-wrapper');
-      if (errWrapper) errWrapper.textContent = "Error: el campo Highlight debe ser 'true' o 'false' (valor recibido: '" + highlightRaw + "').";
-      throw new Error("Invalid Highlight field value: '" + highlightRaw + "'");
+      if (errWrapper) {
+        errWrapper.textContent =
+          "Error: Highlight debe ser true o false.";
+      }
+      throw new Error("Invalid Highlight value");
     }
   }
 
-  var questionEl = document.getElementById('question-text');
-  if (questionEl) questionEl.innerHTML = window.__questionDisplay;
-  var phoneEl = document.getElementById('phone-number');
-  if (phoneEl) phoneEl.textContent = window.__phoneNumber;
+  var phraseEl = document.getElementById('phrase-display');
+  if (phraseEl) {
+    phraseEl.textContent = window.__randomPhrase || "";
+  }
 
   var viewport = document.getElementById('map-viewport');
   var stage = document.getElementById('map-stage');
@@ -169,31 +93,39 @@
   var baseW = 0, baseH = 0;
   var vpDims = { w: 0, h: 0 };
 
-  function clamp(v, lo, hi) { return Math.min(Math.max(v, lo), hi); }
+  function clamp(v, lo, hi) {
+    return Math.min(Math.max(v, lo), hi);
+  }
 
   function ensurePin() {
     var pin = document.getElementById('user-pin');
+
     if (!pin) {
       pin = document.createElement('div');
       pin.id = 'user-pin';
       pin.innerHTML =
-        '<svg width="24" height="32" viewBox="0 0 24 32" xmlns="http://www.w3.org/2000/svg">' +
+        '<svg width="24" height="32" viewBox="0 0 24 32">' +
         '<path d="M12 0C5.4 0 0 5.4 0 12c0 9 12 20 12 20s12-11 12-20c0-6.6-5.4-12-12-12z" fill="#1976d2"/>' +
-        '<circle cx="12" cy="12" r="5" fill="#ffffff"/>' +
+        '<circle cx="12" cy="12" r="5" fill="#fff"/>' +
         '</svg>';
+
       viewport.appendChild(pin);
     }
+
     return pin;
   }
 
   function renderPin() {
     var pin = ensurePin();
+
     if (!window.__pinBase) {
       pin.style.display = 'none';
       return;
     }
+
     var screenX = window.__panX + window.__pinBase.x * window.__zoom;
     var screenY = window.__panY + window.__pinBase.y * window.__zoom;
+
     pin.style.left = (screenX - 12) + 'px';
     pin.style.top = (screenY - 32) + 'px';
     pin.style.display = 'block';
@@ -205,85 +137,124 @@
 
     wrapper.style.width = scaledW + 'px';
     wrapper.style.height = scaledH + 'px';
+
     var svgEl = wrapper.querySelector('svg');
+
     if (svgEl) {
       svgEl.style.width = scaledW + 'px';
       svgEl.style.height = scaledH + 'px';
     }
 
-    window.__panX = (scaledW <= vpDims.w) ? (vpDims.w - scaledW) / 2 : clamp(window.__panX, vpDims.w - scaledW, 0);
-    window.__panY = (scaledH <= vpDims.h) ? (vpDims.h - scaledH) / 2 : clamp(window.__panY, vpDims.h - scaledH, 0);
+    window.__panX =
+      (scaledW <= vpDims.w)
+        ? (vpDims.w - scaledW) / 2
+        : clamp(window.__panX, vpDims.w - scaledW, 0);
 
-    stage.style.transform = 'translate(' + window.__panX + 'px,' + window.__panY + 'px)';
+    window.__panY =
+      (scaledH <= vpDims.h)
+        ? (vpDims.h - scaledH) / 2
+        : clamp(window.__panY, vpDims.h - scaledH, 0);
+
+    stage.style.transform =
+      'translate(' + window.__panX + 'px,' + window.__panY + 'px)';
+
     renderPin();
   }
 
   function zoomAtPoint(newZoom, localX, localY) {
     newZoom = clamp(newZoom, 1, 4);
+
     var stageX = (localX - window.__panX) / window.__zoom;
     var stageY = (localY - window.__panY) / window.__zoom;
+
     window.__zoom = newZoom;
     window.__panX = localX - stageX * window.__zoom;
     window.__panY = localY - stageY * window.__zoom;
+
     render();
   }
 
   viewport.addEventListener('wheel', function (e) {
     e.preventDefault();
+
     var rect = viewport.getBoundingClientRect();
-    var localX = e.clientX - rect.left;
-    var localY = e.clientY - rect.top;
-    var factor = Math.exp(-e.deltaY * 0.001);
-    zoomAtPoint(window.__zoom * factor, localX, localY);
+
+    zoomAtPoint(
+      window.__zoom * Math.exp(-e.deltaY * 0.001),
+      e.clientX - rect.left,
+      e.clientY - rect.top
+    );
   }, { passive: false });
 
-  var dragging = false, dragStart = null, moved = 0;
+  var dragging = false;
+  var dragStart = null;
+  var moved = 0;
 
   viewport.addEventListener('pointerdown', function (e) {
     dragging = true;
     moved = 0;
-    dragStart = { x: e.clientX, y: e.clientY, panX: window.__panX, panY: window.__panY };
+
+    dragStart = {
+      x: e.clientX,
+      y: e.clientY,
+      panX: window.__panX,
+      panY: window.__panY
+    };
+
     viewport.classList.add('dragging');
-    try { viewport.setPointerCapture(e.pointerId); } catch (err) {}
+
+    try {
+      viewport.setPointerCapture(e.pointerId);
+    } catch (err) {}
   });
 
-  var rafPending = false;
   viewport.addEventListener('pointermove', function (e) {
     if (!dragging || !dragStart) return;
+
     var dx = e.clientX - dragStart.x;
     var dy = e.clientY - dragStart.y;
+
     moved = Math.max(moved, Math.abs(dx), Math.abs(dy));
+
     window.__panX = dragStart.panX + dx;
     window.__panY = dragStart.panY + dy;
-    if (!rafPending) {
-      rafPending = true;
-      requestAnimationFrame(function () {
-        rafPending = false;
-        render();
-      });
-    }
+
+    render();
   });
 
   function endDrag(e) {
     if (!dragging) return;
+
     dragging = false;
     viewport.classList.remove('dragging');
-    try { viewport.releasePointerCapture(e.pointerId); } catch (err) {}
+
+    try {
+      viewport.releasePointerCapture(e.pointerId);
+    } catch (err) {}
 
     if (moved < 5 && !isAnswer) {
       var rect = viewport.getBoundingClientRect();
+
       var localX = e.clientX - rect.left;
       var localY = e.clientY - rect.top;
+
       var real = document.elementFromPoint(e.clientX, e.clientY);
       var id = findRegionId(real);
 
       if (id) {
         window.selectedRegion = id;
+
         if (window.__highlight) {
           var svg = wrapper.querySelector('svg');
+
           if (svg) {
-            svg.querySelectorAll('.selected').forEach(function (elx) { elx.classList.remove('selected'); });
-            pathsForId(svg, id).forEach(function (p) { p.classList.add('selected'); });
+            svg.querySelectorAll('.selected').forEach(function (el) {
+              el.classList.remove('selected');
+            });
+
+            pathsForId(svg, id).forEach(function (p) {
+              p.classList.add('selected');
+            });
           }
         }
       }
@@ -293,10 +264,12 @@
           x: (localX - window.__panX) / window.__zoom,
           y: (localY - window.__panY) / window.__zoom
         };
+
         renderPin();
       }
     }
   }
+
   viewport.addEventListener('pointerup', endDrag);
   viewport.addEventListener('pointercancel', endDrag);
 
@@ -304,27 +277,32 @@
     .then(function (r) { return r.text(); })
     .then(function (svgText) {
       wrapper.innerHTML = svgText;
+
       var svg = wrapper.querySelector('svg');
       if (!svg) return;
 
       if (!svg.getAttribute('viewBox')) {
         var w = parseFloat(svg.getAttribute('width'));
         var h = parseFloat(svg.getAttribute('height'));
-        if (w && h) svg.setAttribute('viewBox', '0 0 ' + w + ' ' + h);
+
+        if (w && h) {
+          svg.setAttribute('viewBox', '0 0 ' + w + ' ' + h);
+        }
       }
+
       var vb = svg.getAttribute('viewBox').split(/\s+/).map(Number);
       var vbW = vb[2], vbH = vb[3];
       svg.removeAttribute('width');
       svg.removeAttribute('height');
 
-      var maxW = 1440;
-      var maxH = 810;
-      var fitScale = Math.min(maxW / vbW, maxH / vbH);
+      var fitScale = Math.min(1440 / vbW, 810 / vbH);
 
       baseW = vbW * fitScale;
       baseH = vbH * fitScale;
+
       viewport.style.width = baseW + 'px';
       viewport.style.height = baseH + 'px';
+
       vpDims.w = baseW;
       vpDims.h = baseH;
 
@@ -341,8 +319,9 @@
         window.onMapReady(svg);
       }
     })
-    .catch(function (err) {
-      wrapper.innerHTML = "Error cargando el archivo SVG.";
+    .catch(function () {
+      wrapper.innerHTML = "Error cargando SVG.";
     });
+
 })();
 </script>

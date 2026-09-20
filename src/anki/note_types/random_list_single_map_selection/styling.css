@@ -8,23 +8,21 @@
   margin-bottom: 12px;
 }
 
+.phrase-display {
+  font-size: 1.4em;
+  font-weight: bold;
+  margin-bottom: 12px;
+}
+
 #map-row {
   display: flex;
   justify-content: center;
   margin-bottom: 8px;
 }
 
-.user-pin {
-  position: absolute;
-  width: 24px;
-  height: 32px;
-  pointer-events: none;
-  z-index: 10;
-}
-
 #map-viewport {
   max-width: 1440px;
-  height: 300px; /* initial value before the SVG loads; JS overrides it */
+  height: 300px;
   overflow: hidden;
   position: relative;
   border: 1px solid #999;
@@ -34,12 +32,26 @@
   touch-action: none;
   user-select: none;
 }
+
 #map-viewport.dragging {
-  cursor: grabbing;
+cursor: grabbing;
+}
+
+#map-viewport.dragging #map-wrapper svg path {
+pointer-events: none;
 }
 
 #map-viewport.no-highlight #map-wrapper svg path:hover {
-  filter: none;
+filter: none;
+}
+
+#user-pin {
+  position: absolute;
+  width: 24px;
+  height: 32px;
+  pointer-events: none;
+  z-index: 10;
+  display: none;
 }
 
 #map-stage {
@@ -50,10 +62,6 @@
 
 #map-wrapper svg {
   display: block;
-}
-
-#map-viewport.dragging #map-wrapper svg path {
-  pointer-events: none;
 }
 
 #map-wrapper svg path {
@@ -71,11 +79,6 @@
 
 #map-wrapper svg .correct {
   fill: #4caf50 !important;
-  stroke: none;
-}
-
-#map-wrapper svg .missed {
-  fill: #ffeb3b !important;
   stroke: none;
 }
 

@@ -1,7 +1,6 @@
 <div class="question" id="question-text">{{Pregunta}}</div>
 <div class="phone-number" id="phone-number"></div>
 
-<!-- Hidden container where Anki renders the file as an <img> tag -->
 <div id="svg-source" style="display:none;">{{SvgFile}}</div>
 
 <div id="map-row">
@@ -16,8 +15,14 @@
 (function () {
   var BLACKLIST = ['doc', 'map', 'muni', 'ocean', 'defs', 'mapclip', 'cliprect', 'svg', 'map-viewport', 'map-stage', 'map-wrapper'];
 
-  function findRegionId(el) {
+  // Extra "grab" area around each line, in on-screen pixels, measured at zoom = 1.
+  // Increase this if lines are still hard to hit; decrease if nearby lines start
+  // stealing each other's clicks.
+  var HIT_TOLERANCE_PX = 12;
+
+  function findLineId(el) {
     while (el && el.nodeType === 1) {
+      if (el.dataset && el.dataset.lineId) return el.dataset.lineId;
       if (el.id && BLACKLIST.indexOf(el.id) === -1) return el.id;
       el = el.parentElement;
     }
@@ -59,66 +64,44 @@
 
     var format = "";
     var full = "";
-
     var i = 0;
     while (i < rawPattern.length) {
       if (rawPattern.substr(i, 2) === '((') {
         var depth = 1;
         var scan = i + 2;
         var closeIdx = -1;
-
         while (scan < rawPattern.length) {
-          if (rawPattern.substr(scan, 2) === '((') {
-            depth++;
-            scan += 2;
-            continue;
-          }
+          if (rawPattern.substr(scan, 2) === '((') { depth++; scan += 2; continue; }
           if (rawPattern.substr(scan, 2) === '))') {
             depth--;
-            if (depth === 0) {
-              closeIdx = scan;
-              break;
-            }
-            scan += 2;
-            continue;
+            if (depth === 0) { closeIdx = scan; break; }
+            scan += 2; continue;
           }
           scan++;
         }
-
         if (closeIdx !== -1) {
           if (Math.random() < 0.5) {
             var optionalPart = rawPattern.substring(i + 2, closeIdx);
             for (var k = 0; k < optionalPart.length; k++) {
               format += optionalPart[k];
-              if (optionalPart[k] === '#') {
-                full += Math.floor(Math.random() * 10);
-              }
+              if (optionalPart[k] === '#') full += Math.floor(Math.random() * 10);
             }
           }
           i = closeIdx + 2;
           continue;
         }
       }
-
       var c = rawPattern[i];
       format += c;
-      if (c === '#') {
-        full += Math.floor(Math.random() * 10);
-      } else if (c === '_') {
-        full += String.fromCharCode(65 + Math.floor(Math.random() * 26));
-      }
+      if (c === '#') full += Math.floor(Math.random() * 10);
+      else if (c === '_') full += String.fromCharCode(65 + Math.floor(Math.random() * 26));
       i++;
     }
 
-    var idx = 0;
-    var out = "";
+    var idx = 0, out = "";
     for (var j = 0; j < format.length; j++) {
-      if (format[j] === '#' || format[j] === '_') {
-        out += (idx < full.length) ? full[idx] : '';
-        idx++;
-      } else {
-        out += format[j];
-      }
+      if (format[j] === '#' || format[j] === '_') { out += (idx < full.length) ? full[idx] : ''; idx++; }
+      else out += format[j];
     }
     window.__phoneNumber = out;
 
@@ -126,22 +109,7 @@
     window.__panX = 0;
     window.__panY = 0;
     window.selectedRegion = undefined;
-    window.__pinBase = null;
     window.onMapReady = undefined;
-
-    // --- Highlight field validation ---
-    var highlightRaw = "{{Highlight}}".trim().toLowerCase();
-    if (highlightRaw === "") {
-      window.__highlight = false;
-    } else if (highlightRaw === "true") {
-      window.__highlight = true;
-    } else if (highlightRaw === "false") {
-      window.__highlight = false;
-    } else {
-      var errWrapper = document.getElementById('map-wrapper');
-      if (errWrapper) errWrapper.textContent = "Error: el campo Highlight debe ser 'true' o 'false' (valor recibido: '" + highlightRaw + "').";
-      throw new Error("Invalid Highlight field value: '" + highlightRaw + "'");
-    }
   }
 
   var questionEl = document.getElementById('question-text');
@@ -153,69 +121,28 @@
   var stage = document.getElementById('map-stage');
   var wrapper = document.getElementById('map-wrapper');
   var svgSource = document.getElementById('svg-source');
-
   if (!wrapper || !viewport || !stage || !svgSource) return;
-
-  viewport.classList.toggle('no-highlight', window.__highlight === false);
 
   var imgEl = svgSource.querySelector('img');
   var svgUrl = imgEl ? imgEl.getAttribute('src') : null;
-
-  if (!svgUrl) {
-    wrapper.innerHTML = "Error: No se encontró el archivo SVG.";
-    return;
-  }
+  if (!svgUrl) { wrapper.innerHTML = "Error: No se encontró el archivo SVG."; return; }
 
   var baseW = 0, baseH = 0;
   var vpDims = { w: 0, h: 0 };
+  var fitScale = 1;
 
   function clamp(v, lo, hi) { return Math.min(Math.max(v, lo), hi); }
-
-  function ensurePin() {
-    var pin = document.getElementById('user-pin');
-    if (!pin) {
-      pin = document.createElement('div');
-      pin.id = 'user-pin';
-      pin.innerHTML =
-        '<svg width="24" height="32" viewBox="0 0 24 32" xmlns="http://www.w3.org/2000/svg">' +
-        '<path d="M12 0C5.4 0 0 5.4 0 12c0 9 12 20 12 20s12-11 12-20c0-6.6-5.4-12-12-12z" fill="#1976d2"/>' +
-        '<circle cx="12" cy="12" r="5" fill="#ffffff"/>' +
-        '</svg>';
-      viewport.appendChild(pin);
-    }
-    return pin;
-  }
-
-  function renderPin() {
-    var pin = ensurePin();
-    if (!window.__pinBase) {
-      pin.style.display = 'none';
-      return;
-    }
-    var screenX = window.__panX + window.__pinBase.x * window.__zoom;
-    var screenY = window.__panY + window.__pinBase.y * window.__zoom;
-    pin.style.left = (screenX - 12) + 'px';
-    pin.style.top = (screenY - 32) + 'px';
-    pin.style.display = 'block';
-  }
 
   function render() {
     var scaledW = baseW * window.__zoom;
     var scaledH = baseH * window.__zoom;
-
     wrapper.style.width = scaledW + 'px';
     wrapper.style.height = scaledH + 'px';
     var svgEl = wrapper.querySelector('svg');
-    if (svgEl) {
-      svgEl.style.width = scaledW + 'px';
-      svgEl.style.height = scaledH + 'px';
-    }
-
+    if (svgEl) { svgEl.style.width = scaledW + 'px'; svgEl.style.height = scaledH + 'px'; }
     window.__panX = (scaledW <= vpDims.w) ? (vpDims.w - scaledW) / 2 : clamp(window.__panX, vpDims.w - scaledW, 0);
     window.__panY = (scaledH <= vpDims.h) ? (vpDims.h - scaledH) / 2 : clamp(window.__panY, vpDims.h - scaledH, 0);
-
     stage.style.transform = 'translate(' + window.__panX + 'px,' + window.__panY + 'px)';
-    renderPin();
   }
 
   function zoomAtPoint(newZoom, localX, localY) {
@@ -231,13 +158,57 @@
   viewport.addEventListener('wheel', function (e) {
     e.preventDefault();
     var rect = viewport.getBoundingClientRect();
-    var localX = e.clientX - rect.left;
-    var localY = e.clientY - rect.top;
-    var factor = Math.exp(-e.deltaY * 0.001);
-    zoomAtPoint(window.__zoom * factor, localX, localY);
+    zoomAtPoint(window.__zoom * Math.exp(-e.deltaY * 0.001), e.clientX - rect.left, e.clientY - rect.top);
   }, { passive: false });
 
+  // Build invisible, fat "hit" clones on top of each thin line so they're easy to click.
+  function buildHitPaths(svg) {
+    var allPaths = svg.querySelectorAll('path');
+    allPaths.forEach(function (p) {
+      // Respect anything the SVG deliberately made non-interactive
+      if (getComputedStyle(p).pointerEvents === 'none') return;
+
+      // Resolve this path's logical id the same way findLineId does at click time
+      var id = null;
+      var el = p;
+      while (el && el.nodeType === 1) {
+        if (el.id && BLACKLIST.indexOf(el.id) === -1) { id = el.id; break; }
+        el = el.parentElement;
+      }
+      if (!id) return; // no id anywhere up the chain = not selectable
+
+      var cs = getComputedStyle(p);
+      var baseWidth = parseFloat(p.getAttribute('stroke-width')) || parseFloat(cs.strokeWidth) || 1.25;
+      p.style.setProperty('--sw', baseWidth);
+
+      if (isAnswer) return;
+
+      var hitWidth = baseWidth + (2 * HIT_TOLERANCE_PX) / fitScale;
+      var clone = p.cloneNode(false);
+      clone.removeAttribute('id');
+      clone.removeAttribute('class');
+      clone.removeAttribute('style'); // don't inherit pointer-events:none from source
+      clone.setAttribute('data-line-id', id);
+      clone.setAttribute('fill', 'none');
+      clone.setAttribute('stroke', '#000');
+      clone.setAttribute('stroke-opacity', '0');
+      clone.setAttribute('stroke-width', hitWidth);
+      clone.setAttribute('stroke-linecap', 'round');
+      clone.classList.add('hit-path');
+      p.parentNode.insertBefore(clone, p.nextSibling);
+    });
+  }
+
   var dragging = false, dragStart = null, moved = 0;
+  var hoveredId = null;
+
+  function setHover(id) {
+    if (id === hoveredId) return;
+    var svg = wrapper.querySelector('svg');
+    if (hoveredId) pathsForId(svg, hoveredId).forEach(function (p) { p.classList.remove('hover-line'); });
+    hoveredId = id;
+    if (hoveredId) pathsForId(svg, hoveredId).forEach(function (p) { p.classList.add('hover-line'); });
+  }
 
   viewport.addEventListener('pointerdown', function (e) {
     dragging = true;
@@ -249,19 +220,18 @@
 
   var rafPending = false;
   viewport.addEventListener('pointermove', function (e) {
-    if (!dragging || !dragStart) return;
-    var dx = e.clientX - dragStart.x;
-    var dy = e.clientY - dragStart.y;
-    moved = Math.max(moved, Math.abs(dx), Math.abs(dy));
-    window.__panX = dragStart.panX + dx;
-    window.__panY = dragStart.panY + dy;
-    if (!rafPending) {
-      rafPending = true;
-      requestAnimationFrame(function () {
-        rafPending = false;
-        render();
-      });
+    if (dragging && dragStart) {
+      var dx = e.clientX - dragStart.x, dy = e.clientY - dragStart.y;
+      moved = Math.max(moved, Math.abs(dx), Math.abs(dy));
+      window.__panX = dragStart.panX + dx;
+      window.__panY = dragStart.panY + dy;
+      if (!rafPending) {
+        rafPending = true;
+        requestAnimationFrame(function () { rafPending = false; render(); });
+      }
+      return;
     }
+    if (!isAnswer) setHover(findLineId(document.elementFromPoint(e.clientX, e.clientY)));
   });
 
   function endDrag(e) {
@@ -271,78 +241,52 @@
     try { viewport.releasePointerCapture(e.pointerId); } catch (err) {}
 
     if (moved < 5 && !isAnswer) {
-      var rect = viewport.getBoundingClientRect();
-      var localX = e.clientX - rect.left;
-      var localY = e.clientY - rect.top;
-      var real = document.elementFromPoint(e.clientX, e.clientY);
-      var id = findRegionId(real);
-
+      var id = findLineId(document.elementFromPoint(e.clientX, e.clientY));
       if (id) {
         window.selectedRegion = id;
-        if (window.__highlight) {
-          var svg = wrapper.querySelector('svg');
-          if (svg) {
-            svg.querySelectorAll('.selected').forEach(function (elx) { elx.classList.remove('selected'); });
-            pathsForId(svg, id).forEach(function (p) { p.classList.add('selected'); });
-          }
-        }
-      }
-
-      if (!window.__highlight) {
-        window.__pinBase = {
-          x: (localX - window.__panX) / window.__zoom,
-          y: (localY - window.__panY) / window.__zoom
-        };
-        renderPin();
+        var svg = wrapper.querySelector('svg');
+        svg.querySelectorAll('.selected').forEach(function (elx) { elx.classList.remove('selected'); });
+        pathsForId(svg, id).forEach(function (p) { p.classList.add('selected'); });
       }
     }
   }
   viewport.addEventListener('pointerup', endDrag);
   viewport.addEventListener('pointercancel', endDrag);
+  viewport.addEventListener('pointerleave', function () { setHover(null); });
 
-  fetch(svgUrl)
-    .then(function (r) { return r.text(); })
-    .then(function (svgText) {
-      wrapper.innerHTML = svgText;
-      var svg = wrapper.querySelector('svg');
-      if (!svg) return;
+  fetch(svgUrl).then(function (r) { return r.text(); }).then(function (svgText) {
+    wrapper.innerHTML = svgText;
+    var svg = wrapper.querySelector('svg');
+    if (!svg) return;
 
-      if (!svg.getAttribute('viewBox')) {
-        var w = parseFloat(svg.getAttribute('width'));
-        var h = parseFloat(svg.getAttribute('height'));
-        if (w && h) svg.setAttribute('viewBox', '0 0 ' + w + ' ' + h);
-      }
-      var vb = svg.getAttribute('viewBox').split(/\s+/).map(Number);
-      var vbW = vb[2], vbH = vb[3];
-      svg.removeAttribute('width');
-      svg.removeAttribute('height');
+    if (!svg.getAttribute('viewBox')) {
+      var w = parseFloat(svg.getAttribute('width'));
+      var h = parseFloat(svg.getAttribute('height'));
+      if (w && h) svg.setAttribute('viewBox', '0 0 ' + w + ' ' + h);
+    }
+    var vb = svg.getAttribute('viewBox').split(/\s+/).map(Number);
+    var vbW = vb[2], vbH = vb[3];
+    svg.removeAttribute('width');
+    svg.removeAttribute('height');
 
-      var maxW = 1440;
-      var maxH = 810;
-      var fitScale = Math.min(maxW / vbW, maxH / vbH);
+    var maxW = 1440, maxH = 810;
+    fitScale = Math.min(maxW / vbW, maxH / vbH);
+    baseW = vbW * fitScale;
+    baseH = vbH * fitScale;
+    viewport.style.width = baseW + 'px';
+    viewport.style.height = baseH + 'px';
+    vpDims.w = baseW; vpDims.h = baseH;
+    svg.style.width = baseW + 'px';
+    svg.style.height = baseH + 'px';
 
-      baseW = vbW * fitScale;
-      baseH = vbH * fitScale;
-      viewport.style.width = baseW + 'px';
-      viewport.style.height = baseH + 'px';
-      vpDims.w = baseW;
-      vpDims.h = baseH;
+    buildHitPaths(svg);
+    render();
 
-      svg.style.width = baseW + 'px';
-      svg.style.height = baseH + 'px';
+    if (isAnswer) {
+      svg.querySelectorAll('path').forEach(function (p) { p.style.pointerEvents = 'none'; });
+    }
 
-      render();
-
-      if (isAnswer) {
-        svg.querySelectorAll('path').forEach(function (p) { p.style.pointerEvents = 'none'; });
-      }
-
-      if (typeof window.onMapReady === 'function') {
-        window.onMapReady(svg);
-      }
-    })
-    .catch(function (err) {
-      wrapper.innerHTML = "Error cargando el archivo SVG.";
-    });
+    if (typeof window.onMapReady === 'function') window.onMapReady(svg);
+  }).catch(function () { wrapper.innerHTML = "Error cargando el archivo SVG."; });
 })();
 </script>

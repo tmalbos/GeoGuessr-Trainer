@@ -1,4 +1,5 @@
-<div class="question" id="question-text"></div>
+<div class="question" id="question-text">{{Pregunta}}</div>
+<div id="svg-source" style="display:none;">{{SvgFile}}</div>
 
 <div id="map-row">
   <div id="map-viewport">
@@ -36,21 +37,77 @@
     window.__panX = 0;
     window.__panY = 0;
     window.selectedRegions = [];
+    window.__pinBases = {};
     window.onMapReady = undefined;
+
+    var highlightRaw = "{{Highlight}}".trim().toLowerCase();
+    if (highlightRaw === "") {
+      window.__highlight = false;
+    } else if (highlightRaw === "true") {
+      window.__highlight = true;
+    } else if (highlightRaw === "false") {
+      window.__highlight = false;
+    } else {
+      var errWrapper = document.getElementById('map-wrapper');
+      if (errWrapper) errWrapper.textContent = "Error: el campo Highlight debe ser 'true' o 'false' (valor recibido: '" + highlightRaw + "').";
+      throw new Error("Invalid Highlight field value: '" + highlightRaw + "'");
+    }
   }
 
   var questionEl = document.getElementById('question-text');
-  if (questionEl) questionEl.textContent = "{{text:Pregunta}}";
 
   var viewport = document.getElementById('map-viewport');
   var stage = document.getElementById('map-stage');
   var wrapper = document.getElementById('map-wrapper');
-  if (!wrapper || !viewport || !stage) return;
+  var svgSource = document.getElementById('svg-source');
+  if (!wrapper || !viewport || !stage || !svgSource) return;
+
+  viewport.classList.toggle('no-highlight', window.__highlight === false);
+
+  var imgEl = svgSource.querySelector('img');
+  var svgUrl = imgEl ? imgEl.getAttribute('src') : null;
+
+  if (!svgUrl) {
+    wrapper.innerHTML = "Error: No se encontró el archivo SVG.";
+    return;
+  }
 
   var baseW = 0, baseH = 0;
   var vpDims = { w: 0, h: 0 };
 
   function clamp(v, lo, hi) { return Math.min(Math.max(v, lo), hi); }
+
+  function pinSvgMarkup() {
+    return '<svg width="24" height="32" viewBox="0 0 24 32" xmlns="http://www.w3.org/2000/svg">' +
+      '<path d="M12 0C5.4 0 0 5.4 0 12c0 9 12 20 12 20s12-11 12-20c0-6.6-5.4-12-12-12z" fill="#1976d2"/>' +
+      '<circle cx="12" cy="12" r="5" fill="#ffffff"/>' +
+      '</svg>';
+  }
+
+  function renderPins() {
+    var existing = viewport.querySelectorAll('.user-pin');
+    existing.forEach(function (pinEl) {
+      var rid = pinEl.getAttribute('data-region-id');
+      if (!window.__pinBases[rid]) pinEl.remove();
+    });
+
+    Object.keys(window.__pinBases).forEach(function (rid) {
+      var base = window.__pinBases[rid];
+      var pin = viewport.querySelector('.user-pin[data-region-id="' + rid + '"]');
+      if (!pin) {
+        pin = document.createElement('div');
+        pin.className = 'user-pin';
+        pin.setAttribute('data-region-id', rid);
+        pin.innerHTML = pinSvgMarkup();
+        viewport.appendChild(pin);
+      }
+      var screenX = window.__panX + base.x * window.__zoom;
+      var screenY = window.__panY + base.y * window.__zoom;
+      pin.style.left = (screenX - 12) + 'px';
+      pin.style.top = (screenY - 32) + 'px';
+      pin.style.display = 'block';
+    });
+  }
 
   function render() {
     var scaledW = baseW * window.__zoom;
@@ -68,6 +125,7 @@
     window.__panY = (scaledH <= vpDims.h) ? (vpDims.h - scaledH) / 2 : clamp(window.__panY, vpDims.h - scaledH, 0);
 
     stage.style.transform = 'translate(' + window.__panX + 'px,' + window.__panY + 'px)';
+    renderPins();
   }
 
   function zoomAtPoint(newZoom, localX, localY) {
@@ -123,25 +181,45 @@
     try { viewport.releasePointerCapture(e.pointerId); } catch (err) {}
 
     if (moved < 5 && !isAnswer) {
+      var rect = viewport.getBoundingClientRect();
+      var localX = e.clientX - rect.left;
+      var localY = e.clientY - rect.top;
       var real = document.elementFromPoint(e.clientX, e.clientY);
       var id = findRegionId(real);
+
       if (id) {
         var svg = wrapper.querySelector('svg');
         var idx = window.selectedRegions.indexOf(id);
+
         if (idx === -1) {
           window.selectedRegions.push(id);
-          if (svg) pathsForId(svg, id).forEach(function (p) { p.classList.add('selected'); });
+          if (window.__highlight && svg) {
+            pathsForId(svg, id).forEach(function (p) { p.classList.add('selected'); });
+          }
+          if (!window.__highlight) {
+            window.__pinBases[id] = {
+              x: (localX - window.__panX) / window.__zoom,
+              y: (localY - window.__panY) / window.__zoom
+            };
+          }
         } else {
           window.selectedRegions.splice(idx, 1);
-          if (svg) pathsForId(svg, id).forEach(function (p) { p.classList.remove('selected'); });
+          if (window.__highlight && svg) {
+            pathsForId(svg, id).forEach(function (p) { p.classList.remove('selected'); });
+          }
+          if (!window.__highlight) {
+            delete window.__pinBases[id];
+          }
         }
+
+        if (!window.__highlight) renderPins();
       }
     }
   }
   viewport.addEventListener('pointerup', endDrag);
   viewport.addEventListener('pointercancel', endDrag);
 
-  fetch('{{text:ArchivoSVG}}')
+  fetch(svgUrl)
     .then(function (r) { return r.text(); })
     .then(function (svgText) {
       wrapper.innerHTML = svgText;

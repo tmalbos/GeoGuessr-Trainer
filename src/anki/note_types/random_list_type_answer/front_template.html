@@ -1,0 +1,29 @@
+<div class="question" id="question-text"></div>
+<div class="phrase-display" id="phrase-display"></div>
+<div class="typebox" id="typebox">{{type:Respuesta}}</div>
+
+<script>
+(function () {
+  var questionDiv = document.getElementById('question-text');
+  var questionRaw = "{{text:Pregunta}}";
+  questionDiv.textContent = questionRaw.replace(/\{[^{}]*\}/, "").trim();
+
+  var isAnswer = !!document.getElementById('answer');
+
+  if (!isAnswer) {
+    var phrases = `{{Phrases}}`
+      .split("<br>")
+      .map(function (s) { return s.trim(); })
+      .filter(function (s) { return s.length > 0; });
+
+    window.__randomPhrase = phrases.length
+      ? phrases[Math.floor(Math.random() * phrases.length)]
+      : "";
+  }
+
+  var phraseEl = document.getElementById('phrase-display');
+  if (phraseEl) {
+    phraseEl.textContent = window.__randomPhrase || "";
+  }
+  })();
+</script>

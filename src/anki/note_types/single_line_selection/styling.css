@@ -1,0 +1,51 @@
+.card { text-align: center; font-family: arial; }
+.question { font-size: 1.1em; margin-bottom: 12px; }
+.phone-number { font-size: 1.4em; font-weight: bold; letter-spacing: 1px; margin-bottom: 12px; }
+
+#map-row { display: flex; justify-content: center; margin-bottom: 8px; }
+
+#map-viewport {
+  max-width: 1440px;
+  height: 300px;
+  overflow: hidden;
+  position: relative;
+  border: 1px solid #999;
+  border-radius: 8px;
+  background: #1e1e1e;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+#map-viewport.dragging { cursor: grabbing; }
+
+#map-stage { position: absolute; top: 0; left: 0; }
+#map-wrapper svg { display: block; }
+#map-viewport.dragging #map-wrapper svg path { pointer-events: none; }
+
+/* Invisible thick strokes used only to make thin roads easy to click */
+#map-wrapper svg path.hit-path {
+  cursor: pointer;
+  pointer-events: stroke;
+}
+
+/* Hover feedback on the real line, not the invisible hit-path */
+#map-wrapper svg path.hover-line {
+  stroke-width: calc(var(--sw) * 1.3) !important;
+  filter: brightness(1.25);
+}
+
+/* Selection / grading colors applied to the stroke, never a fill */
+#map-wrapper svg path.selected {
+  stroke: #AB47BC !important;
+  stroke-width: calc(var(--sw) * 2.5) !important;
+}
+#map-wrapper svg path.correct {
+  stroke: #4caf50 !important;
+  stroke-width: calc(var(--sw) * 2.5) !important;
+}
+#map-wrapper svg path.wrong {
+  stroke: #e53935 !important;
+  stroke-width: calc(var(--sw) * 2.5) !important;
+}
+
+.answer-text { margin-top: 10px; font-size: 1.1em; }

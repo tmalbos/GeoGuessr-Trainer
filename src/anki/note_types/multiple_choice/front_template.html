@@ -9,10 +9,10 @@
     var indicesCorrectas = ("{{Respuestas}}".match(/\d+/g) || []).map(function(numero) {
         return parseInt(numero, 10) - 1;
     });
-
+    
     var textoOpciones = `{{Opciones}}`.replace(/<br\s*\/?>/gi, "\\n");
-    var lineasOpciones = textoOpciones.split("\\n").map(function(linea) {
-        return linea.trim();
+    var lineasOpciones = textoOpciones.split("\\n").map(function(linea) { 
+        return linea.trim(); 
     });
 
     var arregloOpciones = lineasOpciones.map(function(html, indice) {
@@ -27,7 +27,7 @@
     document.getElementById("opciones-html").style.gridTemplateColumns = `repeat(${cantidadColumnas}, 1fr)`;
 
     var campoMezclar = "{{Mezclar}}".trim().toLowerCase();
-
+    
     if (campoMezclar !== "false") {
         for (let i = arregloOpciones.length - 1; i > 0; i--) {
             let j = Math.floor(Math.random() * (i + 1));
@@ -37,8 +37,8 @@
         }
     }
 
-    var ordenGuardar = arregloOpciones.map(function(opcion) {
-        return opcion.indiceOriginal;
+    var ordenGuardar = arregloOpciones.map(function(opcion) { 
+        return opcion.indiceOriginal; 
     });
     sessionStorage.setItem("orden", JSON.stringify(ordenGuardar));
 
