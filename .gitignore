@@ -1,6 +1,7 @@
 .idea/*
 .vscode/*
 Ecoregions2017/*
+maps/*
 venv/*
 *.egg-info/*
 __pycache__/
