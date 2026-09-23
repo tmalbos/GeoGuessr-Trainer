@@ -9,10 +9,9 @@ produces strings -- it doesn't parse files or do spatial analysis itself.
 """
 
 from constants import (
-    BACKGROUND_COLOR,
     BORDER_COLOR,
+    COUNTRIES_COLORS,
     GLACIER_COLOR,
-    LAND_COLOR,
     NATIONAL_STROKE_WIDTH,
     PRECISION,
     PROVINCE_DASHARRAY,
@@ -98,7 +97,7 @@ def province_edge_paths(pair_arcs, decoded_arcs, lon0, cos_lat0, scale, off_x, o
     return results
 
 
-def style_attrs(level) -> str:
+def style_attrs(level, country: str | None = None) -> str:
     if level == "national":
         return f'style="opacity: 0.75;stroke: {BORDER_COLOR};stroke-width: {NATIONAL_STROKE_WIDTH};fill: none;pointer-events: none;"'
     if level == "province":
@@ -106,14 +105,12 @@ def style_attrs(level) -> str:
     if level == "glaciers":
         return f'style="fill: {GLACIER_COLOR};pointer-events: none;"'
     if level == "lakes":
-        return f'style="fill: {BACKGROUND_COLOR};pointer-events: none;"'
+        return f'style="fill: {COUNTRIES_COLORS[country]["water_color"]};pointer-events: none;"'
     if level == "roads":
         return f'style="stroke: {ROAD_COLOR};stroke-width: {ROAD_STROKE_WIDTH};fill: none;pointer-events: none;"'
     if level == "points":
         return 'style="fill: none;stroke: none;pointer-events: none;"'
-    if level == "areacodes":
-        return 'style="fill: transparent;stroke: none;pointer-events: all;"'
-    return f'style="stroke: {LAND_COLOR};stroke-width: 1;fill: {LAND_COLOR};"'
+    return f'style="stroke: {COUNTRIES_COLORS[country]["land_color"]};stroke-width: 1;fill: {COUNTRIES_COLORS[country]["land_color"]};"'
 
 
 def render_national(geom, country_name, lon0, cos_lat0, scale, off_x, off_y) -> str:
@@ -123,7 +120,7 @@ def render_national(geom, country_name, lon0, cos_lat0, scale, off_x, off_y) -> 
     return f'<g id="Country" {style_attrs("national")}>{path}</g>'
 
 
-def render_fine_group(feats, name_chains, group_id, lon0, cos_lat0, scale, off_x, off_y):
+def render_fine_group(country, feats, name_chains, group_id, lon0, cos_lat0, scale, off_x, off_y):
     if not feats:
         return ""
     vector_style = ' style="vector-effect: non-scaling-stroke;"'
@@ -139,7 +136,7 @@ def render_fine_group(feats, name_chains, group_id, lon0, cos_lat0, scale, off_x
         d = geometry_to_path_d(feat["geometry"], lon0, cos_lat0, scale, off_x, off_y)
         fid = hierarchical_name_id(name_chains[i], str(i))
         paths.append(f'<path id="{fid}"{vector_style} d="{d}"/>')
-    return f'<g id="{group_id}" {style_attrs("land")}>' + "".join(paths) + "</g>"
+    return f'<g id="{group_id}" {style_attrs("land", country)}>' + "".join(paths) + "</g>"
 
 
 def render_province_group(pair_arcs, decoded_arcs, group_id, lon0, cos_lat0, scale, off_x, off_y):
@@ -153,26 +150,6 @@ def render_province_group(pair_arcs, decoded_arcs, group_id, lon0, cos_lat0, sca
         fid = f"{slugify(name_a)}.{slugify(name_b)}.Border"
         paths.append(f'<path id="{fid}"{vector_style} d="{d}"/>')
     return f'<g id="{group_id}" {style_attrs("province")}>' + "".join(paths) + "</g>"
-
-
-def render_ecoregions_group(clipped_pairs, group_id, lon0, cos_lat0, scale, off_x, off_y):
-    if not clipped_pairs:
-        return ""
-    vector_style = ' style="vector-effect: non-scaling-stroke;"'
-
-    order = sorted(
-        range(len(clipped_pairs)),
-        key=lambda i: unidecode(get_feature_name(clipped_pairs[i][0]) or "").lower(),
-    )
-
-    paths = []
-    for rank, i in enumerate(order):
-        feat, geom = clipped_pairs[i]
-        d = geometry_to_path_d(clean_to_geojson_dict(geom), lon0, cos_lat0, scale, off_x, off_y)
-        name = get_feature_name(feat)
-        fid = slugify(name) if name else f"Ecoregion_{rank}"
-        paths.append(f'<path id="{fid}"{vector_style} d="{d}"/>')
-    return f'<g id="{group_id}" {style_attrs("land")}>' + "".join(paths) + "</g>"
 
 
 def render_glaciers_group(clipped_pairs, group_id, lon0, cos_lat0, scale, off_x, off_y):
@@ -195,7 +172,7 @@ def render_glaciers_group(clipped_pairs, group_id, lon0, cos_lat0, scale, off_x,
     return f'<g id="{group_id}" {style_attrs("glaciers")}>' + "".join(paths) + "</g>"
 
 
-def render_lakes_group(clipped_pairs, group_id, lon0, cos_lat0, scale, off_x, off_y):
+def render_lakes_group(country, clipped_pairs, group_id, lon0, cos_lat0, scale, off_x, off_y):
     if not clipped_pairs:
         return ""
     vector_style = ' style="vector-effect: non-scaling-stroke;"'
@@ -212,7 +189,7 @@ def render_lakes_group(clipped_pairs, group_id, lon0, cos_lat0, scale, off_x, of
         name = get_feature_name(feat)
         fid = slugify(name) if name else f"Lake_{rank}"
         paths.append(f'<path id="{fid}"{vector_style} d="{d}"/>')
-    return f'<g id="{group_id}" {style_attrs("lakes")}>' + "".join(paths) + "</g>"
+    return f'<g id="{group_id}" {style_attrs("lakes", country)}>' + "".join(paths) + "</g>"
 
 
 def render_roads_group(clipped_pairs, group_id, lon0, cos_lat0, scale, off_x, off_y):
@@ -293,7 +270,7 @@ def shapely_geom_to_path_d(geom):
     return " ".join(parts)
 
 
-def render_area_codes_group(area_code_geoms, group_id, style_level="areacodes"):
+def render_area_codes_group(country, area_code_geoms, group_id):
     """Render one <path> per group -- the union of every geometry that
     shares that group name (see voronoi.build_area_code_geometries and
     grouping.build_land_group_geometries). Geometries arrive already
@@ -313,4 +290,4 @@ def render_area_codes_group(area_code_geoms, group_id, style_level="areacodes"):
             continue
         fid = slugify(str(area_code))
         paths.append(f'<path id="{fid}"{vector_style} d="{d}"/>')
-    return f'<g id="{group_id}" {style_attrs(style_level)}>' + "".join(paths) + "</g>"
+    return f'<g id="{group_id}" {style_attrs("land", country)}>' + "".join(paths) + "</g>"

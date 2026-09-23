@@ -16,10 +16,10 @@ v2 design:
     shared-edge arcs of the fine file's own topology.
   - --group CSV (GroupName,Level1,...,LevelN) turns the Land layer into one
     path per group.
-
-This file only does argument parsing and orchestration. Each pipeline stage
-is its own small function; the actual logic lives in topo_io, geometry,
-grouping, voronoi and svg_render.
+  - --overlay-polygons loads any other TopoJSON that fills the national
+    area with its own polygons (ecoregions, area codes, or anything else
+    of that shape), optionally grouped by --overlay-field, and renders it
+    as its own "Overlay" layer.
 """
 
 import argparse
@@ -31,7 +31,14 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
-from constants import BACKGROUND_COLOR, HEIGHT, MOSTLY_COVERS_THRESHOLD, PADDING, PRECISION
+from constants import (
+    COUNTRIES_COLORS,
+    HEIGHT,
+    MOSTLY_COVERS_THRESHOLD,
+    OVERLAY_GAP_POINT_SPACING,
+    PADDING,
+    PRECISION,
+)
 from geometry import (
     bounds_overlap,
     build_valid_geoms,
@@ -48,11 +55,11 @@ from geometry import (
     prune_small_edge_parts,
 )
 from grouping import build_land_group_geometries
+from overlay_fill import fill_overlay_gaps
 from shapely.ops import unary_union
 from svg_render import (
     project_point,
     render_area_codes_group,
-    render_ecoregions_group,
     render_fine_group,
     render_glaciers_group,
     render_lakes_group,
@@ -74,7 +81,7 @@ from topo_io import (
     load_group_csv,
     load_raw_arc_features,
 )
-from voronoi import build_area_code_geometries, group_polygons_by_area_code, project_geometry
+from voronoi import build_area_code_geometries, project_geometry
 
 # ---------------------------------------------------------------------------
 # Data containers
@@ -113,7 +120,6 @@ class Projection:
 
 @dataclass
 class Overlays:
-    ecoregions: list = field(default_factory=list)
     glaciers: list = field(default_factory=list)
     lakes: list = field(default_factory=list)
     roads: list = field(default_factory=list)
@@ -133,15 +139,6 @@ class OverlaySpec:
     feminine: bool = False
 
 
-ECOREGIONS = OverlaySpec(
-    "ecorregiones",
-    "ecorregiones",
-    "ecorregión",
-    load_features,
-    geometry_bounds,
-    clip_features_to_national,
-    feminine=True,
-)
 GLACIERS = OverlaySpec(
     "glaciares",
     "glaciares",
@@ -197,12 +194,6 @@ def build_parser():
         help="Fraction (0-1) of a finer polygon's own area that must lie inside a coarser polygon to count as belonging to it. Default 0.5.",
     )
     ap.add_argument(
-        "--ecoregions",
-        default=None,
-        metavar="PATH",
-        help="Optional ecoregions TopoJSON. Each ecoregion polygon is clipped to the national border and added as its own 'Ecoregions' layer in the output SVG, filled with the land color.",
-    )
-    ap.add_argument(
         "--glaciers",
         default=None,
         metavar="PATH",
@@ -235,17 +226,23 @@ def build_parser():
         help="Optional world roads GeoJSON (plain GeoJSON, not TopoJSON, LineString/MultiLineString features rather than polygons). Each road is clipped to the national border and added as its own 'Roads' layer in the output SVG, stroked (no fill) in road color and non-clickable, rendered on top of every other layer.",
     )
     ap.add_argument(
-        "--area-code-polygons",
+        "--overlay-polygons",
         default=None,
         metavar="PATH",
-        help="Optional area-code boundaries TopoJSON, as actual polygons. Expanded via a bounded polygon-Voronoi so misalignment with the admin border becomes gap-filling/trimming at the true equidistant seam -- never a gap, never a spike -- then clipped to the national border and added as the 'AreaCodes' layer. Mutually exclusive with --group.",
+        help="Optional TopoJSON of polygons that fill (or mostly fill) the national area -- ecoregions, "
+        "area codes, or anything else of that shape. If --overlay-field names a property, features "
+        "sharing a value are unioned into one path per value; otherwise each feature becomes its own "
+        "path. Added as its own 'Overlay' layer. Mutually exclusive with --group.",
     )
     ap.add_argument(
-        "--area-code-field",
-        default="AREA_CODE",
-        metavar="FIELD",
-        help="Property name in --area-code-polygons holding each feature's area code. Default: AREA_CODE.",
+        "--overlay-field",
+        default=None,
+        metavar="NAME",
+        help="Display name for the --overlay-polygons layer in the output SVG (e.g. 'Ecoregions', "
+        "'AreaCodes'). Purely cosmetic -- has no effect on how features are grouped. Default: "
+        "'Overlay'.",
     )
+    ap.parse_args() if False else None  # placeholder, replaced below
     return ap
 
 
@@ -254,8 +251,8 @@ def validate_args(args) -> None:
         sys.exit(
             f"Error: fine_level ({args.fine_level}) debe ser >= coarse_level ({args.coarse_level})."
         )
-    if args.area_code_polygons and args.group:
-        sys.exit("Error: --area-code-polygons y --group no pueden usarse juntos.")
+    if args.overlay_polygons and args.group:
+        sys.exit("Error: --overlay-polygons y --group no pueden usarse juntos.")
 
 
 # ---------------------------------------------------------------------------
@@ -417,7 +414,7 @@ def load_admin(args, levels, country_dir) -> Admin:
 
 
 # ---------------------------------------------------------------------------
-# Overlays (ecoregions, glaciers, lakes, roads, points)
+# Overlays (glaciers, lakes, roads, points)
 # ---------------------------------------------------------------------------
 
 
@@ -485,8 +482,6 @@ def load_point_pairs(args, admin, group_mode, group_rows):
 def load_overlays(args, admin, group_mode, group_rows) -> Overlays:
     union = admin.national_union
     overlays = Overlays()
-    if args.ecoregions:
-        overlays.ecoregions = load_clipped_overlay(ECOREGIONS, args.ecoregions, union)
     if args.points:
         overlays.points = load_point_pairs(args, admin, group_mode, group_rows)
     if args.glaciers:
@@ -529,7 +524,7 @@ def compute_projection(fine_feats) -> Projection:
 
 
 # ---------------------------------------------------------------------------
-# Groups (the Land layer under --group, or the AreaCodes layer)
+# Groups (the Land layer under --group, or the Overlay layer)
 # ---------------------------------------------------------------------------
 
 
@@ -557,19 +552,43 @@ def groups_from_land(args, admin, group_rows, proj):
     return geoms
 
 
-def groups_from_area_code_polygons(args, proj):
+def groups_from_overlay_polygons(args, admin, proj):
+    print("\n=== Procesando --overlay-polygons ===", file=sys.stderr)
+    national_union = admin.national_union
+    national_bounds = national_union.bounds
+
+    all_feats = load_features(args.overlay_polygons)
+    feats = [
+        f for f in all_feats if bounds_overlap(geometry_bounds(f["geometry"]), national_bounds)
+    ]
     print(
-        "\n=== Procesando polígonos de códigos de área (sin ajuste, tal cual) ===",
+        f"  {len(feats)} de {len(all_feats)} polígono(s) del mundo pasan el "
+        f"filtro de caja delimitadora y se procesan como candidatos.",
         file=sys.stderr,
     )
-    feats = load_features(args.area_code_polygons)
-    feats, geoms, _ = build_valid_geoms(feats, "código de área")
-    grouped = group_polygons_by_area_code(feats, geoms, args.area_code_field)
+
+    feats, geoms, _ = build_valid_geoms(feats, "overlay")
+    pairs = clip_features_to_national(feats, geoms, national_union)
     print(
-        f"  {len(grouped)} código(s) de área agrupados desde {len(feats)} polígono(s).",
+        f"  {len(pairs)} de {len(feats)} candidatos intersectan realmente el país.",
         file=sys.stderr,
     )
-    return project_all(grouped, proj)
+
+    grouped = {}
+    for i, (feat, geom) in enumerate(pairs):
+        name = get_feature_name(feat) or str(i)
+        grouped.setdefault(name, []).append(geom)
+    grouped = {name: unary_union(geoms) for name, geoms in grouped.items()}
+    print(
+        f"  {len(grouped)} nombre(s) distinto(s) agrupados desde {len(pairs)} polígono(s).",
+        file=sys.stderr,
+    )
+
+    projected = project_all(grouped, proj)
+
+    print("  Rellenando huecos costeros contra el borde nacional...", file=sys.stderr)
+    national_projected = project_geometry(national_union, *proj.args)
+    return fill_overlay_gaps(projected, national_projected, OVERLAY_GAP_POINT_SPACING)
 
 
 def build_group_geoms(args, admin, group_mode, group_rows, overlays, proj):
@@ -577,8 +596,8 @@ def build_group_geoms(args, admin, group_mode, group_rows, overlays, proj):
         return groups_from_points(admin, group_rows, overlays, proj)
     if group_mode == "land":
         return groups_from_land(args, admin, group_rows, proj)
-    if args.area_code_polygons:
-        return groups_from_area_code_polygons(args, proj)
+    if args.overlay_polygons:
+        return groups_from_overlay_polygons(args, admin, proj)
     return {}
 
 
@@ -587,10 +606,22 @@ def build_group_geoms(args, admin, group_mode, group_rows, overlays, proj):
 # ---------------------------------------------------------------------------
 
 
-def render_land_layer(admin, group_mode, group_geoms, proj):
+def render_land_layer(args, admin, group_mode, group_geoms, proj):
     if group_mode:
-        return render_area_codes_group(group_geoms, "Land", style_level="land")
-    return render_fine_group(admin.fine_feats, admin.name_chains, "Land", *proj.args)
+        return render_area_codes_group(args.country, group_geoms, "Land")
+    if args.overlay_polygons:
+        layer_id = args.overlay_field or "Overlay"
+        return render_area_codes_group(args.country, group_geoms, layer_id)
+    return render_fine_group(args.country, admin.fine_feats, admin.name_chains, "Land", *proj.args)
+
+
+def render_points_layer(overlays, group_mode, admin, proj):
+    # In "points" group mode the points only exist to seed the Voronoi
+    # split; they're consumed by build_group_geoms and shouldn't also
+    # appear as their own layer.
+    if group_mode == "points":
+        return ""
+    return render_points_group(overlays.points, admin.name_chains, "Points", *proj.args)
 
 
 def render_provinces_layer(args, admin, country_dir, proj):
@@ -604,33 +635,24 @@ def render_provinces_layer(args, admin, country_dir, proj):
     return render_province_group(pair_arcs, decoded_arcs, "Provinces", *proj.args)
 
 
-def render_area_codes_layer(group_mode, group_geoms):
-    # Under --group the groups ARE the Land layer, so no extra layer.
-    if group_mode:
-        return ""
-    return render_area_codes_group(group_geoms, "AreaCodes")
-
-
 def build_layers(args, admin, group_mode, group_geoms, overlays, proj, country_dir):
     """Layers in bottom-to-top drawing order."""
     return [
-        render_land_layer(admin, group_mode, group_geoms, proj),
+        render_land_layer(args, admin, group_mode, group_geoms, proj),
         render_glaciers_group(overlays.glaciers, "Glaciers", *proj.args),
-        render_lakes_group(overlays.lakes, "Lakes", *proj.args),
+        render_lakes_group(args.country, overlays.lakes, "Lakes", *proj.args),
         render_provinces_layer(args, admin, country_dir, proj),
-        render_points_group(overlays.points, admin.name_chains, "Points", *proj.args),
-        render_area_codes_layer(group_mode, group_geoms),
-        render_ecoregions_group(overlays.ecoregions, "Ecoregions", *proj.args),
+        render_points_layer(overlays, group_mode, admin, proj),
         render_national(admin.national_union, args.country, *proj.args),
         render_roads_group(overlays.roads, "Roads", *proj.args),
     ]
 
 
-def assemble_svg(layers, width) -> str:
+def assemble_svg(layers, width, country: str) -> str:
     w, h = round(width, PRECISION), round(HEIGHT, PRECISION)
     return (
         f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {w} {h}" width="{w}" height="{h}">'
-        f'<rect id="Background" width="{w}" height="{h}" fill="{BACKGROUND_COLOR}"/>'
+        f'<rect id="Background" width="{w}" height="{h}" fill="{COUNTRIES_COLORS[country]["water_color"]}"/>'
         + "".join(layers)
         + "</svg>"
     )
@@ -642,7 +664,8 @@ def assemble_svg(layers, width) -> str:
 
 
 def main() -> None:
-    args = build_parser().parse_args()
+    ap = build_parser()
+    args = ap.parse_args()
     validate_args(args)
 
     levels = list(range(args.coarse_level, args.fine_level + 1))
@@ -653,14 +676,17 @@ def main() -> None:
     t0 = time.perf_counter()
     admin = load_admin(args, levels, country_dir)
     overlays = load_overlays(args, admin, group_mode, group_rows)
-    print(f"\n✔ Completado en {time.perf_counter() - t0:.2f}s\n", file=sys.stderr)
 
     proj = compute_projection(admin.fine_feats)
     group_geoms = build_group_geoms(args, admin, group_mode, group_rows, overlays, proj)
     layers = build_layers(args, admin, group_mode, group_geoms, overlays, proj, country_dir)
 
     out_path = args.output or f"{args.country.replace(' ', '_')}.svg"
-    pathlib.Path(out_path).write_text(assemble_svg(layers, proj.width), encoding="utf-8")
+    pathlib.Path(out_path).write_text(
+        assemble_svg(layers, proj.width, args.country), encoding="utf-8"
+    )
+
+    print(f"\n✔ Completado en {time.perf_counter() - t0:.2f}s\n", file=sys.stderr)
     print(f"Wrote {out_path}")
 
 

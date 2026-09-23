@@ -34,7 +34,6 @@ boundary is pixel-for-pixel the same shape as its Land-layer path.
 
 import sys
 
-import shapely
 from geometry import extract_polygons, flatten_point_coords, to_multi_or_single_polygon
 from shapely.geometry import MultiPoint, Point
 from shapely.geometry import MultiPolygon as ShapelyMultiPolygon
@@ -120,32 +119,24 @@ def _voronoi_cells_by_index(seeds, boundary):
     diagram = voronoi_diagram(MultiPoint(seeds), envelope=boundary)
     seed_points = [Point(s) for s in seeds]
 
-    # Two cells that share a Voronoi edge are each clipped against
-    # `boundary` in their OWN separate `.intersection()` call below. Where
-    # that shared edge crosses the boundary, GEOS computes the new vertex
-    # independently each time, and the two computations can drift by a few
-    # ULPs from one another -- invisible as an area difference, but it
-    # leaves a literal sliver polygon behind once cells are unioned later.
-    # Snapping both operands onto a common grid before intersecting forces
-    # both calls to round to the exact same coordinate there, closing it.
-    CLIP_PRECISION_GRID = 1e-5
-    gridded_boundary = shapely.set_precision(boundary, CLIP_PRECISION_GRID)
-
     cells = [None] * n
     for raw_cell in diagram.geoms:
         for idx, sp in enumerate(seed_points):
             if cells[idx] is None and raw_cell.covers(sp):
-                gridded_cell = shapely.set_precision(raw_cell, CLIP_PRECISION_GRID)
-                cells[idx] = gridded_cell.intersection(gridded_boundary)
+                cells[idx] = raw_cell.intersection(boundary)
                 break
 
-    for idx in range(n):
-        if cells[idx] is None:
-            # Defensive only -- shouldn't trigger for distinct seeds inside
-            # the boundary, which is the only case this is ever called with.
-            cells[idx] = Point(seeds[idx]).buffer(1e-6).intersection(gridded_boundary)
-
     return cells
+
+
+def voronoi_cells_in_boundary(seeds, boundary):
+    """Public entry point for a single-pass bounded Voronoi partition (no
+    Lloyd's-algorithm relaxation): one cell per seed, index-aligned,
+    each clipped to `boundary`. Used by overlay_fill.fill_overlay_gaps,
+    where seeds already follow the shape to be filled and shouldn't be
+    recentered.
+    """
+    return _voronoi_cells_by_index(seeds, boundary)
 
 
 def _bounded_centroidal_voronoi(seeds, boundary):
@@ -262,7 +253,7 @@ def build_area_code_geometries(
     return {area_code: unary_union(geoms) for area_code, geoms in geoms_by_area_code.items()}
 
 
-def group_polygons_by_area_code(feats, geoms, code_field):
+def group_polygons_by_field(feats, geoms, code_field):
     """Group already-valid shapely geometries (see geometry.build_valid_geoms)
     by their area-code property, unioning every polygon feature that
     shares a code -- a source dataset may split one area code into
