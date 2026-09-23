@@ -11,6 +11,7 @@ opposed to geometry.py, which analyzes/measures that data once loaded.
 
 import csv
 import difflib
+import io
 import json
 import pathlib
 import re
@@ -19,10 +20,10 @@ import sys
 from constants import NAME_FIELD_GUESSES, POINT_NAME_FIELD_GUESSES
 from unidecode import unidecode
 
-# --extra Locality fuzzy-matching knobs. Province and Department are
+# --group Locality fuzzy-matching knobs. Province and Department are
 # ALWAYS matched exactly -- fuzziness only ever applies to Locality, and
 # only among localities that already share the exact same (Province,
-# Department) pair. See filter_points_by_extra().
+# Department) pair. See filter_points_by_group().
 _FUZZY_MATCH_THRESHOLD = 0.88
 
 
@@ -394,37 +395,124 @@ def point_full_chain(feat, admin_name_chain):
     [Province, Department], with the point's own name appended, e.g.
     [Province, Department, Locality]. This is the single definition of
     "what identifies a point" -- both the SVG id (render_points_group)
-    and the --extra CSV filter (filter_points_by_extra) build their key
+    and the --group CSV filter (filter_points_by_group) build their key
     from this, so the two can never disagree about which point is which.
     """
     return [*admin_name_chain, resolve_point_name(feat)]
 
 
-def load_extra_csv(path):
-    """Load the --extra CSV: one row per point to keep, identified by
-    (Province, Department, Locality). AreaCode is carried along only for
-    error messages -- it plays no part in matching. Fails loudly if the
-    required columns aren't present, since a malformed --extra file is a
-    setup mistake the run should stop for immediately rather than silently
-    keeping zero points.
+def _read_text_auto(path):
+    """Read a text file, detecting UTF-16 (BOM) and UTF-8 with/without BOM."""
+    raw = pathlib.Path(path).read_bytes()
+    if raw.startswith((b"\xff\xfe", b"\xfe\xff")):
+        return raw.decode("utf-16")
+    return raw.decode("utf-8-sig")
+
+
+def load_group_csv(path):
+    """Load the --group CSV: GroupName,Level1,...,LevelN.
+    Returns rows as {"GroupName": str, "levels": tuple[str, ...]}.
+    Empty trailing level cells are allowed: a row with fewer levels is a
+    shallower row. Blank lines are skipped. Accepts UTF-8 (with or without
+    BOM) and UTF-16, comma or tab delimited.
     """
-    required = ("AreaCode", "Province", "Department", "Locality")
-    with pathlib.Path(path).open("r", encoding="utf-8", newline="") as f:
-        reader = csv.DictReader(f)
-        missing = [c for c in required if c not in (reader.fieldnames or [])]
-        if missing:
-            sys.exit(
-                f"Error: {path} no tiene las columnas requeridas: {', '.join(missing)} "
-                f"(columnas encontradas: {reader.fieldnames})."
-            )
-        rows = [
-            {k: (v.strip() if isinstance(v, str) else v) for k, v in row.items()} for row in reader
-        ]
+    text = _read_text_auto(path)
+    header = text.splitlines()[0] if text.strip() else ""
+    delimiter = "\t" if "\t" in header and "," not in header else ","
+
+    reader = csv.DictReader(io.StringIO(text, newline=""), delimiter=delimiter)
+    fields = reader.fieldnames or []
+    level_cols = sorted(
+        (c for c in fields if re.fullmatch(r"Level\d+", c)), key=lambda c: int(c[5:])
+    )
+    if "GroupName" not in fields or not level_cols:
+        sys.exit(
+            f"Error: {path} necesita las columnas GroupName,Level1,...,LevelN "
+            f"(columnas encontradas: {fields})."
+        )
+    if [int(c[5:]) for c in level_cols] != list(range(1, len(level_cols) + 1)):
+        sys.exit(f"Error: las columnas Level de {path} deben ser consecutivas desde Level1.")
+
+    rows = []
+    for line_no, row in enumerate(reader, start=2):
+        name = (row.get("GroupName") or "").strip()
+        cells = [(row.get(c) or "").strip() for c in level_cols]
+
+        if not name and not any(cells):
+            continue  # blank line
+
+        depth = len(cells)
+        while depth and not cells[depth - 1]:
+            depth -= 1
+        levels = tuple(cells[:depth])
+
+        if not name:
+            sys.exit(f"Error: {path} línea {line_no}: hay niveles pero falta GroupName.")
+        if not levels:
+            sys.exit(f"Error: {path} línea {line_no}: {name!r} no tiene ningún nivel.")
+        if not all(levels):
+            sys.exit(f"Error: {path} línea {line_no}: hay un nivel vacío entre niveles con valor.")
+
+        rows.append({"GroupName": name, "levels": levels})
 
     if not rows:
         sys.exit(f"Error: {path} no tiene ninguna fila.")
-
     return rows
+
+
+def group_depth(rows):
+    """Deepest non-empty level across all rows (the CSV's effective N)."""
+    return max(len(r["levels"]) for r in rows)
+
+
+def point_group_key(feat, n_levels):
+    """(NAME_1, ..., NAME_{N-1}, own name) -- same identity the old
+    Province/Department/Locality key used, generalized to N levels.
+    """
+    props = feat.get("properties", {})
+    parents = tuple(str(props.get(f"NAME_{i}", "")).strip() for i in range(1, n_levels))
+    return (*parents, resolve_point_name(feat))
+
+
+def filter_points_by_group(point_feats, rows, strict=False):
+    """Keep only points listed in the --group CSV. All levels but the last
+    match exactly; the last level is fuzzy-matched among points sharing
+    the same parent prefix. Matched points get properties["_matched_group"].
+    Rows shallower than the CSV's full depth are skipped, since they can't
+    identify a single point. strict=False silently skips rows with no
+    matching point.
+    """
+    n = group_depth(rows)
+    feats_by_key = {}
+    names_by_parent = {}
+    for feat in point_feats:
+        key = point_group_key(feat, n)
+        if not all(key):
+            continue
+        feats_by_key.setdefault(key, []).append(feat)
+        names_by_parent.setdefault(key[:-1], set()).add(key[-1])
+
+    kept = []
+    for row in rows:
+        if len(row["levels"]) != n:
+            continue  # shallower rows can't identify a single point
+        key = row["levels"]
+        matches = feats_by_key.get(key)
+        if not matches:
+            fuzzy = _best_fuzzy_locality(key[-1], names_by_parent.get(key[:-1], set()))
+            if fuzzy is not None:
+                matches = feats_by_key.get((*key[:-1], fuzzy[0]))
+        if not matches:
+            if strict:
+                return None, {
+                    "row": row,
+                    "available_localities": sorted(names_by_parent.get(key[:-1], [])),
+                }
+            continue
+        for feat in matches:
+            feat["properties"]["_matched_group"] = row["GroupName"]
+        kept.extend(matches)
+    return kept, None
 
 
 def _normalize_for_fuzzy(s):
@@ -461,81 +549,6 @@ def _best_fuzzy_locality(target_locality, candidate_localities, threshold=_FUZZY
         return best_name, best_score, "fuzzy"
 
     return None
-
-
-def filter_points_by_extra(point_feats, extra_rows):
-    """Filter RAW point features -- exactly as returned by
-    load_geojson_point_features(), before any bbox filtering, geometry
-    repair, or polygon matching -- down to only the ones listed in the
-    --extra CSV.
-
-    Matching uses each point's OWN properties directly: NAME_1 as
-    Province, NAME_2 as Department, and resolve_point_name() (the finest
-    NAME_X present) as Locality. This is deliberately independent of which
-    admin (Land) polygon the point later gets spatially matched into --
-    that match only decides the eventual SVG-id chain. Filtering against
-    the *computed* chain instead of the point's own raw data was the
-    earlier bug: a point correctly listed in the csv could sit near a
-    border, get spatially matched into the neighboring polygon, and be
-    wrongly rejected even though nothing about the point itself was wrong.
-
-    Province and Department are always matched EXACTLY. Only Locality is
-    fuzzy-matched, and only against other localities that already share
-    that exact (Province, Department) pair -- see _best_fuzzy_locality().
-    A row whose Province/Department doesn't exist at all in the geojson
-    fails immediately, the same as before; fuzziness never crosses admin
-    boundaries.
-
-    Iterates extra_rows in file order, stopping at the first row with no
-    matching point (exact or fuzzy). Returns (kept_feats, None) on full
-    success, or (None, diagnostic) on the first miss, where diagnostic
-    carries the failing `row` and any `available_localities` under that
-    row's Province/Department (handy for spotting whitespace/casing/accent
-    mismatches where two values "look the same" but aren't, or for seeing
-    what was available when even fuzzy matching came up empty).
-    """
-    feats_by_key = {}
-    localities_by_admin = {}
-    for feat in point_feats:
-        props = feat.get("properties", {})
-        province = str(props.get("NAME_1", "")).strip()
-        department = str(props.get("NAME_2", "")).strip()
-        locality = resolve_point_name(feat)
-        if not province or not department or not locality:
-            continue
-        key = (province, department, locality)
-        feats_by_key.setdefault(key, []).append(feat)
-        localities_by_admin.setdefault((province, department), set()).add(locality)
-
-    kept = []
-    for row in extra_rows:
-        province, department, locality = row["Province"], row["Department"], row["Locality"]
-        key = (province, department, locality)
-        matches = feats_by_key.get(key)
-
-        if not matches:
-            # Province/Department are exact-only. Only search for a fuzzy
-            # Locality match among localities that already share this
-            # exact (Province, Department) pair.
-            same_admin_localities = localities_by_admin.get((province, department), set())
-            fuzzy = _best_fuzzy_locality(locality, same_admin_localities)
-            if fuzzy is not None:
-                matched_locality, _score, _pass_used = fuzzy
-                matched_key = (province, department, matched_locality)
-                matches = feats_by_key.get(matched_key)
-
-        if not matches:
-            continue
-            return None, {
-                "row": row,
-                "available_localities": sorted(localities_by_admin.get((province, department), [])),
-            }
-
-        for feat in matches:
-            feat["properties"]["_matched_area_code"] = row["AreaCode"]
-        kept.extend(matches)
-
-    return kept, None
 
 
 def slugify(name):

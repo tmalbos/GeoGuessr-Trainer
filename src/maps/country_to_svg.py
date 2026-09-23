@@ -4,37 +4,22 @@
 Convert TopoJSON administrative boundaries into a minimal, standardized SVG
 for a single country.
 
-Both input files MUST be TopoJSON (a single "topology" object with an
+Both admin input files MUST be TopoJSON (a single "topology" object with an
 "arcs" array and one or more named objects under "objects"). Plain GeoJSON
-is not accepted.
+is not accepted for admin levels.
 
 v2 design:
-  - The FIRST file passed is the sole source of geometric truth. It can be
-    any fine administrative level (county/ADM2/ADM3/...); the script does
-    not care which level it is, only that its polygons are internally
-    coherent (non-overlapping, no gaps to fill against each other).
-  - The national border is simply the union of every polygon in that file.
-  - The SECOND file (optional) is a coarser level (state/province/ADM1)
-    used ONLY to group and name the fine-level polygons. Its own geometry
-    is discarded once grouping is done — the reconstructed state border is
-    the union of every fine-level polygon "mostly covered by" that state,
-    AND the province borders rendered in the SVG are the true shared-edge
-    arcs between two provinces, computed from the FINE file's own arc
-    topology (grouped by province assignment), never from the coarse
-    file's geometry.
-  - "mostly covers": polygon A mostly-covers polygon B if
-    area(A ∩ B) / area(B) >= threshold (default 0.8). Each fine-level
-    polygon must be mostly-covered by exactly one coarse polygon; if none
-    (or more than one plausible candidate in a genuinely ambiguous way)
-    qualifies, we fail loudly with details, since with this dataset that
-    indicates a real data mismatch rather than an expected edge case.
+  - The FINEST loaded level is the sole source of geometric truth. The
+    national border is the union of its polygons.
+  - Coarser levels are used ONLY to group and name the fine-level polygons
+    ("mostly covers" assignment). Province borders in the SVG are the true
+    shared-edge arcs of the fine file's own topology.
+  - --group CSV (GroupName,Level1,...,LevelN) turns the Land layer into one
+    path per group.
 
-Pass files as: fine.topojson [coarse.topojson] country --min-island-percent PCT -o out.svg
-
-This file only does argument parsing and orchestration: loading the right
-levels (topo_io), running the assignment/clipping/pruning pipeline
-(geometry), and assembling the final SVG string (svg_render). See those
-modules for the actual logic.
+This file only does argument parsing and orchestration. Each pipeline stage
+is its own small function; the actual logic lives in topo_io, geometry,
+grouping, voronoi and svg_render.
 """
 
 import argparse
@@ -42,6 +27,9 @@ import math
 import pathlib
 import sys
 import time
+from collections.abc import Callable
+from dataclasses import dataclass, field
+from typing import Any
 
 from constants import BACKGROUND_COLOR, HEIGHT, MOSTLY_COVERS_THRESHOLD, PADDING, PRECISION
 from geometry import (
@@ -59,6 +47,7 @@ from geometry import (
     point_geometry_bounds,
     prune_small_edge_parts,
 )
+from grouping import build_land_group_geometries
 from shapely.ops import unary_union
 from svg_render import (
     project_point,
@@ -75,19 +64,112 @@ from svg_render import (
 from topo_io import (
     attach_level_names,
     classify_arcs_by_group,
-    filter_points_by_extra,
+    filter_points_by_group,
     get_feature_name,
-    load_extra_csv,
+    group_depth,
     load_features,
     load_geojson_features,
     load_geojson_line_features,
     load_geojson_point_features,
+    load_group_csv,
     load_raw_arc_features,
 )
 from voronoi import build_area_code_geometries, group_polygons_by_area_code, project_geometry
 
+# ---------------------------------------------------------------------------
+# Data containers
+# ---------------------------------------------------------------------------
 
-def main() -> None:
+
+@dataclass
+class Admin:
+    """Everything derived from the loaded administrative levels."""
+
+    levels: list
+    fine_level: int
+    fine_feats: list
+    fine_geoms: list
+    kept_fine_indices: list
+    national_union: Any
+    name_chains: list
+    parent_names: list
+
+
+@dataclass
+class Projection:
+    """Lon/lat -> SVG pixel transform plus the resulting canvas width."""
+
+    lon0: float
+    cos_lat0: float
+    scale: float
+    off_x: float
+    off_y: float
+    width: float
+
+    @property
+    def args(self):
+        return (self.lon0, self.cos_lat0, self.scale, self.off_x, self.off_y)
+
+
+@dataclass
+class Overlays:
+    ecoregions: list = field(default_factory=list)
+    glaciers: list = field(default_factory=list)
+    lakes: list = field(default_factory=list)
+    roads: list = field(default_factory=list)
+    points: list = field(default_factory=list)
+
+
+@dataclass
+class OverlaySpec:
+    """How to load, filter and clip one kind of overlay layer."""
+
+    title: str
+    plural: str
+    label: str
+    loader: Callable
+    bounds_fn: Callable
+    clip_fn: Callable
+    feminine: bool = False
+
+
+ECOREGIONS = OverlaySpec(
+    "ecorregiones",
+    "ecorregiones",
+    "ecorregión",
+    load_features,
+    geometry_bounds,
+    clip_features_to_national,
+    feminine=True,
+)
+GLACIERS = OverlaySpec(
+    "glaciares",
+    "glaciares",
+    "glacier",
+    load_geojson_features,
+    geometry_bounds,
+    clip_features_to_national,
+)
+LAKES = OverlaySpec(
+    "lagos", "lagos", "lago", load_geojson_features, geometry_bounds, clip_features_to_national
+)
+ROADS = OverlaySpec(
+    "rutas",
+    "rutas",
+    "ruta",
+    load_geojson_line_features,
+    line_geometry_bounds,
+    clip_lines_to_national,
+    feminine=True,
+)
+
+
+# ---------------------------------------------------------------------------
+# Arguments
+# ---------------------------------------------------------------------------
+
+
+def build_parser():
     ap = argparse.ArgumentParser()
     ap.add_argument(
         "country",
@@ -136,13 +218,15 @@ def main() -> None:
         "--points",
         default=None,
         metavar="PATH",
-        help="Optional world points GeoJSON (plain GeoJSON, not TopoJSON, Point/MultiPoint features). Each point is matched to the fine-level administrative polygon that contains it and named as '<admin name chain>.<point name>' (point name resolved with the same field names as the Land layer). Added as its own 'Points' layer in the output SVG, invisible (no fill or stroke) and non-clickable.",
+        help="Optional world points GeoJSON (plain GeoJSON, not TopoJSON, Point/MultiPoint features). Each point is matched to the fine-level administrative polygon that contains it and named as '<admin name chain>.<point name>' (point name resolved with the same field names as the Land layer). Added as its own 'Points' layer in the output SVG, invisible (no fill or stroke) and non-clickable. With --group, also used as Voronoi seeds when the CSV is deeper than the Land levels.",
     )
     ap.add_argument(
-        "--extra",
+        "--group",
         default=None,
         metavar="PATH",
-        help="Optional CSV (columns: AreaCode, Province, Department, Locality) restricting --points to only the points whose (Province, Department, Locality) identity appears in this file. Requires --points. Every CSV row must match a point, or the run fails; a point not listed in the CSV is silently dropped.",
+        help="Optional CSV (GroupName,Level1,...,LevelN) grouping features into named groups; the Land layer becomes one path per group. "
+        "N <= Land depth: group Land polygons by the first N levels (warns if N < depth). "
+        "N > Land depth: requires --points, used as Voronoi seeds.",
     )
     ap.add_argument(
         "--roads",
@@ -154,7 +238,7 @@ def main() -> None:
         "--area-code-polygons",
         default=None,
         metavar="PATH",
-        help="Optional area-code boundaries TopoJSON, as actual polygons (not point+--extra). Expanded via a bounded polygon-Voronoi so misalignment with the admin border becomes gap-filling/trimming at the true equidistant seam -- never a gap, never a spike -- then clipped to the national border and added as the 'AreaCodes' layer. Mutually exclusive with --extra.",
+        help="Optional area-code boundaries TopoJSON, as actual polygons. Expanded via a bounded polygon-Voronoi so misalignment with the admin border becomes gap-filling/trimming at the true equidistant seam -- never a gap, never a spike -- then clipped to the national border and added as the 'AreaCodes' layer. Mutually exclusive with --group.",
     )
     ap.add_argument(
         "--area-code-field",
@@ -162,48 +246,90 @@ def main() -> None:
         metavar="FIELD",
         help="Property name in --area-code-polygons holding each feature's area code. Default: AREA_CODE.",
     )
-    args = ap.parse_args()
+    return ap
 
+
+def validate_args(args) -> None:
     if args.fine_level < args.coarse_level:
         sys.exit(
             f"Error: fine_level ({args.fine_level}) debe ser >= coarse_level ({args.coarse_level})."
         )
+    if args.area_code_polygons and args.group:
+        sys.exit("Error: --area-code-polygons y --group no pueden usarse juntos.")
 
-    if args.extra and not args.points:
-        sys.exit(
-            "Error: --extra requiere --points (no hay nada que filtrar sin un geojson de puntos)."
+
+# ---------------------------------------------------------------------------
+# --group mode selection
+# ---------------------------------------------------------------------------
+
+
+def warn_group_depth(n_levels, land_depth, has_points) -> None:
+    if n_levels < land_depth:
+        print(
+            f"⚠ --group tiene {n_levels} niveles y Land {land_depth}: se agrupa por los "
+            f"primeros {n_levels} y se ignoran los niveles más profundos.",
+            file=sys.stderr,
+        )
+    if has_points:
+        print(
+            "⚠ --points no se usa para agrupar (Land alcanza la profundidad del CSV).",
+            file=sys.stderr,
         )
 
-    if args.area_code_polygons and args.extra:
-        sys.exit(
-            "Error: --area-code-polygons y --extra no pueden usarse juntos (ambos generan la capa AreaCodes)."
-        )
 
-    levels = list(range(args.coarse_level, args.fine_level + 1))
-    fine_level = levels[-1]
-    country_dir = pathlib.Path("maps") / args.country
+def resolve_group_mode(args, levels):
+    """Return (group_rows, group_mode); group_mode is None, "land" or "points"."""
+    if not args.group:
+        return None, None
 
-    print(f"=== Cargando niveles administrativos {levels} para {args.country} ===", file=sys.stderr)
+    rows = load_group_csv(args.group)
+    n_levels = group_depth(rows)
+    # CSV Level1 is ADM1, so ADM0 does not count as a Land level.
+    land_depth = len(levels) - (1 if args.coarse_level == 0 else 0)
+
+    if n_levels > land_depth:
+        if not args.points:
+            sys.exit(
+                f"Error: --group tiene {n_levels} niveles pero Land tiene {land_depth}. "
+                f"Pasá --points o usá un Land con {n_levels} niveles."
+            )
+        return rows, "points"
+
+    warn_group_depth(n_levels, land_depth, bool(args.points))
+    return rows, "land"
+
+
+# ---------------------------------------------------------------------------
+# Administrative levels
+# ---------------------------------------------------------------------------
+
+
+def load_level_features(country_dir, levels):
     feats_by_level = {}
     for level in levels:
-        path = country_dir / f"ADM{level}.topojson"
-        feats = load_features(path)
+        feats = load_features(country_dir / f"ADM{level}.topojson")
         attach_level_names(feats, level)
         feats_by_level[level] = feats
+    return feats_by_level
 
-    fine_feats = feats_by_level[fine_level]
 
-    if args.min_island_percent > 0:
-        total_area = sum(geometry_total_area(f["geometry"]) for f in fine_feats)
-        min_area = total_area * (args.min_island_percent / 100.0)
-        other_feats = [f for level in levels[:-1] for f in feats_by_level[level]]
-        removed = prune_small_edge_parts(fine_feats, other_feats, min_area)
-        print(f"Removed {removed} small outer national polygon parts.", file=sys.stderr)
+def prune_islands(feats_by_level, levels, percent) -> None:
+    if percent <= 0:
+        return
+    fine_feats = feats_by_level[levels[-1]]
+    total_area = sum(geometry_total_area(f["geometry"]) for f in fine_feats)
+    min_area = total_area * (percent / 100.0)
+    other_feats = [f for level in levels[:-1] for f in feats_by_level[level]]
+    removed = prune_small_edge_parts(fine_feats, other_feats, min_area)
+    print(f"Removed {removed} small outer national polygon parts.", file=sys.stderr)
 
-    t0 = time.perf_counter()
 
-    geoms_by_level = {}
-    kept_indices_by_level = {}
+def validate_level_geoms(feats_by_level, levels):
+    """Build shapely geometries for every level, dropping unrepairable
+    features. Returns (geoms_by_level, kept_indices_by_level); feats_by_level
+    is updated in place with the surviving features.
+    """
+    geoms_by_level, kept_indices_by_level = {}, {}
     for level in levels:
         kept_feats, kept_geoms, kept_indices = build_valid_geoms(
             feats_by_level[level], f"ADM{level}"
@@ -211,17 +337,10 @@ def main() -> None:
         feats_by_level[level] = kept_feats
         geoms_by_level[level] = kept_geoms
         kept_indices_by_level[level] = kept_indices
+    return geoms_by_level, kept_indices_by_level
 
-    # Re-bind now that invalid features may have been dropped from the
-    # fine level's list above (the earlier `fine_feats = ...` assignment,
-    # used only for min-island pruning before geometries existed, is now
-    # stale).
-    fine_feats = feats_by_level[fine_level]
-    fine_geoms = geoms_by_level[fine_level]
 
-    print("=== Calculando borde nacional (unión de nivel fino) ===", file=sys.stderr)
-    national_union = unary_union(fine_geoms)
-
+def assign_parents(feats_by_level, geoms_by_level, levels, threshold):
     assignments = {}
     for i in range(len(levels) - 1, 0, -1):
         level, parent_level = levels[i], levels[i - 1]
@@ -233,192 +352,158 @@ def main() -> None:
             geoms_by_level[level],
             feats_by_level[parent_level],
             geoms_by_level[parent_level],
-            threshold=args.mostly_covers_threshold,
+            threshold=threshold,
+        )
+    return assignments
+
+
+def indices_at_levels(fine_idx, levels, assignments):
+    """Walk one fine polygon up the hierarchy: {level: feature index or -1}."""
+    idx_at_level = {levels[-1]: fine_idx}
+    broken = False
+    for i in range(len(levels) - 1, 0, -1):
+        level, parent_level = levels[i], levels[i - 1]
+        parent_idx = -1 if broken else assignments[level, parent_level][idx_at_level[level]]
+        idx_at_level[parent_level] = parent_idx
+        broken = broken or parent_idx == -1
+    return idx_at_level
+
+
+def name_at(feats_by_level, level, idx):
+    return get_feature_name(feats_by_level[level][idx]) if idx != -1 else None
+
+
+def immediate_parent_name(feats_by_level, levels, fine_feat, idx_at_level):
+    if len(levels) == 1:
+        return get_feature_name(fine_feat)
+    return name_at(feats_by_level, levels[0], idx_at_level[levels[0]])
+
+
+def build_name_chains(feats_by_level, levels, assignments):
+    fine_feats = feats_by_level[levels[-1]]
+    name_chains, parent_names = [], []
+    for fi, fine_feat in enumerate(fine_feats):
+        idx_at_level = indices_at_levels(fi, levels, assignments)
+        parent_names.append(immediate_parent_name(feats_by_level, levels, fine_feat, idx_at_level))
+        name_chains.append([name_at(feats_by_level, lv, idx_at_level[lv]) for lv in levels])
+    return name_chains, parent_names
+
+
+def load_admin(args, levels, country_dir) -> Admin:
+    fine_level = levels[-1]
+    feats_by_level = load_level_features(country_dir, levels)
+    prune_islands(feats_by_level, levels, args.min_island_percent)
+    geoms_by_level, kept_indices_by_level = validate_level_geoms(feats_by_level, levels)
+
+    print("=== Calculando borde nacional (unión de nivel fino) ===", file=sys.stderr)
+    fine_geoms = geoms_by_level[fine_level]
+    national_union = unary_union(fine_geoms)
+
+    assignments = assign_parents(
+        feats_by_level, geoms_by_level, levels, args.mostly_covers_threshold
+    )
+    name_chains, parent_names = build_name_chains(feats_by_level, levels, assignments)
+
+    return Admin(
+        levels=levels,
+        fine_level=fine_level,
+        fine_feats=feats_by_level[fine_level],
+        fine_geoms=fine_geoms,
+        kept_fine_indices=kept_indices_by_level[fine_level],
+        national_union=national_union,
+        name_chains=name_chains,
+        parent_names=parent_names,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Overlays (ecoregions, glaciers, lakes, roads, points)
+# ---------------------------------------------------------------------------
+
+
+def load_clipped_overlay(spec, path, national_union):
+    print(f"\n=== Procesando {spec.title} ===", file=sys.stderr)
+    cand = "candidatas" if spec.feminine else "candidatos"
+
+    all_feats = spec.loader(path)
+    national_bounds = national_union.bounds
+    candidates = [
+        f for f in all_feats if bounds_overlap(spec.bounds_fn(f["geometry"]), national_bounds)
+    ]
+    print(
+        f"  {len(candidates)} de {len(all_feats)} {spec.plural} del mundo pasan el "
+        f"filtro de caja delimitadora y se procesan como {cand}.",
+        file=sys.stderr,
+    )
+
+    feats, geoms, _ = build_valid_geoms(candidates, spec.label)
+    pairs = spec.clip_fn(feats, geoms, national_union)
+    print(
+        f"  {len(pairs)} de {len(feats)} {cand} intersectan realmente el país.",
+        file=sys.stderr,
+    )
+    return pairs
+
+
+def load_point_pairs(args, admin, group_mode, group_rows):
+    print("\n=== Procesando puntos ===", file=sys.stderr)
+    all_feats = load_geojson_point_features(args.points)
+    feats = all_feats
+
+    if group_mode == "points":
+        print(
+            f"  Filtrando con {args.group} (contra los datos propios de cada punto, antes de cualquier procesamiento geométrico)...",
+            file=sys.stderr,
+        )
+        feats, _ = filter_points_by_group(feats, group_rows)
+        print(
+            f"  {len(feats)} de {len(all_feats)} puntos conservados tras aplicar "
+            f"{args.group} ({len(group_rows)} filas).",
+            file=sys.stderr,
         )
 
-    name_chains = []
-    immediate_parent_name_by_fine_idx = [None] * len(fine_feats)
-    for fi in range(len(fine_feats)):
-        idx_at_level = {fine_level: fi}
-        broken = False
-        for i in range(len(levels) - 1, 0, -1):
-            level, parent_level = levels[i], levels[i - 1]
-            parent_idx = -1 if broken else assignments[level, parent_level][idx_at_level[level]]
-            idx_at_level[parent_level] = parent_idx
-            broken = broken or parent_idx == -1
+    national_bounds = admin.national_union.bounds
+    feats = [
+        f for f in feats if bounds_overlap(point_geometry_bounds(f["geometry"]), national_bounds)
+    ]
+    print(
+        f"  {len(feats)} puntos pasan el filtro de caja delimitadora y se procesan como candidatos.",
+        file=sys.stderr,
+    )
 
-        if len(levels) > 1:
-            parent_level = levels[0]
-            parent_idx = idx_at_level[parent_level]
-            if parent_idx != -1:
-                immediate_parent_name_by_fine_idx[fi] = get_feature_name(
-                    feats_by_level[parent_level][parent_idx]
-                )
-        else:
-            immediate_parent_name_by_fine_idx[fi] = get_feature_name(fine_feats[fi])
+    feats, geoms, _ = build_valid_geoms(feats, "punto")
+    pairs = match_points_to_polygons(feats, geoms, admin.fine_geoms)
+    matched = sum(1 for _, admin_idx in pairs if admin_idx is not None)
+    print(
+        f"  {matched} de {len(feats)} candidatos caen dentro de un polígono administrativo "
+        f"(el resto no coincide con ningún polígono y se omite).",
+        file=sys.stderr,
+    )
+    return pairs
 
-        chain = [
-            get_feature_name(feats_by_level[level][idx_at_level[level]])
-            if idx_at_level[level] != -1
-            else None
-            for level in levels
-        ]
-        name_chains.append(chain)
 
-    ecoregion_pairs = []
+def load_overlays(args, admin, group_mode, group_rows) -> Overlays:
+    union = admin.national_union
+    overlays = Overlays()
     if args.ecoregions:
-        print("\n=== Procesando ecorregiones ===", file=sys.stderr)
-        national_bounds = national_union.bounds
-
-        all_ecoregion_feats = load_features(args.ecoregions)
-        ecoregion_feats = [
-            feat
-            for feat in all_ecoregion_feats
-            if bounds_overlap(geometry_bounds(feat["geometry"]), national_bounds)
-        ]
-        print(
-            f"  {len(ecoregion_feats)} de {len(all_ecoregion_feats)} ecorregiones del mundo pasan el "
-            f"filtro de caja delimitadora y se procesan como candidatas.",
-            file=sys.stderr,
-        )
-
-        ecoregion_feats, ecoregion_geoms, _ = build_valid_geoms(ecoregion_feats, "ecorregión")
-        ecoregion_pairs = clip_features_to_national(
-            ecoregion_feats, ecoregion_geoms, national_union
-        )
-        print(
-            f"  {len(ecoregion_pairs)} de {len(ecoregion_feats)} candidatas intersectan realmente el país.",
-            file=sys.stderr,
-        )
-
-    point_pairs = []
+        overlays.ecoregions = load_clipped_overlay(ECOREGIONS, args.ecoregions, union)
     if args.points:
-        print("\n=== Procesando puntos ===", file=sys.stderr)
-
-        all_point_feats = load_geojson_point_features(args.points)
-        point_feats = all_point_feats
-
-        if args.extra:
-            print(
-                f"  Filtrando con {args.extra} (contra los datos propios de cada punto, antes de cualquier procesamiento geométrico)...",
-                file=sys.stderr,
-            )
-            extra_rows = load_extra_csv(args.extra)
-            filtered_feats, failure = filter_points_by_extra(point_feats, extra_rows)
-            if failure is not None:
-                row = failure["row"]
-                available = failure["available_localities"]
-                hint = (
-                    f" Localidades disponibles en el geojson para esa Provincia/Departamento: {available}."
-                    if available
-                    else " No hay ningún punto del geojson para esa Provincia/Departamento en absoluto."
-                )
-                sys.exit(
-                    f"Error: la fila {row.get('AreaCode', '?')} de {args.extra} "
-                    f"({row['Province']}/{row['Department']}/{row['Locality']}) "
-                    f"no coincide con ningún punto del geojson.{hint}"
-                )
-            point_feats = filtered_feats
-            print(
-                f"  {len(point_feats)} de {len(all_point_feats)} puntos conservados tras aplicar "
-                f"{args.extra} ({len(extra_rows)} filas).",
-                file=sys.stderr,
-            )
-
-        national_bounds = national_union.bounds
-        point_feats = [
-            feat
-            for feat in point_feats
-            if bounds_overlap(point_geometry_bounds(feat["geometry"]), national_bounds)
-        ]
-        print(
-            f"  {len(point_feats)} puntos pasan el filtro de caja delimitadora y se procesan como candidatos.",
-            file=sys.stderr,
-        )
-
-        point_feats, point_geoms, _ = build_valid_geoms(point_feats, "punto")
-        point_pairs = match_points_to_polygons(point_feats, point_geoms, fine_geoms)
-        matched = sum(1 for _, admin_idx in point_pairs if admin_idx is not None)
-        print(
-            f"  {matched} de {len(point_feats)} candidatos caen dentro de un polígono administrativo "
-            f"(el resto no coincide con ningún polígono y se omite).",
-            file=sys.stderr,
-        )
-
-    glacier_pairs = []
+        overlays.points = load_point_pairs(args, admin, group_mode, group_rows)
     if args.glaciers:
-        print("\n=== Procesando glaciares ===", file=sys.stderr)
-        national_bounds = national_union.bounds
-
-        all_glacier_feats = load_geojson_features(args.glaciers)
-        glacier_feats = [
-            feat
-            for feat in all_glacier_feats
-            if bounds_overlap(geometry_bounds(feat["geometry"]), national_bounds)
-        ]
-        print(
-            f"  {len(glacier_feats)} de {len(all_glacier_feats)} glaciares del mundo pasan el "
-            f"filtro de caja delimitadora y se procesan como candidatos.",
-            file=sys.stderr,
-        )
-
-        glacier_feats, glacier_geoms, _ = build_valid_geoms(glacier_feats, "glacier")
-        glacier_pairs = clip_features_to_national(glacier_feats, glacier_geoms, national_union)
-        print(
-            f"  {len(glacier_pairs)} de {len(glacier_feats)} candidatos intersectan realmente el país.",
-            file=sys.stderr,
-        )
-
-    lake_pairs = []
+        overlays.glaciers = load_clipped_overlay(GLACIERS, args.glaciers, union)
     if args.lakes:
-        print("\n=== Procesando lagos ===", file=sys.stderr)
-        national_bounds = national_union.bounds
-
-        all_lake_feats = load_geojson_features(args.lakes)
-        lake_feats = [
-            feat
-            for feat in all_lake_feats
-            if bounds_overlap(geometry_bounds(feat["geometry"]), national_bounds)
-        ]
-        print(
-            f"  {len(lake_feats)} de {len(all_lake_feats)} lagos del mundo pasan el "
-            f"filtro de caja delimitadora y se procesan como candidatos.",
-            file=sys.stderr,
-        )
-
-        lake_feats, lake_geoms, _ = build_valid_geoms(lake_feats, "lago")
-        lake_pairs = clip_features_to_national(lake_feats, lake_geoms, national_union)
-        print(
-            f"  {len(lake_pairs)} de {len(lake_feats)} candidatos intersectan realmente el país.",
-            file=sys.stderr,
-        )
-
-    road_pairs = []
+        overlays.lakes = load_clipped_overlay(LAKES, args.lakes, union)
     if args.roads:
-        print("\n=== Procesando rutas ===", file=sys.stderr)
-        national_bounds = national_union.bounds
+        overlays.roads = load_clipped_overlay(ROADS, args.roads, union)
+    return overlays
 
-        all_road_feats = load_geojson_line_features(args.roads)
-        road_feats = [
-            feat
-            for feat in all_road_feats
-            if bounds_overlap(line_geometry_bounds(feat["geometry"]), national_bounds)
-        ]
-        print(
-            f"  {len(road_feats)} de {len(all_road_feats)} rutas del mundo pasan el "
-            f"filtro de caja delimitadora y se procesan como candidatas.",
-            file=sys.stderr,
-        )
 
-        road_feats, road_geoms, _ = build_valid_geoms(road_feats, "ruta")
-        road_pairs = clip_lines_to_national(road_feats, road_geoms, national_union)
-        print(
-            f"  {len(road_pairs)} de {len(road_feats)} candidatas intersectan realmente el país.",
-            file=sys.stderr,
-        )
+# ---------------------------------------------------------------------------
+# Projection
+# ---------------------------------------------------------------------------
 
-    print(f"\n✔ Completado en {time.perf_counter() - t0:.2f}s\n", file=sys.stderr)
 
+def compute_projection(fine_feats) -> Projection:
     frame = get_national_frame(fine_feats)
     lon0, lat0 = (frame[0] + frame[2]) / 2, (frame[1] + frame[3]) / 2
     cos_lat0 = math.cos(math.radians(lat0))
@@ -433,102 +518,149 @@ def main() -> None:
     )
     raw_w, raw_h = max(xs) - min(xs), max(ys) - min(ys)
     scale = (HEIGHT - 2 * PADDING) / raw_h if raw_h else 1
-    width, off_x, off_y = (
-        raw_w * scale + 2 * PADDING,
-        PADDING - min(xs) * scale,
-        PADDING - min(ys) * scale,
+    return Projection(
+        lon0=lon0,
+        cos_lat0=cos_lat0,
+        scale=scale,
+        off_x=PADDING - min(xs) * scale,
+        off_y=PADDING - min(ys) * scale,
+        width=raw_w * scale + 2 * PADDING,
     )
 
-    area_code_geoms = {}
-    if args.extra:
-        print(
-            "\n=== Calculando códigos de área (Voronoi centroidal acotado por departamento) ===",
-            file=sys.stderr,
-        )
-        area_code_geoms = build_area_code_geometries(
-            point_pairs, fine_feats, extra_rows, lon0, cos_lat0, scale, off_x, off_y
-        )
-        print(f"  {len(area_code_geoms)} código(s) de área generados.", file=sys.stderr)
-    elif args.area_code_polygons:
-        print(
-            "\n=== Procesando polígonos de códigos de área (sin ajuste, tal cual) ===",
-            file=sys.stderr,
-        )
-        ac_feats = load_features(args.area_code_polygons)
-        ac_feats, ac_geoms, _ = build_valid_geoms(ac_feats, "código de área")
-        grouped = group_polygons_by_area_code(ac_feats, ac_geoms, args.area_code_field)
-        print(
-            f"  {len(grouped)} código(s) de área agrupados desde {len(ac_feats)} polígono(s).",
-            file=sys.stderr,
-        )
 
-        area_code_geoms = {
-            code: project_geometry(geom, lon0, cos_lat0, scale, off_x, off_y)
-            for code, geom in grouped.items()
-        }
+# ---------------------------------------------------------------------------
+# Groups (the Land layer under --group, or the AreaCodes layer)
+# ---------------------------------------------------------------------------
 
-    layers = []
-    layers.append(
-        render_fine_group(fine_feats, name_chains, "Land", lon0, cos_lat0, scale, off_x, off_y)
+
+def project_all(geoms_by_name, proj):
+    return {name: project_geometry(geom, *proj.args) for name, geom in geoms_by_name.items()}
+
+
+def groups_from_points(admin, group_rows, overlays, proj):
+    print(
+        "\n=== Calculando grupos (Voronoi centroidal acotado por polígono de Land) ===",
+        file=sys.stderr,
     )
-    if glacier_pairs:
-        layers.append(
-            render_glaciers_group(glacier_pairs, "Glaciers", lon0, cos_lat0, scale, off_x, off_y)
-        )
-    if lake_pairs:
-        layers.append(render_lakes_group(lake_pairs, "Lakes", lon0, cos_lat0, scale, off_x, off_y))
+    geoms = build_area_code_geometries(overlays.points, admin.fine_feats, group_rows, *proj.args)
+    print(f"  {len(geoms)} grupo(s) generados.", file=sys.stderr)
+    return geoms
 
-    fine_path = country_dir / f"ADM{fine_level}.topojson"
-    fine_raw_feats, fine_raw_decoded_arcs = load_raw_arc_features(fine_path)
-    # load_raw_arc_features() re-parses the original file from scratch, so
-    # it still has every feature, including ones we dropped above for
-    # having an irreparable geometry. Keep only the ones that survived, in
-    # the same order, so this lines up with immediate_parent_name_by_fine_idx
-    # (built over the already-filtered fine_feats).
-    fine_raw_feats = [fine_raw_feats[i] for i in kept_indices_by_level[fine_level]]
-    pair_arcs = classify_arcs_by_group(
-        fine_raw_feats, immediate_parent_name_by_fine_idx, source_label="nivel fino"
+
+def groups_from_land(args, admin, group_rows, proj):
+    print("\n=== Agrupando polígonos de Land según --group ===", file=sys.stderr)
+    grouped = build_land_group_geometries(
+        group_rows, admin.name_chains, admin.fine_geoms, args.coarse_level
     )
-    layers.append(
-        render_province_group(
-            pair_arcs, fine_raw_decoded_arcs, "Provinces", lon0, cos_lat0, scale, off_x, off_y
-        )
+    geoms = project_all(grouped, proj)
+    print(f"  {len(geoms)} grupo(s) generados.", file=sys.stderr)
+    return geoms
+
+
+def groups_from_area_code_polygons(args, proj):
+    print(
+        "\n=== Procesando polígonos de códigos de área (sin ajuste, tal cual) ===",
+        file=sys.stderr,
     )
-
-    if point_pairs:
-        layers.append(
-            render_points_group(
-                point_pairs, name_chains, "Points", lon0, cos_lat0, scale, off_x, off_y
-            )
-        )
-
-    if area_code_geoms:
-        layers.append(render_area_codes_group(area_code_geoms, "AreaCodes"))
-
-    if ecoregion_pairs:
-        layers.append(
-            render_ecoregions_group(
-                ecoregion_pairs, "Ecoregions", lon0, cos_lat0, scale, off_x, off_y
-            )
-        )
-
-    layers.append(
-        render_national(national_union, args.country, lon0, cos_lat0, scale, off_x, off_y)
+    feats = load_features(args.area_code_polygons)
+    feats, geoms, _ = build_valid_geoms(feats, "código de área")
+    grouped = group_polygons_by_area_code(feats, geoms, args.area_code_field)
+    print(
+        f"  {len(grouped)} código(s) de área agrupados desde {len(feats)} polígono(s).",
+        file=sys.stderr,
     )
+    return project_all(grouped, proj)
 
-    if road_pairs:
-        layers.append(render_roads_group(road_pairs, "Roads", lon0, cos_lat0, scale, off_x, off_y))
 
+def build_group_geoms(args, admin, group_mode, group_rows, overlays, proj):
+    if group_mode == "points":
+        return groups_from_points(admin, group_rows, overlays, proj)
+    if group_mode == "land":
+        return groups_from_land(args, admin, group_rows, proj)
+    if args.area_code_polygons:
+        return groups_from_area_code_polygons(args, proj)
+    return {}
+
+
+# ---------------------------------------------------------------------------
+# Layers / SVG
+# ---------------------------------------------------------------------------
+
+
+def render_land_layer(admin, group_mode, group_geoms, proj):
+    if group_mode:
+        return render_area_codes_group(group_geoms, "Land", style_level="land")
+    return render_fine_group(admin.fine_feats, admin.name_chains, "Land", *proj.args)
+
+
+def render_provinces_layer(args, admin, country_dir, proj):
+    fine_path = country_dir / f"ADM{admin.fine_level}.topojson"
+    raw_feats, decoded_arcs = load_raw_arc_features(fine_path)
+    # load_raw_arc_features() re-parses the file from scratch, so it still
+    # has features dropped earlier for irreparable geometry. Keep only the
+    # survivors, in order, so it lines up with admin.parent_names.
+    raw_feats = [raw_feats[i] for i in admin.kept_fine_indices]
+    pair_arcs = classify_arcs_by_group(raw_feats, admin.parent_names, source_label="nivel fino")
+    return render_province_group(pair_arcs, decoded_arcs, "Provinces", *proj.args)
+
+
+def render_area_codes_layer(group_mode, group_geoms):
+    # Under --group the groups ARE the Land layer, so no extra layer.
+    if group_mode:
+        return ""
+    return render_area_codes_group(group_geoms, "AreaCodes")
+
+
+def build_layers(args, admin, group_mode, group_geoms, overlays, proj, country_dir):
+    """Layers in bottom-to-top drawing order."""
+    return [
+        render_land_layer(admin, group_mode, group_geoms, proj),
+        render_glaciers_group(overlays.glaciers, "Glaciers", *proj.args),
+        render_lakes_group(overlays.lakes, "Lakes", *proj.args),
+        render_provinces_layer(args, admin, country_dir, proj),
+        render_points_group(overlays.points, admin.name_chains, "Points", *proj.args),
+        render_area_codes_layer(group_mode, group_geoms),
+        render_ecoregions_group(overlays.ecoregions, "Ecoregions", *proj.args),
+        render_national(admin.national_union, args.country, *proj.args),
+        render_roads_group(overlays.roads, "Roads", *proj.args),
+    ]
+
+
+def assemble_svg(layers, width) -> str:
     w, h = round(width, PRECISION), round(HEIGHT, PRECISION)
-    svg = (
+    return (
         f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {w} {h}" width="{w}" height="{h}">'
         f'<rect id="Background" width="{w}" height="{h}" fill="{BACKGROUND_COLOR}"/>'
         + "".join(layers)
         + "</svg>"
     )
 
+
+# ---------------------------------------------------------------------------
+# Entry point
+# ---------------------------------------------------------------------------
+
+
+def main() -> None:
+    args = build_parser().parse_args()
+    validate_args(args)
+
+    levels = list(range(args.coarse_level, args.fine_level + 1))
+    country_dir = pathlib.Path("maps") / args.country
+    group_rows, group_mode = resolve_group_mode(args, levels)
+
+    print(f"=== Cargando niveles administrativos {levels} para {args.country} ===", file=sys.stderr)
+    t0 = time.perf_counter()
+    admin = load_admin(args, levels, country_dir)
+    overlays = load_overlays(args, admin, group_mode, group_rows)
+    print(f"\n✔ Completado en {time.perf_counter() - t0:.2f}s\n", file=sys.stderr)
+
+    proj = compute_projection(admin.fine_feats)
+    group_geoms = build_group_geoms(args, admin, group_mode, group_rows, overlays, proj)
+    layers = build_layers(args, admin, group_mode, group_geoms, overlays, proj, country_dir)
+
     out_path = args.output or f"{args.country.replace(' ', '_')}.svg"
-    pathlib.Path(out_path).write_text(svg, encoding="utf-8")
+    pathlib.Path(out_path).write_text(assemble_svg(layers, proj.width), encoding="utf-8")
     print(f"Wrote {out_path}")
 
 

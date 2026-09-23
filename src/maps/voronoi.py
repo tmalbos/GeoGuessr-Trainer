@@ -42,7 +42,7 @@ from shapely.geometry import Polygon as ShapelyPolygon
 from shapely.ops import transform, unary_union, voronoi_diagram
 from shapely.validation import make_valid
 from svg_render import project_point
-from topo_io import get_feature_name, resolve_point_name
+from topo_io import get_feature_name, group_depth, point_group_key
 
 # Lloyd's-algorithm knobs. Implementation details, not exposed as CLI
 # flags: 8 iterations comfortably converges typical department-sized point
@@ -52,16 +52,9 @@ _CVT_ITERATIONS = 10
 _CVT_TOLERANCE = 1e-5
 
 
-def _point_csv_key(feat):
-    """A point's own (Province, Department, Locality) identity, exactly as
-    topo_io.filter_points_by_extra() computes it -- this is what --extra's
-    CSV rows are keyed by, so it's what we use to look up AreaCode.
-    """
-    props = feat.get("properties", {})
-    province = str(props.get("NAME_1", "")).strip()
-    department = str(props.get("NAME_2", "")).strip()
-    locality = resolve_point_name(feat)
-    return province, department, locality
+def _point_csv_key(feat, n_levels):
+    """A point's own identity, (NAME_1, ..., NAME_{N-1}, own name)."""
+    return point_group_key(feat, n_levels)
 
 
 def _project_ring(ring, lon0, cos_lat0, scale, off_x, off_y):
@@ -188,46 +181,42 @@ def _bounded_centroidal_voronoi(seeds, boundary):
 
 
 def build_area_code_geometries(
-    point_pairs, fine_feats, extra_rows, lon0, cos_lat0, scale, off_x, off_y
+    point_pairs, fine_feats, group_rows, lon0, cos_lat0, scale, off_x, off_y
 ):
-    """Entry point: turn matched points into {AreaCode: shapely geometry},
+    """Entry point: turn matched points into {GroupName: shapely geometry},
     every geometry already in SVG pixel space and ready for
     svg_render.render_area_codes_group().
 
     point_pairs: (point_feat, admin_idx) pairs from
         geometry.match_points_to_polygons(..., fine_geoms) -- admin_idx is
-        None for a point that didn't spatially land in any department.
+        None for a point that didn't spatially land in any polygon.
     fine_feats: the fine-level admin feature list matching that admin_idx.
-    extra_rows: the --extra CSV rows (AreaCode, Province, Department,
-        Locality), as loaded by topo_io.load_extra_csv().
+    group_rows: the --group CSV rows, as loaded by topo_io.load_group_csv().
     """
+    n_levels = group_depth(group_rows)
     area_code_by_key = {
-        (row["Province"], row["Department"], row["Locality"]): row["AreaCode"] for row in extra_rows
+        row["levels"]: row["GroupName"] for row in group_rows if len(row["levels"]) == n_levels
     }
 
     by_department = {}
     for feat, admin_idx in point_pairs:
-        province, department, locality = _point_csv_key(feat)
+        key = _point_csv_key(feat, n_levels)
+        label = "/".join(str(k) for k in key)
 
         if admin_idx is None:
             print(
-                f"  ⚠ Punto {province}/{department}/{locality} no cayó espacialmente dentro de "
-                f"ningún departamento; se omite del cálculo de códigos de área.",
+                f"  ⚠ Punto {label} no cayó espacialmente dentro de ningún polígono; se omite.",
                 file=sys.stderr,
             )
             continue
 
-        area_code = feat.get("properties", {}).get("_matched_area_code")
+        area_code = feat.get("properties", {}).get("_matched_group")
 
         if area_code is None:
-            area_code = area_code_by_key.get((province, department, locality))
+            area_code = area_code_by_key.get(key)
 
         if area_code is None:
-            print(
-                f"  ⚠ Punto {province}/{department}/{locality} no tiene AreaCode en --extra; "
-                f"se omite del cálculo de códigos de área.",
-                file=sys.stderr,
-            )
+            print(f"  ⚠ Punto {label} no tiene grupo en --group; se omite.", file=sys.stderr)
             continue
 
         coords = list(flatten_point_coords(feat["geometry"]))
@@ -258,11 +247,8 @@ def build_area_code_geometries(
 
         unique_codes = set(area_codes)
         if len(unique_codes) == 1:
-            # Every point in this department shares one AreaCode: there's
-            # nothing to partition between, so skip Voronoi/CVT entirely
-            # and hand the whole department polygon to that AreaCode. This
-            # also sidesteps the clip-then-union sliver issue for this
-            # group, since no per-cell clipping or unioning happens at all.
+            # Every point in this polygon shares one group: nothing to
+            # partition, so the whole polygon goes to that group.
             geoms_by_area_code.setdefault(area_codes[0], []).append(boundary)
             continue
 

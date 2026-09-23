@@ -293,12 +293,14 @@ def shapely_geom_to_path_d(geom):
     return " ".join(parts)
 
 
-def render_area_codes_group(area_code_geoms, group_id):
-    """Render one <path> per AreaCode -- the union of every locality's
-    bounded-CVT Voronoi cell that shares that code (see
-    voronoi.build_area_code_geometries). Geometries arrive already
+def render_area_codes_group(area_code_geoms, group_id, style_level="areacodes"):
+    """Render one <path> per group -- the union of every geometry that
+    shares that group name (see voronoi.build_area_code_geometries and
+    grouping.build_land_group_geometries). Geometries arrive already
     projected into SVG pixel space, so no lon0/cos_lat0/scale/off_x/off_y
     are needed here, unlike every other render_*_group() in this file.
+    style_level picks the CSS: "areacodes" (transparent overlay) or
+    "land" (filled like the normal Land layer).
     """
     if not area_code_geoms:
         return ""
@@ -311,4 +313,4 @@ def render_area_codes_group(area_code_geoms, group_id):
             continue
         fid = slugify(str(area_code))
         paths.append(f'<path id="{fid}"{vector_style} d="{d}"/>')
-    return f'<g id="{group_id}" {style_attrs("areacodes")}>' + "".join(paths) + "</g>"
+    return f'<g id="{group_id}" {style_attrs(style_level)}>' + "".join(paths) + "</g>"
