@@ -28,6 +28,7 @@ COUNTRIES_COLORS = {
     "Estonia": {"water_color": "#87D7EB", "land_color": "#B0EFCA"},
     "Eswatini": {"water_color": "#8DD8ED", "land_color": "#D1F7E1"},
     "FaroeIslands": {"water_color": "#8BD8ED", "land_color": "#DDDDD4"},
+    "Finland": {"water_color": "#7AD4E9", "land_color": "#ACE8CD"},
     "France": {"water_color": "#7ED5E9", "land_color": "#C4F0DA"},
     "Georgia": {"water_color": "#77D3E7", "land_color": "#BAEBD6"},
     "Ghana": {"water_color": "#83D6EB", "land_color": "#CAF4DD"},
