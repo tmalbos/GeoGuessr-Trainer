@@ -1,0 +1,671 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Lector de nombres — transliteración</title>
+<style>
+  :root {
+    --bg: #0e1f27;
+    --surface: #152b35;
+    --surface-2: #1c3844;
+    --line: #2b4b58;
+    --text: #eaf0ee;
+    --muted: #93a8ae;
+    --accent: #e3b04b;
+    --accent-ink: #1b1405;
+    --ok: #4fb286;
+    --bad: #d9646a;
+    --radius: 14px;
+    --sans: "Inter", "Segoe UI", system-ui, -apple-system, Roboto, sans-serif;
+    /* Estas dos las pisa cada idioma al elegirlo (ver selectLanguage). */
+    --gfont: var(--sans);
+    --wordsize: clamp(2.6rem, 10vw, 5rem);
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font-family: var(--sans); line-height: 1.5;
+    display: flex; flex-direction: column; align-items: center;
+  }
+  main {
+    width: min(720px, 100% - 2rem);
+    flex: 1; display: flex; flex-direction: column; justify-content: center;
+    padding: 2rem 0;
+  }
+  .screen { display: none; }
+  .screen.active { display: block; }
+
+  h1 { font-size: clamp(1.9rem, 5vw, 2.6rem); margin: 0 0 .4rem; letter-spacing: -.01em; }
+  h2 { font-size: 1.1rem; margin: 2rem 0 .6rem; color: var(--muted); font-weight: 600; }
+  .lead { color: var(--muted); margin: 0 0 2rem; max-width: 52ch; }
+
+  /* Botones */
+  button {
+    font: inherit; color: inherit; cursor: pointer;
+    border: 1px solid var(--line); background: var(--surface);
+    border-radius: var(--radius); padding: .85rem 1.2rem;
+    transition: background .15s, border-color .15s, transform .1s;
+  }
+  button:hover:not(:disabled) { background: var(--surface-2); border-color: var(--muted); }
+  button:active:not(:disabled) { transform: translateY(1px); }
+  button:disabled { cursor: not-allowed; opacity: .45; }
+  button.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 600; }
+  button.primary:hover:not(:disabled) { background: #edc266; border-color: #edc266; }
+  button.ghost { background: transparent; border-color: transparent; color: var(--muted); padding-inline: .6rem; }
+  button.ghost:hover:not(:disabled) { color: var(--text); background: transparent; border-color: transparent; }
+  :focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+
+  /* Etiqueta de dificultad */
+  .tag {
+    display: inline-block; padding: .15rem .55rem; border-radius: 999px;
+    font-size: .72rem; font-weight: 700; letter-spacing: .02em; text-transform: uppercase;
+    white-space: nowrap;
+  }
+  .tag.muy-facil  { background: rgba(79,178,134,.18);  color: #7ad9ae; }
+  .tag.facil      { background: rgba(79,178,134,.12);  color: #9fe3c4; }
+  .tag.media      { background: rgba(227,176,75,.18);  color: #f0c874; }
+  .tag.dificil    { background: rgba(224,138,75,.18);  color: #f0a874; }
+  .tag.muy-dificil{ background: rgba(217,100,106,.18); color: #f19298; }
+
+  /* Menú 1: idiomas */
+  .lang-list { display: grid; gap: .75rem; }
+  .lang {
+    display: flex; align-items: center; justify-content: space-between;
+    text-align: left; width: 100%; padding: 1.1rem 1.3rem;
+  }
+  .lang .name { font-size: 1.15rem; font-weight: 600; display: block; }
+  .lang .sub { color: var(--muted); font-size: .9rem; }
+  .lang-right { display: flex; flex-direction: column; align-items: flex-end; gap: .35rem; }
+  .lang-right .native { font-size: 2rem; line-height: 1; }
+
+  /* Menú 2: acciones */
+  .menu-head { display: flex; align-items: center; gap: .8rem; margin-bottom: .4rem; flex-wrap: wrap; }
+  .menu-head .native { font-family: var(--gfont); font-size: 2.4rem; color: var(--accent); }
+  .actions { display: grid; gap: .75rem; margin-top: 1.6rem; }
+  .actions button { text-align: left; padding: 1.1rem 1.3rem; }
+  .actions .t { font-weight: 600; display: block; }
+  .actions .d { color: var(--muted); font-size: .9rem; }
+  .actions button.primary .d { color: #4a3a12; }
+  .data-note { margin-top: 1.6rem; color: var(--muted); font-size: .88rem; }
+  .data-note code { background: var(--surface); padding: .1rem .35rem; border-radius: 6px; }
+
+  /* Juego */
+  .topbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; }
+  .score { color: var(--muted); font-size: .95rem; font-variant-numeric: tabular-nums; }
+  .card {
+    background: var(--surface); border: 1px solid var(--line);
+    border-radius: 22px; padding: clamp(1.5rem, 5vw, 2.6rem); text-align: center;
+  }
+  .word {
+    font-family: var(--gfont);
+    font-size: var(--wordsize); line-height: 1.5;
+    min-height: 1.5em; margin: 0 0 1rem; overflow-wrap: anywhere;
+  }
+  input[type=text] {
+    font: inherit; font-size: 1.3rem; text-align: center; direction: ltr;
+    width: 100%; padding: .85rem 1rem; color: var(--text);
+    background: var(--bg); border: 2px solid var(--line); border-radius: var(--radius);
+  }
+  input[type=text]:focus { outline: none; border-color: var(--accent); }
+  input.ok { border-color: var(--ok); }
+  input.bad { border-color: var(--bad); }
+  .feedback { min-height: 2.6em; margin-top: 1rem; font-size: 1.15rem; }
+  .feedback .expected { color: var(--bad); font-weight: 600; }
+  .row { display: flex; gap: .6rem; justify-content: center; margin-top: 1rem; flex-wrap: wrap; }
+  .hint { color: var(--muted); font-size: .85rem; margin-top: 1rem; }
+
+  /* Carga / error */
+  .loading { color: var(--muted); padding: 2rem 0; text-align: center; }
+  .notice {
+    background: var(--surface); border: 1px solid var(--line); border-left: 4px solid var(--bad);
+    border-radius: var(--radius); padding: 1.1rem 1.3rem; margin-top: 1rem; text-align: left;
+  }
+  .notice p { margin: .3rem 0; }
+  .notice code { background: var(--bg); padding: .1rem .4rem; border-radius: 6px; font-size: .9rem; }
+  .notice pre {
+    background: var(--bg); padding: .8rem 1rem; border-radius: 10px;
+    overflow-x: auto; font-size: .85rem; margin: .6rem 0;
+  }
+  .picker { margin-top: .8rem; }
+  .picker input[type=file] { display: none; }
+  .picker label {
+    display: inline-block; cursor: pointer; border: 1px solid var(--accent); color: var(--accent);
+    padding: .7rem 1.1rem; border-radius: var(--radius); font-weight: 600;
+  }
+  .picker label:hover { background: rgba(227,176,75,.1); }
+  .picker input:focus-visible + label { outline: 3px solid var(--accent); outline-offset: 2px; }
+
+  /* Referencia (tablas de letras + lo que cada idioma agregue) */
+  table { border-collapse: collapse; width: 100%; background: var(--surface); border-radius: var(--radius); overflow: hidden; }
+  th, td { padding: .55rem .6rem; border-bottom: 1px solid var(--line); text-align: center; }
+  th { color: var(--muted); font-weight: 600; font-size: .85rem; background: var(--surface-2); }
+  td.g { font-family: var(--gfont); font-size: 1.9rem; line-height: 1.3; }
+  td.sound { font-size: 1.1rem; }
+  tr:last-child td { border-bottom: none; }
+  .ref-extra { margin-top: .5rem; }
+  .ref-extra table.pos-table td.g { font-size: 2.1rem; }
+  .ref-extra table.pos-table td.na { color: var(--muted); font-family: var(--sans); font-size: 1rem; }
+
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body>
+<main>
+
+  <!-- MENÚ 1: idioma -->
+  <section id="screen-lang" class="screen active" aria-labelledby="h-lang">
+    <h1 id="h-lang">Lector de nombres</h1>
+    <p class="lead">Practicá la lectura de nombres de lugares reales. Elegí el idioma que querés estudiar.</p>
+    <div id="langList" class="lang-list"></div>
+  </section>
+
+  <!-- MENÚ 2: acciones del idioma -->
+  <section id="screen-menu" class="screen" aria-labelledby="h-menu">
+    <div class="menu-head">
+      <h1 id="h-menu"></h1>
+      <span id="menuNative" class="native"></span>
+      <span id="menuTag" class="tag"></span>
+    </div>
+    <p class="lead" id="menuLead"></p>
+    <div class="actions">
+      <button id="btnStart" class="primary">
+        <span class="t">Empezar a practicar</span>
+        <span class="d">Te muestro un nombre y escribís cómo se lee.</span>
+      </button>
+      <button id="btnRef">
+        <span class="t">Tabla de referencia</span>
+        <span class="d">Letras y signos con su transliteración.</span>
+      </button>
+      <button id="btnChangeLang" class="ghost">← Cambiar idioma</button>
+    </div>
+    <p class="data-note" id="dataNote"></p>
+  </section>
+
+  <!-- Juego -->
+  <section id="screen-game" class="screen" aria-label="Práctica">
+    <div class="topbar">
+      <button id="btnExit" class="ghost">← Menú</button>
+      <span class="score" id="score" aria-live="polite"></span>
+    </div>
+
+    <div id="loadingBox" class="loading" hidden>Cargando nombres…</div>
+    <div id="errorBox" hidden></div>
+
+    <div id="playBox" class="card" hidden>
+      <div id="word" class="word"></div>
+      <input id="answer" type="text" autocomplete="off" autocapitalize="off"
+             spellcheck="false" placeholder="Escribí la transliteración" aria-label="Transliteración">
+      <div id="feedback" class="feedback" aria-live="polite"></div>
+      <div class="row">
+        <button id="btnCheck" class="primary">Comprobar</button>
+        <button id="btnSkip">Saltar</button>
+      </div>
+      <p class="hint">Enter para comprobar · Esc para volver al menú</p>
+    </div>
+  </section>
+
+  <!-- Referencia -->
+  <section id="screen-ref" class="screen" aria-labelledby="h-ref">
+    <div class="topbar"><button id="btnRefBack" class="ghost">← Menú</button></div>
+    <h1 id="h-ref">Referencia</h1>
+    <p class="lead" id="refLead"></p>
+    <table>
+      <thead><tr><th>Letra</th><th>Se lee</th><th>Letra</th><th>Se lee</th></tr></thead>
+      <tbody id="letters"></tbody>
+    </table>
+    <!-- Cada idioma puede agregar contenido propio acá (p.ej. formas
+         posicionales del árabe). El core no sabe qué va adentro. -->
+    <div id="langExtra" class="ref-extra" hidden></div>
+    <div id="extraBox">
+      <h2 id="extraTitle"></h2>
+      <table><tbody id="extraBody"></tbody></table>
+    </div>
+  </section>
+
+</main>
+
+<!-- ============================================================
+     1) Registro de idiomas: cada languages/xx.js llama a
+        registerLanguage(...) al cargarse. El orden de estos
+        <script> define el orden del menú.
+     ============================================================ -->
+<script>
+  window.LANG_REGISTRY = [];
+  window.registerLanguage = function (cfg) { window.LANG_REGISTRY.push(cfg); };
+</script>
+<script src="languages/el.js"></script>
+<script src="languages/ru.js"></script>
+<script src="languages/ka.js"></script>
+<script src="languages/ar.js"></script>
+
+<!-- ============================================================
+     2) Core: todo lo de acá es genérico, no depende de ningún
+        idioma en particular. Solo usa lo que cada módulo declaró
+        (letterRe, transliterate, pairs, etc.) a través de LANG_REGISTRY.
+     ============================================================ -->
+<script>
+"use strict";
+
+/* =====================================================================
+   CONFIGURACIÓN
+   ---------------------------------------------------------------------
+   No se descarga nada de internet mientras corre la página.
+   Los datos se leen desde archivos locales de GeoNames:
+
+     (carpeta del html)/
+       lector_geonames.html
+       languages/
+         el.js  ru.js  ar.js
+       geonames/
+         GR.txt CY.txt   (griego)
+         RU.txt          (ruso)
+         AE.txt OM.txt KW.txt TN.txt JO.txt   (árabe)
+
+   Bajá cada  https://download.geonames.org/export/dump/XX.zip
+   y descomprimí el XX.txt dentro de la carpeta "geonames".
+
+   Para agregar un idioma nuevo: crear languages/xx.js que llame a
+   registerLanguage({...}) con la misma forma que los existentes, y
+   agregar un <script src="languages/xx.js"> más arriba, en el orden
+   en que querés que aparezca en el menú.
+   ===================================================================== */
+const DATA_DIR = "geonames";
+
+/* ---------- Comparación de respuestas ---------- */
+/* Normalizador por defecto (sirve para griego y ruso, que ya transliteran
+   a ASCII simple). El árabe trae el suyo propio en su módulo porque usa
+   símbolos especiales (ʿ ʾ ḥ ṣ ḍ ṭ ẓ) que este no necesita conocer. */
+function defaultNormalizeAnswer(s) {
+  return s.trim().toLowerCase()
+    .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9' ]/g, "")
+    .replace(/\s+/g, " ");
+}
+
+/* ---------- Lectura de datos locales (formato GeoNames, genérico) ---------- */
+/* Un candidato sirve si tiene al menos una letra del alfabeto del idioma,
+   ninguna letra de otro alfabeto, y ningún dígito o código pegado
+   (GeoNames trae bastantes lugares tipo "20_2 <nombre>" para sectores
+   o manzanas numeradas; eso no sirve para practicar lectura). */
+function isPureScript(s, re) {
+  let has = false;
+  for (const ch of s) {
+    if (re.test(ch)) { has = true; continue; }
+    if (/[0-9_]/.test(ch)) return false;
+    if (/\p{L}/u.test(ch)) return false;
+  }
+  return has;
+}
+
+/* Usa "name" si está en el alfabeto; si no, el primer alternateName que lo esté. */
+function pickName(name, alternates, re) {
+  if (isPureScript(name, re)) return name;
+  if (!alternates) return "";
+  for (const candidate of alternates.split(",")) {
+    const s = candidate.trim();
+    if (s && isPureScript(s, re)) return s;
+  }
+  return "";
+}
+
+function collectLine(line, lang, code, acc) {
+  if (!line || line.indexOf("\tP\t") === -1) return;   // solo lugares poblados
+  const f = line.split("\t");
+  if (f.length < 19 || f[6] !== "P") return;
+
+  const name = pickName(f[1], f[3], lang.letterRe);
+  if (!name) return;
+
+  const key = `${code}|${name}`;
+  if (acc.seen.has(key)) return;
+  acc.seen.add(key);
+
+  acc.list.push({
+    id: f[0], countryCode: code, name,
+    transliteration: lang.transliterate(name),
+    featureCode: f[7], population: Number(f[14]) || 0
+  });
+}
+
+/* Lee el archivo por partes para no cargar de golpe archivos enormes (RU.txt). */
+async function streamLines(stream, onLine) {
+  const reader = stream.getReader();
+  const decoder = new TextDecoder("utf-8");
+  let rest = "";
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    rest += decoder.decode(value, { stream: true });
+    let start = 0, idx;
+    while ((idx = rest.indexOf("\n", start)) !== -1) {
+      onLine(rest.slice(start, idx));
+      start = idx + 1;
+    }
+    rest = rest.slice(start);
+  }
+  rest += decoder.decode();
+  if (rest) onLine(rest);
+}
+
+/* fetch (GET) sobre un archivo del mismo directorio; no sale a internet.
+   Con file:// los navegadores lo bloquean: para eso está el selector de archivos. */
+async function readLocalCountry(code, lang, acc) {
+  const response = await fetch(`${DATA_DIR}/${code}.txt`);
+  if (!response.ok) throw new Error(`${DATA_DIR}/${code}.txt: HTTP ${response.status}`);
+  const onLine = l => collectLine(l, lang, code, acc);
+  if (response.body) await streamLines(response.body, onLine);
+  else for (const l of (await response.text()).split(/\r?\n/)) onLine(l);
+}
+
+/* ---------- Estado ---------- */
+const $ = id => document.getElementById(id);
+const screens = {
+  lang: $("screen-lang"), menu: $("screen-menu"),
+  game: $("screen-game"), ref: $("screen-ref")
+};
+const cache = {};            // idioma -> lugares ya cargados
+let lang = null;
+let places = [];
+let queue = [];
+let current = null;
+let stats = { ok: 0, total: 0 };
+let awaitingNext = false;
+
+function show(name) {
+  for (const k in screens) screens[k].classList.toggle("active", k === name);
+}
+
+function shuffle(arr) {
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr;
+}
+
+/* ---------- Menú 1: idiomas ---------- */
+function renderLanguages() {
+  const box = $("langList");
+  box.innerHTML = "";
+  for (const l of window.LANG_REGISTRY) {
+    const b = document.createElement("button");
+    b.className = "lang";
+    b.innerHTML =
+      `<span><span class="name">${l.name}</span><span class="sub">${l.script}</span></span>` +
+      `<span class="lang-right">` +
+        `<span class="tag ${l.difficulty.level}">${l.difficulty.label}</span>` +
+        `<span class="native" lang="${l.id}" dir="${l.dir}" style="font-family:${l.fontFamily}">${l.native}</span>` +
+      `</span>`;
+    b.onclick = () => selectLanguage(l);
+    box.appendChild(b);
+  }
+}
+
+/* ---------- Menú 2: acciones ---------- */
+function selectLanguage(l) {
+  lang = l;
+  places = cache[l.id] || [];
+  queue = []; current = null;
+
+  const root = document.documentElement.style;
+  root.setProperty("--gfont", l.fontFamily);
+  root.setProperty("--wordsize", l.wordSize);
+
+  const w = $("word");
+  w.setAttribute("dir", l.dir);
+  w.setAttribute("lang", l.id);
+
+  $("h-menu").textContent = l.name;
+  const nat = $("menuNative");
+  nat.textContent = l.native;
+  nat.setAttribute("dir", l.dir);
+  nat.setAttribute("lang", l.id);
+  const tag = $("menuTag");
+  tag.textContent = l.difficulty.label;
+  tag.className = `tag ${l.difficulty.level}`;
+  $("menuLead").textContent = l.lead;
+  $("dataNote").innerHTML =
+    `Datos locales en <code>${DATA_DIR}/</code>: ` +
+    l.countries.map(c => `<code>${c}.txt</code>`).join(" ");
+  show("menu");
+}
+
+/* ---------- Carga ---------- */
+function setBoxes({ loading = false, error = false, play = false }) {
+  $("loadingBox").hidden = !loading;
+  $("errorBox").hidden = !error;
+  $("playBox").hidden = !play;
+}
+
+function finishLoad(acc, failed) {
+  const map = new Map();
+  for (const p of acc.list) map.set(`${p.countryCode}|${p.name}`, p);
+  places = [...map.values()];
+  if (!places.length) throw new Error("Los archivos no contienen nombres utilizables para este idioma.");
+  cache[lang.id] = places;
+  queue = shuffle([...places]);
+  if (failed.length) console.warn("Archivos no cargados:", failed);
+}
+
+async function loadFromServer() {
+  const acc = { list: [], seen: new Set() };
+  const failed = [];
+  let loaded = 0;
+  for (const code of lang.countries) {
+    $("loadingBox").textContent = `Leyendo ${code}.txt…`;
+    try { await readLocalCountry(code, lang, acc); loaded++; }
+    catch (e) { failed.push(`${code}: ${e.message}`); }
+  }
+  if (!loaded) {
+    const err = new Error("No se pudieron leer los archivos locales.");
+    err.details = failed;
+    throw err;
+  }
+  finishLoad(acc, failed);
+}
+
+async function loadFromPicker(fileList) {
+  const acc = { list: [], seen: new Set() };
+  let loaded = 0;
+  setBoxes({ loading: true });
+  for (const file of fileList) {
+    const m = file.name.match(/^([A-Za-z]{2})\.txt$/);
+    if (!m) continue;
+    const code = m[1].toUpperCase();
+    if (!lang.countries.includes(code)) continue;
+    $("loadingBox").textContent = `Leyendo ${code}.txt…`;
+    await streamLines(file.stream(), l => collectLine(l, lang, code, acc));
+    loaded++;
+  }
+  if (!loaded) {
+    showError(["No elegiste ningún archivo válido (" +
+      lang.countries.map(c => c + ".txt").join(", ") + ")."]);
+    return;
+  }
+  try {
+    finishLoad(acc, []);
+    setBoxes({ play: true });
+    nextPlace();
+  } catch (e) {
+    showError([e.message]);
+  }
+}
+
+function showError(details) {
+  const box = $("errorBox");
+  box.innerHTML =
+    `<div class="notice">
+       <p><strong>No pude leer los archivos de GeoNames.</strong></p>
+       <p>Descargá cada país, descomprimilo y dejá los <code>.txt</code> en una carpeta
+          <code>${DATA_DIR}/</code> junto a este html:</p>
+       <pre>${lang.countries.map(c =>
+         `https://download.geonames.org/export/dump/${c}.zip`).join("\n")}</pre>
+       <p>Si abrís el html con doble clic, el navegador bloquea la lectura automática.
+          Podés usar el selector de abajo, o servir la carpeta con
+          <code>python -m http.server</code> y abrir <code>http://localhost:8000</code>.</p>
+       ${details.length ? `<p class="hint">${details.map(d => d.replace(/</g, "&lt;")).join("<br>")}</p>` : ""}
+       <div class="picker">
+         <input id="fileInput" type="file" accept=".txt" multiple>
+         <label for="fileInput">Elegir los archivos .txt</label>
+       </div>
+     </div>`;
+  $("fileInput").addEventListener("change", e => loadFromPicker(e.target.files));
+  setBoxes({ error: true });
+}
+
+/* ---------- Juego ---------- */
+function updateScore() {
+  $("score").textContent = stats.total
+    ? `${stats.ok} de ${stats.total} correctas`
+    : "";
+}
+
+function nextPlace() {
+  if (!queue.length) queue = shuffle([...places]);
+  current = queue.pop();
+  awaitingNext = false;
+  $("btnCheck").textContent = "Comprobar";
+  $("word").textContent = current.name;
+  const a = $("answer");
+  a.value = ""; a.className = ""; a.disabled = false;
+  $("feedback").textContent = "";
+  a.focus();
+}
+
+async function startGame() {
+  stats = { ok: 0, total: 0 };
+  updateScore();
+  show("game");
+
+  if (places.length) {
+    if (!queue.length) queue = shuffle([...places]);
+    setBoxes({ play: true });
+    nextPlace();
+    return;
+  }
+
+  setBoxes({ loading: true });
+  try {
+    await loadFromServer();
+    setBoxes({ play: true });
+    nextPlace();
+  } catch (e) {
+    showError(e.details || [e.message]);
+  }
+}
+
+function check() {
+  if (!current) return;
+  if (awaitingNext) { nextPlace(); return; }
+
+  const a = $("answer");
+  if (!a.value.trim()) return;
+
+  const normalize = lang.normalizeAnswer || defaultNormalizeAnswer;
+  const right = normalize(a.value) === normalize(current.transliteration);
+  stats.total++;
+  awaitingNext = true;
+
+  if (right) {
+    stats.ok++;
+    a.className = "ok";
+    $("feedback").textContent = "✓ Correcto";
+    setTimeout(() => { if (awaitingNext) nextPlace(); }, 450);
+  } else {
+    a.className = "bad";
+    $("feedback").innerHTML =
+      `Respuesta: <span class="expected">${current.transliteration.replace(/</g, "&lt;")}</span>`;
+    $("btnCheck").textContent = "Siguiente";
+    a.disabled = true;
+    $("btnCheck").focus();
+  }
+  updateScore();
+}
+
+/* ---------- Referencia ---------- */
+function fillPairs(tbody, pairs) {
+  tbody.innerHTML = "";
+  const half = Math.ceil(pairs.length / 2);
+  const cell = (p) => p
+    ? `<td class="g" lang="${lang.id}" dir="${lang.dir}">${p[0]}</td><td class="sound">${p[1]}</td>`
+    : "<td></td><td></td>";
+  for (let i = 0; i < half; i++) {
+    const tr = document.createElement("tr");
+    tr.innerHTML = cell(pairs[i]) + cell(pairs[i + half]);
+    tbody.appendChild(tr);
+  }
+}
+
+function renderReference() {
+  $("refLead").textContent = lang.refLead;
+  fillPairs($("letters"), lang.pairs);
+
+  const extraBox = $("langExtra");
+  if (typeof lang.renderExtraReference === "function") {
+    extraBox.hidden = false;
+    lang.renderExtraReference(extraBox);
+  } else {
+    extraBox.hidden = true;
+    extraBox.innerHTML = "";
+  }
+
+  const hasExtra = lang.extra.length > 0;
+  $("extraBox").hidden = !hasExtra;
+  if (hasExtra) {
+    $("extraTitle").textContent = lang.extraTitle;
+    fillPairs($("extraBody"), lang.extra);
+  }
+}
+
+/* ---------- Eventos ---------- */
+$("btnStart").onclick = startGame;
+$("btnRef").onclick = () => { renderReference(); show("ref"); };
+$("btnRefBack").onclick = () => show("menu");
+$("btnChangeLang").onclick = () => show("lang");
+$("btnExit").onclick = () => show("menu");
+$("btnCheck").onclick = check;
+$("btnSkip").onclick = () => { if (current) nextPlace(); };
+
+$("answer").addEventListener("keydown", e => {
+  if (e.key === "Enter") { e.preventDefault(); check(); }
+});
+document.addEventListener("keydown", e => {
+  if (e.key === "Escape" && screens.game.classList.contains("active")) show("menu");
+});
+
+renderLanguages();
+</script>
+<script>
+/*
+ * Servidor local: mantiene vivo el proceso mientras esta página está abierta.
+ * No hace nada cuando el HTML se abre directamente con file://.
+ */
+(function () {
+  if (location.protocol !== "http:") return;
+
+  const ping = () => {
+    fetch("/__heartbeat", {
+      method: "POST",
+      cache: "no-store",
+      keepalive: true
+    }).catch(() => {});
+  };
+
+  ping();
+  const timer = setInterval(ping, 2000);
+
+  window.addEventListener("pagehide", () => {
+    clearInterval(timer);
+    fetch("/__close", {
+      method: "POST",
+      cache: "no-store",
+      keepalive: true
+    }).catch(() => {});
+  });
+})();
+</script>
+
+</body>
+</html>
