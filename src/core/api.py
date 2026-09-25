@@ -27,6 +27,7 @@ class GeoguessrClient:
             },
             timeout=10,
         )
+        self._owns_client = http_client is None
 
     async def _get(self, url: str) -> httpx.Response:
         headers = {
@@ -103,7 +104,8 @@ class GeoguessrClient:
         return match.get("game", {}).get("token")
 
     async def aclose(self) -> None:
-        await self._client.aclose()
+        if self._owns_client:
+            await self._client.aclose()
 
 
 async def fetch_game(game_id: str, ncfa_cookie: str) -> dict:

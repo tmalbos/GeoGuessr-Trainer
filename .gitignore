@@ -1,6 +1,8 @@
 .idea/*
 .vscode/*
 Ecoregions2017/*
+frontend/dist/*
+frontend/node_modules/*
 maps/*
 src/maps/fabdem/*
 src/maps/srtm_global/*
