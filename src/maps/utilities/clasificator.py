@@ -29,6 +29,23 @@ from rasterio.warp import Resampling, calculate_default_transform, reproject
 from scipy.ndimage import maximum_filter, minimum_filter, uniform_filter
 
 
+def preparar_dem_proyectado(src_path):
+    """Si el archivo de entrada ya esta en un CRS proyectado (metros, como
+    un mosaico global en EPSG:6933), lo devuelve tal cual. Si esta en
+    grados (lat/lon), lo reproyecta a la UTM correspondiente.
+    """
+    with rasterio.open(src_path) as src:
+        ya_proyectado = not src.crs.is_geographic
+        crs_actual = src.crs
+
+    if ya_proyectado:
+        print(f"Entrada ya esta en CRS proyectado ({crs_actual}), no se reproyecta.")
+        return src_path
+
+    utm_path = src_path.replace(".tif", "_utm.tif")
+    return reproject_to_utm(src_path, utm_path)
+
+
 def reproject_to_utm(src_path, dst_path):
     with rasterio.open(src_path) as src:
         lon = (src.bounds.left + src.bounds.right) / 2
@@ -91,14 +108,13 @@ def main() -> None:
     parser.add_argument("dem_path")
     parser.add_argument("--out", default="features.tif")
     parser.add_argument(
-        "--radio", type=float, default=990, help="radio en metros para relieve y textura local"
+        "--radio", type=float, default=1500, help="radio en metros para relieve y textura local"
     )
     args = parser.parse_args()
 
-    utm_path = args.dem_path.replace(".tif", "_utm.tif")
-    reproject_to_utm(args.dem_path, utm_path)
+    dem_path = preparar_dem_proyectado(args.dem_path)
 
-    with rasterio.open(utm_path) as src:
+    with rasterio.open(dem_path) as src:
         dem = src.read(1).astype(np.float32)
         pixel_size_m = src.transform[0]
         profile = src.profile

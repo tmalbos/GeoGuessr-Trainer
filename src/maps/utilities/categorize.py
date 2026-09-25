@@ -1,4 +1,4 @@
-"""Aplica los umbrales de Relieve local y Textura sobre features.tif y genera
+"""Aplica los umbrales de Relieve local sobre features.tif y genera
 un raster de una sola banda con valores discretos 0-4 (una categoria cada uno).
 
 Categorias:
@@ -8,11 +8,9 @@ Categorias:
     3 = Montanas pequenas
     4 = Montanas grandes
 
-Como se combinan las 2 variables: cada pixel obtiene un indice de categoria
-segun Relieve local, y otro segun Textura (usando los umbrales de cada tabla).
-La categoria final es el MAYOR de los dos indices (el mas conservador: si
-cualquiera de las 2 variables dice "esto ya es mas accidentado", gana esa).
-Si preferis otro criterio, cambia --combine a 'relieve', 'textura' o 'promedio'.
+Solo usa Relieve local (banda 2 de features.tif). La textura (banda 3)
+ya no se usa en la clasificacion -- se elimino la logica de corona/textura,
+asi que se dejo de leer para no confundir.
 
 Uso:
     python categorize.py features.tif --out categorias.tif
@@ -23,7 +21,7 @@ import argparse
 import numpy as np
 import rasterio
 
-# Umbrales de referencia (limite inferior de cada categoria)
+# Umbrales de referencia (limite inferior de cada categoria), recalibrados con FABDEM
 UMBRALES_RELIEVE = [0, 22, 50, 140, 800]  # metros
 
 NOMBRES = ["Plano", "Ondulante", "Hilly", "Montanas pequenas", "Montanas grandes"]
@@ -41,26 +39,13 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("features_path")
     parser.add_argument("--out", default="categorias.tif")
-    parser.add_argument(
-        "--combine", choices=["max", "relieve", "textura", "promedio"], default="relieve"
-    )
     args = parser.parse_args()
 
     with rasterio.open(args.features_path) as src:
         relieve = src.read(2)
-        src.read(3)
         profile = src.profile
 
-    cat_relieve = a_categoria(relieve, UMBRALES_RELIEVE)
-
-    if args.combine == "max":
-        categoria = np.maximum(cat_relieve)  # , cat_textura)
-    elif args.combine == "relieve":
-        categoria = cat_relieve
-    # elif args.combine == "textura":
-    #     categoria = cat_textura
-    # else:  # promedio
-    #     categoria = np.round((cat_relieve.astype(np.float32) + cat_textura) / 2).astype(np.uint8)
+    categoria = a_categoria(relieve, UMBRALES_RELIEVE)
 
     profile.update(count=1, dtype=rasterio.uint8, nodata=255)
     with rasterio.open(args.out, "w", **profile) as dst:

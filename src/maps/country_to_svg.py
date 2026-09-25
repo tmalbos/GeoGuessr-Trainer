@@ -64,6 +64,7 @@ from svg_render import (
     render_glaciers_group,
     render_lakes_group,
     render_national,
+    render_national_parks_group,
     render_points_group,
     render_province_group,
     render_roads_group,
@@ -122,6 +123,7 @@ class Projection:
 class Overlays:
     glaciers: list = field(default_factory=list)
     lakes: list = field(default_factory=list)
+    national_parks: list = field(default_factory=list)
     roads: list = field(default_factory=list)
     points: list = field(default_factory=list)
 
@@ -149,6 +151,14 @@ GLACIERS = OverlaySpec(
 )
 LAKES = OverlaySpec(
     "lagos", "lagos", "lago", load_geojson_features, geometry_bounds, clip_features_to_national
+)
+NATIONAL_PARKS = OverlaySpec(
+    "parques nacionales",
+    "parques nacionales",
+    "parque nacional",
+    load_geojson_features,
+    geometry_bounds,
+    clip_features_to_national,
 )
 ROADS = OverlaySpec(
     "rutas",
@@ -204,6 +214,12 @@ def build_parser():
         default=None,
         metavar="PATH",
         help="Optional world lakes GeoJSON (plain GeoJSON, not TopoJSON). Each lake polygon is clipped to the national border and added as its own 'Lakes' layer in the output SVG, filled with the background color and non-clickable, rendered above the Land layer but below the administrative border layers (Provinces/Country).",
+    )
+    ap.add_argument(
+        "--national-parks",
+        default=None,
+        metavar="PATH",
+        help="Optional world national parks GeoJSON (plain GeoJSON, not TopoJSON). Each park polygon is clipped to the national border and added as its own 'NationalParks' layer in the output SVG, filled with the land color and clickable (no pointer-events: none), rendered above the Country layer but below Roads.",
     )
     ap.add_argument(
         "--points",
@@ -488,6 +504,8 @@ def load_overlays(args, admin, group_mode, group_rows) -> Overlays:
         overlays.glaciers = load_clipped_overlay(GLACIERS, args.glaciers, union)
     if args.lakes:
         overlays.lakes = load_clipped_overlay(LAKES, args.lakes, union)
+    if args.national_parks:
+        overlays.national_parks = load_clipped_overlay(NATIONAL_PARKS, args.national_parks, union)
     if args.roads:
         overlays.roads = load_clipped_overlay(ROADS, args.roads, union)
     return overlays
@@ -644,6 +662,9 @@ def build_layers(args, admin, group_mode, group_geoms, overlays, proj, country_d
         render_provinces_layer(args, admin, country_dir, proj),
         render_points_layer(overlays, group_mode, admin, proj),
         render_national(admin.national_union, args.country, *proj.args),
+        render_national_parks_group(
+            args.country, overlays.national_parks, "NationalParks", *proj.args
+        ),
         render_roads_group(overlays.roads, "Roads", *proj.args),
     ]
 

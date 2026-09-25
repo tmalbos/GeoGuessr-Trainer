@@ -2,12 +2,15 @@
 .vscode/*
 Ecoregions2017/*
 maps/*
+src/maps/fabdem/*
+src/maps/srtm_global/*
 venv/*
 *.egg-info/*
 __pycache__/
 
 *.pyc
 *.pyo
+*.zip
 
 .env
 geoguessr_cookie.txt

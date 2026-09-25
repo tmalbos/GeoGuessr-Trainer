@@ -192,6 +192,28 @@ def render_lakes_group(country, clipped_pairs, group_id, lon0, cos_lat0, scale, 
     return f'<g id="{group_id}" {style_attrs("lakes", country)}>' + "".join(paths) + "</g>"
 
 
+def render_national_parks_group(
+    country, clipped_pairs, group_id, lon0, cos_lat0, scale, off_x, off_y
+):
+    if not clipped_pairs:
+        return ""
+    vector_style = ' style="vector-effect: non-scaling-stroke;"'
+
+    order = sorted(
+        range(len(clipped_pairs)),
+        key=lambda i: unidecode(get_feature_name(clipped_pairs[i][0]) or "").lower(),
+    )
+
+    paths = []
+    for rank, i in enumerate(order):
+        feat, geom = clipped_pairs[i]
+        d = geometry_to_path_d(clean_to_geojson_dict(geom), lon0, cos_lat0, scale, off_x, off_y)
+        name = get_feature_name(feat)
+        fid = slugify(name) if name else f"NationalPark_{rank}"
+        paths.append(f'<path id="{fid}"{vector_style} d="{d}"/>')
+    return f'<g id="{group_id}" {style_attrs("land", country)}>' + "".join(paths) + "</g>"
+
+
 def render_roads_group(clipped_pairs, group_id, lon0, cos_lat0, scale, off_x, off_y):
     if not clipped_pairs:
         return ""
