@@ -1,69 +1,88 @@
+"""analyzer.py — Enrich, compute replay-derived metrics, and persist one game."""
+
 import asyncio
 
-import httpx
-
 from src.anki.anki_connect import AnkiConnectClient
+from src.core.api import GeoguessrClient
 from src.core.events import Emit, Event, noop
 from src.core.geo_enrich import GeoEnrichClient
+from src.core.normalize import infer_move_type_from_replays, move_type_from_challenge
+from src.core.replay import compress_replay, steps_from_replay, time_sec_from_replay
 from src.db.db import DbAdapter
 
 
 async def process_game(
-    game_data: dict,
+    normalized_rounds: list[dict],
     game_id: str,
+    challenge_token: str,
+    match_type: str,
+    map_name: str,
+    played_at: str | None,
+    time_limit_sec: int | None,
     db: DbAdapter,
     geo_client: GeoEnrichClient,
     anki_client: AnkiConnectClient,
-    http_client: httpx.AsyncClient,
+    client: GeoguessrClient,
+    user_id: str,
+    forbid_flags: dict | None = None,
     emit: Emit = noop,
 ) -> list[str]:
     """Enrich, save and generate cards for one game. Returns Anki errors."""
-    rounds_raw = game_data.get("rounds", [])
-    guesses = game_data.get("player", {}).get("guesses", [])
-    map_name = game_data.get("mapName", "unknown")
-    played_at = rounds_raw[0].get("startTime") if rounds_raw else None
-
-    if not rounds_raw:
+    if not normalized_rounds:
         await emit(Event("log", {"message": "No rounds found in this game.", "level": "warn"}))
         return []
 
     await emit(Event("game_started", {"game_id": game_id, "map_name": map_name}))
 
     real_enriched, guess_enriched = await asyncio.gather(
-        geo_client.enrich_all([(r["lat"], r["lng"]) for r in rounds_raw]),
-        geo_client.enrich_all([(g.get("lat"), g.get("lng")) for g in guesses]),
+        geo_client.enrich_all([(r["real_lat"], r["real_lng"]) for r in normalized_rounds]),
+        geo_client.enrich_all([(r["guess_lat"], r["guess_lng"]) for r in normalized_rounds]),
+    )
+
+    raw_replays = await asyncio.gather(
+        *[client.fetch_replay(user_id, game_id, r["round_number"]) for r in normalized_rounds],
     )
 
     rounds_to_save = []
+    compressed_replays = []
     total_score = 0
     total_dist_km = 0.0
 
-    for i, guess in enumerate(guesses[: len(rounds_raw)], start=1):
-        score_pts = guess.get("roundScoreInPoints", 0)
-        dist_km = (
-            round(guess["distanceInMeters"] / 1000, 1) if guess.get("distanceInMeters") else None
-        )
+    for i, r in enumerate(normalized_rounds):
+        compressed = compress_replay(raw_replays[i])
+        compressed_replays.append(compressed)
+
         row = {
             "game_id": game_id,
-            "round_number": i,
-            "real_geo": real_enriched[i - 1],
-            "guess_geo": guess_enriched[i - 1],
-            "score": score_pts,
-            "distance_km": dist_km,
-            "steps": guess.get("stepsCount", 0),
-            "time_sec": guess.get("time"),
+            "round_number": r["round_number"],
+            "real_geo": real_enriched[i],
+            "guess_geo": guess_enriched[i],
+            "score": r["score"],
+            "distance_km": r["distance_km"],
+            "steps": steps_from_replay(compressed),
+            "time_sec": time_sec_from_replay(compressed),
+            "replay": compressed,
         }
-        total_score += score_pts or 0
-        total_dist_km += dist_km or 0.0
+        total_score += r["score"] or 0
+        total_dist_km += r["distance_km"] or 0.0
         rounds_to_save.append(row)
         await emit(Event("round_result", row))
 
-    n = len(guesses)
+    move_type = (
+        infer_move_type_from_replays(compressed_replays)
+        if match_type == "duel"
+        else move_type_from_challenge(forbid_flags or {})
+    )
+
+    n = len(normalized_rounds)
     await db.save_game(
         {
             "game_id": game_id,
-            "challenge_token": game_data.get("challenge_token"),
-            "is_daily": game_data.get("is_daily"),
+            "challenge_token": challenge_token,
+            "match_type": match_type,
+            "round_count": n,
+            "time_limit_sec": time_limit_sec,
+            "move_type": move_type,
             "played_at": played_at,
             "map_name": map_name,
             "rounds": rounds_to_save,
@@ -82,9 +101,3 @@ async def process_game(
     )
 
     return []
-    # return await generate_cards_for_game(
-    #     rounds_to_save,
-    #     db=db,
-    #     anki_client=anki_client,
-    #     http_client=http_client,
-    # )

@@ -12,6 +12,10 @@ CREATE TYPE realm_type AS ENUM (
     'Afrotropic', 'Antarctica', 'Australasia', 'Indomalayan', 'Nearctic', 'Neotropic', 'Oceania', 'Palearctic'
 );
 
+-- ENUMS: games
+CREATE TYPE match_type AS ENUM ('daily', 'challenge', 'duel');
+CREATE TYPE move_type  AS ENUM ('moving', 'no_move', 'nmpz');
+
 -- ENUMS: road lines
 CREATE TYPE line_color AS ENUM (
     'white', 'faded white', 'yellow', 'orange-tinted yellow', 'green', 'red', 'orange'
@@ -51,13 +55,18 @@ CREATE TABLE biome (
 );
 
 CREATE TABLE game (
-    challenge_token CHAR(16),
-    game_id         CHAR(16),
+    challenge_token VARCHAR(24),
+    game_id         VARCHAR(24),
     map_name        VARCHAR(60) NOT NULL,
-    is_daily        BOOLEAN     NOT NULL DEFAULT FALSE,
+    match_type      match_type  NOT NULL,
+    round_count     SMALLINT    NOT NULL,
+    time_limit_sec  SMALLINT,
+    move_type       move_type   NOT NULL,
     played_at       TIMESTAMPTZ NOT NULL,
 
-    PRIMARY KEY (challenge_token, game_id)
+    PRIMARY KEY (challenge_token, game_id),
+    CONSTRAINT chk_game_round_count_positive CHECK (round_count > 0),
+    CONSTRAINT chk_game_time_limit_positive CHECK (time_limit_sec IS NULL OR time_limit_sec > 0)
 );
 
 CREATE TABLE road_line (
@@ -275,6 +284,17 @@ CREATE TABLE round (
             AND real_ecoregion_id IS NOT NULL
         )
     )
+);
+
+CREATE TABLE round_replay (
+    challenge_token VARCHAR(24),
+    game_id         VARCHAR(24),
+    round_number    SMALLINT,
+    events          JSONB NOT NULL,
+
+    PRIMARY KEY (challenge_token, game_id, round_number),
+    FOREIGN KEY (challenge_token, game_id, round_number)
+        REFERENCES round (challenge_token, game_id, round_number) ON DELETE CASCADE
 );
 
 -- 3. MANY-TO-MANY (NN) RELATIONSHIP TABLES

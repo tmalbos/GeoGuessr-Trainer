@@ -1,9 +1,17 @@
 """db.py — Capa de acceso a datos PostgreSQL async con asyncpg."""
 
+import json
 from datetime import datetime
 
 import asyncpg
 from asyncpg import Pool
+
+_HISTORY_SORT_COLUMNS = {
+    "date": "g.played_at",
+    "total_score": "total_score",
+    "total_steps": "total_steps",
+    "total_time": "total_time_sec",
+}
 
 
 async def init_pool(dsn: str = "") -> Pool:
@@ -105,8 +113,13 @@ class DbAdapter:
             "license_plates": [dict(r) for r in plate_rows],
         }
 
-    async def fetch_all_rounds(self) -> list[dict]:
-        """Return all rounds with geo fields in the shape stats.py expects."""
+    async def fetch_all_rounds(
+        self,
+        match_type: str,
+        move_type: str,
+        time_limit_sec: int | None,
+    ) -> list[dict]:
+        """Return all rounds for one exact (match_type, move_type, time_limit_sec) combo."""
         async with self._pool.acquire() as conn:
             rows = await conn.fetch(
                 """
@@ -120,7 +133,6 @@ class DbAdapter:
                     r.time_sec,
                     g.played_at,
 
-                    -- real geo
                     real_c.continent     AS real_continent,
                     real_c.name          AS real_country,
                     real_s.name          AS real_state,
@@ -129,7 +141,6 @@ class DbAdapter:
                     real_b.name          AS real_biome,
                     real_e.name          AS real_ecoregion,
 
-                    -- guess geo (all nullable)
                     guess_c.continent    AS guess_continent,
                     guess_c.name         AS guess_country,
                     guess_s.name         AS guess_state,
@@ -161,10 +172,15 @@ class DbAdapter:
                     AND guess_e.biome_id     = r.guess_biome_id
                 LEFT JOIN biome    guess_b ON guess_b.biome_id = r.guess_biome_id
 
-                WHERE g.is_daily = TRUE
+                WHERE g.match_type = $1
+                  AND g.move_type  = $2
+                  AND g.time_limit_sec IS NOT DISTINCT FROM $3
 
                 ORDER BY g.played_at ASC, r.round_number ASC
                 """,
+                match_type,
+                move_type,
+                time_limit_sec,
             )
 
         return [
@@ -199,6 +215,96 @@ class DbAdapter:
             for row in rows
         ]
 
+    async def fetch_analysis_filter_options(self) -> list[dict]:
+        """Distinct (match_type, move_type, time_limit_sec) combos that have ≥1 round."""
+        async with self._pool.acquire() as conn:
+            rows = await conn.fetch(
+                """
+                SELECT DISTINCT g.match_type, g.move_type, g.time_limit_sec
+                FROM game g
+                JOIN round r
+                    ON r.challenge_token = g.challenge_token AND r.game_id = g.game_id
+                ORDER BY g.match_type, g.move_type, g.time_limit_sec NULLS LAST
+                """,
+            )
+        return [dict(r) for r in rows]
+
+    async def fetch_game_history(
+        self,
+        match_type: str | None,
+        move_type: str | None,
+        time_limit_mode: str,  # "any" | "null" | "value"
+        time_limit_value: int | None,
+        min_score: int | None,
+        max_score: int | None,
+        sort_by: str,
+        sort_dir: str,
+    ) -> list[dict]:
+        """One row per game, with its rounds (ordered) and totals. Never mixes
+        match_type/move_type/time_limit — caller passes an exact combo or 'any'.
+        """
+        if sort_by not in _HISTORY_SORT_COLUMNS:
+            msg = f"Invalid sort_by: {sort_by}"
+            raise ValueError(msg)
+        if sort_dir not in {"asc", "desc"}:
+            msg = f"Invalid sort_dir: {sort_dir}"
+            raise ValueError(msg)
+
+        order_expr = f"{_HISTORY_SORT_COLUMNS[sort_by]} {sort_dir.upper()}"
+
+        query = f"""
+            SELECT
+                g.challenge_token,
+                g.game_id,
+                g.match_type::text AS match_type,
+                g.move_type::text  AS move_type,
+                g.time_limit_sec,
+                g.played_at,
+                SUM(r.score)    AS total_score,
+                SUM(r.steps)    AS total_steps,
+                SUM(r.time_sec) AS total_time_sec,
+                json_agg(
+                    json_build_object(
+                        'round_number', r.round_number,
+                        'score', r.score,
+                        'steps', r.steps,
+                        'time_sec', r.time_sec,
+                        'country_code', r.real_country_code
+                    ) ORDER BY r.round_number
+                ) AS rounds
+            FROM game g
+            JOIN round r ON r.challenge_token = g.challenge_token AND r.game_id = g.game_id
+            WHERE ($1::text IS NULL OR g.match_type::text = $1)
+              AND ($2::text IS NULL OR g.move_type::text = $2)
+              AND (
+                  $3 = 'any'
+                  OR ($3 = 'null'  AND g.time_limit_sec IS NULL)
+                  OR ($3 = 'value' AND g.time_limit_sec = $4)
+              )
+            GROUP BY g.challenge_token, g.game_id, g.match_type, g.move_type, g.time_limit_sec, g.played_at
+            HAVING ($5::int IS NULL OR SUM(r.score) >= $5)
+               AND ($6::int IS NULL OR SUM(r.score) <= $6)
+            ORDER BY {order_expr}
+        """
+
+        async with self._pool.acquire() as conn:
+            rows = await conn.fetch(
+                query,
+                match_type,
+                move_type,
+                time_limit_mode,
+                time_limit_value,
+                min_score,
+                max_score,
+            )
+
+        result = []
+        for row in rows:
+            d = dict(row)
+            d["rounds"] = json.loads(d["rounds"]) if isinstance(d["rounds"], str) else d["rounds"]
+            result.append(d)
+        return result
+
     async def fetch_saved_challenge_tokens(self, challenge_tokens: list[str]) -> set[str]:
         """Return the subset of the given challenge tokens that are already in the DB."""
         async with self._pool.acquire() as conn:
@@ -209,24 +315,31 @@ class DbAdapter:
         return {row["challenge_token"] for row in rows}
 
     async def save_game(self, game: dict) -> None:
-        """Persist a game and its rounds in a single transaction."""
+        """Persist a game, its rounds, and round replays in a single transaction."""
         rounds = game.get("rounds", [])
 
         async with self._pool.acquire() as conn, conn.transaction():
             await conn.execute(
                 """
                 INSERT INTO game
-                    (challenge_token, game_id, map_name, is_daily, played_at)
-                VALUES ($1, $2, $3, $4, $5)
+                    (challenge_token, game_id, map_name, match_type, round_count,
+                     time_limit_sec, move_type, played_at)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
                 ON CONFLICT (challenge_token, game_id) DO UPDATE SET
-                    map_name  = EXCLUDED.map_name,
-                    is_daily  = EXCLUDED.is_daily,
-                    played_at = EXCLUDED.played_at
+                    map_name       = EXCLUDED.map_name,
+                    match_type     = EXCLUDED.match_type,
+                    round_count    = EXCLUDED.round_count,
+                    time_limit_sec = EXCLUDED.time_limit_sec,
+                    move_type      = EXCLUDED.move_type,
+                    played_at      = EXCLUDED.played_at
                 """,
-                game.get("challenge_token"),
+                game["challenge_token"],
                 game["game_id"],
                 game["map_name"],
-                game.get("is_daily"),
+                game["match_type"],
+                game["round_count"],
+                game.get("time_limit_sec"),
+                game["move_type"],
                 _parse_datetime(game.get("played_at")),
             )
 
@@ -234,15 +347,11 @@ class DbAdapter:
                 real_geo = r["real_geo"]
                 guess_geo = r["guess_geo"]
 
-                # Resolve country codes
                 real_country = real_geo.get("country_code", "")
                 guess_country = guess_geo.get("country_code") or None
 
-                # Resolve state IDs (nullable)
                 real_state_id = await _resolve_state_id(
-                    conn,
-                    real_country,
-                    real_geo.get("state", ""),
+                    conn, real_country, real_geo.get("state", "")
                 )
                 guess_state_id = (
                     await _resolve_state_id(conn, guess_country, guess_geo.get("state", ""))
@@ -250,10 +359,8 @@ class DbAdapter:
                     else None
                 )
 
-                # Resolve ecoregion IDs
                 real_biome_id, real_eco_id = await _resolve_ecoregion(
-                    conn,
-                    real_geo.get("ecoregion", ""),
+                    conn, real_geo.get("ecoregion", "")
                 )
                 guess_biome_id, guess_eco_id = (
                     await _resolve_ecoregion(conn, guess_geo.get("ecoregion", ""))
@@ -280,7 +387,7 @@ class DbAdapter:
                     )
                     ON CONFLICT DO NOTHING
                     """,
-                    game.get("challenge_token"),
+                    game["challenge_token"],
                     game["game_id"],
                     r["round_number"],
                     guess_geo.get("lat"),
@@ -299,9 +406,24 @@ class DbAdapter:
                     real_eco_id,
                     r.get("score"),
                     r.get("distance_km"),
-                    r.get("steps"),
-                    r.get("time_sec"),
+                    r["steps"],
+                    r["time_sec"],
                 )
+
+                replay_events = r.get("replay")
+                if replay_events is not None:
+                    await conn.execute(
+                        """
+                        INSERT INTO round_replay (challenge_token, game_id, round_number, events)
+                        VALUES ($1, $2, $3, $4::jsonb)
+                        ON CONFLICT (challenge_token, game_id, round_number) DO UPDATE SET
+                            events = EXCLUDED.events
+                        """,
+                        game["challenge_token"],
+                        game["game_id"],
+                        r["round_number"],
+                        json.dumps(replay_events),
+                    )
 
         print(f"\n  💾 Saved to PostgreSQL — game_id: {game['game_id']}")
 

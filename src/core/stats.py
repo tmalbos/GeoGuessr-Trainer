@@ -8,14 +8,25 @@ from src.core.calculator import GEO_LEVELS
 from src.db.db import DbAdapter
 
 
-async def load_rounds(db: DbAdapter) -> list[dict]:
-    """Load all rounds from the database via DbAdapter."""
-    return await db.fetch_all_rounds()
+async def load_rounds(
+    db: DbAdapter,
+    match_type: str,
+    move_type: str,
+    time_limit_sec: int | None,
+) -> list[dict]:
+    """Load rounds for one exact (match_type, move_type, time_limit) combo."""
+    return await db.fetch_all_rounds(match_type, move_type, time_limit_sec)
 
 
-async def available_levels(db: DbAdapter, min_rounds: int) -> list[tuple]:
-    """Discover geo levels with enough rounds for analysis."""
-    rounds = await load_rounds(db)
+async def available_levels(
+    db: DbAdapter,
+    min_rounds: int,
+    match_type: str,
+    move_type: str,
+    time_limit_sec: int | None,
+) -> list[tuple]:
+    """Discover geo levels with enough rounds for analysis, within one filter combo."""
+    rounds = await load_rounds(db, match_type, move_type, time_limit_sec)
     if not rounds:
         return []
     total = len(rounds)

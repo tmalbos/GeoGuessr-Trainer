@@ -2,7 +2,9 @@
 
 import asyncio
 import json
+import logging
 import os
+import traceback
 from contextlib import asynccontextmanager
 from dataclasses import asdict
 from pathlib import Path
@@ -23,7 +25,10 @@ from src.core.stats import available_levels, build_groups, load_rounds
 from src.core.sync import DEFAULT_USER_ID, sync_from_feed
 from src.i18n.lang import load as load_lang
 
+logger = logging.getLogger("uvicorn.error")
+
 MIN_ROUNDS = 10
+DEFAULT_FILTERS = {"match_type": "daily", "move_type": "moving", "time_limit_sec": 180}
 DIST = Path(__file__).parents[2] / "frontend" / "dist"
 
 
@@ -42,7 +47,11 @@ class SyncJob:
             self.cond.notify_all()
 
 
-async def _run_sync(ctx: AppContext, job: SyncJob) -> None:
+class SyncBody(BaseModel):
+    match_types: list[str] = ["daily", "challenge", "duel"]
+
+
+async def _run_sync(ctx: AppContext, job: SyncJob, match_types: set[str]) -> None:
     async def fail(msg: str) -> None:
         await job.emit(Event("error", {"message": msg}))
 
@@ -64,6 +73,7 @@ async def _run_sync(ctx: AppContext, job: SyncJob) -> None:
                     geo_client=ctx.geo_client,
                     anki_client=ctx.anki_client,
                     http_client=ctx.http_client,
+                    match_types=match_types,
                     emit=job.emit,
                 )
                 break
@@ -77,11 +87,28 @@ async def _run_sync(ctx: AppContext, job: SyncJob) -> None:
                     return await fail("Could not refresh the cookie. Paste a new one in Settings.")
             finally:
                 await client.aclose()
-    except Exception as e:  # noqa: BLE001
-        await fail(f"Unexpected error: {e}")
+    except Exception as e:
+        tb = traceback.format_exc()
+        logger.exception("Sync failed:\n%s", tb)
+        return await fail(f"Unexpected error: {e}\n{tb}")
     finally:
         job.running = False
         await job.emit(Event("done"))
+
+
+def _parse_time_limit(value: str) -> int | None:
+    """'null' (or empty) means no time limit; anything else parses to seconds."""
+    if not value or value.lower() == "null":
+        return None
+    return int(value)
+
+
+def _time_limit_mode_value(time_limit: str) -> tuple[str, int | None]:
+    if time_limit in {"any", ""}:
+        return "any", None
+    if time_limit == "null":
+        return "null", None
+    return "value", int(time_limit)
 
 
 @asynccontextmanager
@@ -134,12 +161,12 @@ async def status(request: Request):
 
 # ── Sync ────────────────────────────────────────────────────────────────────
 @app.post("/api/sync", status_code=202)
-async def start_sync(request: Request):
+async def start_sync(body: SyncBody, request: Request):
     job = request.app.state.job
     if job and job.running:
         raise HTTPException(409, "A sync is already running")
     job = request.app.state.job = SyncJob()
-    job.task = asyncio.create_task(_run_sync(_ctx(request), job))
+    job.task = asyncio.create_task(_run_sync(_ctx(request), job, set(body.match_types)))
     return {"started": True}
 
 
@@ -164,15 +191,43 @@ async def sync_events(request: Request):
 
 
 # ── Analysis ────────────────────────────────────────────────────────────────
+@app.get("/api/analysis/filters")
+async def analysis_filters(request: Request):
+    combos = await _ctx(request).db_adapter.fetch_analysis_filter_options()
+    return {
+        "match_types": sorted({c["match_type"] for c in combos}),
+        "move_types": sorted({c["move_type"] for c in combos}),
+        "time_limits": sorted(
+            {c["time_limit_sec"] for c in combos},
+            key=lambda v: (v is None, v),
+        ),
+        "combos": combos,
+        "default": DEFAULT_FILTERS,
+    }
+
+
 @app.get("/api/analysis/levels")
-async def levels(request: Request):
-    lv = await available_levels(_ctx(request).db_adapter, MIN_ROUNDS)
+async def levels(
+    request: Request,
+    match_type: str = "daily",
+    move_type: str = "moving",
+    time_limit: str = "180",
+):
+    tl = _parse_time_limit(time_limit)
+    lv = await available_levels(_ctx(request).db_adapter, MIN_ROUNDS, match_type, move_type, tl)
     return [{"level": k, "label": label, "rounds": n} for k, label, n in lv]
 
 
 @app.get("/api/analysis/{level}")
-async def analysis(level: str, request: Request):
-    rounds = await load_rounds(_ctx(request).db_adapter)
+async def analysis(
+    level: str,
+    request: Request,
+    match_type: str = "daily",
+    move_type: str = "moving",
+    time_limit: str = "180",
+):
+    tl = _parse_time_limit(time_limit)
+    rounds = await load_rounds(_ctx(request).db_adapter, match_type, move_type, tl)
     geo = None if level == "general" else level
     result = analyze(rounds, geo)
     groups = build_groups(rounds, geo)
@@ -194,6 +249,34 @@ async def analysis(level: str, request: Request):
         zones.append(z)
     zones.sort(key=lambda z: z["score_high"] if z["score_high"] is not None else 9999)
     return {"level": level, "label": result.level_label, "zones": zones}
+
+
+# ── History ────────────────────────────────────────────────────────────────
+@app.get("/api/history")
+async def history(
+    request: Request,
+    match_type: str | None = None,
+    move_type: str | None = None,
+    time_limit: str = "any",
+    min_score: int | None = None,
+    max_score: int | None = None,
+    sort_by: str = "date",
+    sort_dir: str = "desc",
+):
+    mode, value = _time_limit_mode_value(time_limit)
+    try:
+        return await _ctx(request).db_adapter.fetch_game_history(
+            match_type,
+            move_type,
+            mode,
+            value,
+            min_score,
+            max_score,
+            sort_by,
+            sort_dir,
+        )
+    except ValueError as e:
+        raise HTTPException(422, str(e)) from e
 
 
 # ── Settings ────────────────────────────────────────────────────────────────

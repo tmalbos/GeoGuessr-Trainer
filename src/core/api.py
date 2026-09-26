@@ -78,6 +78,21 @@ class GeoguessrClient:
 
         return entries
 
+    async def fetch_duel_history(self) -> list[dict]:
+        """Return raw duel objects from the match-history endpoint."""
+        r = await self._get(f"{BASE_URL_V4}/game-history/me?gameMode=None")
+        r.raise_for_status()
+        return [e["duel"] for e in r.json().get("entries", []) if "duel" in e]
+
+    async def fetch_replay(self, user_id: str, game_token: str, round_number: int) -> list[dict]:
+        r = await self._get(
+            f"{BASE_URL_V4}/replays/{user_id}/{game_token}/{round_number}",
+        )
+        if r.status_code == 404:
+            return []
+        r.raise_for_status()
+        return r.json()
+
     async def fetch_game_token(self, challenge_token: str) -> str | None:
         url = f"{BASE_URL_V3}/results/highscores/{challenge_token}?friends=true&limit=1&minRounds=5"
         r = await self._get(url)
