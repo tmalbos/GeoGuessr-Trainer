@@ -4,7 +4,7 @@ import httpx
 
 from src.anki.anki_connect import AnkiConnectClient
 from src.anki.cards import build_notes
-from src.db.db import DbAdapter
+from src.db.repositories.game_repository import GameRepository
 from src.i18n.lang import translate
 
 DECK = "GeoGuessr"
@@ -12,7 +12,7 @@ DECK = "GeoGuessr"
 
 async def generate_cards_for_game(
     rounds: list[dict],
-    db: DbAdapter,
+    db: GameRepository,
     anki_client: AnkiConnectClient,
     http_client: httpx.AsyncClient,
 ) -> list[str]:

@@ -1,6 +1,6 @@
 import yaml
 
-from src.db.geo_signals import LICENSE_PLATE_SPEC, normalize_geo_signals
+from src.anki.geo_signal_mapper import LICENSE_PLATE_SPEC, normalize_geo_signals
 from src.i18n.lang import translate
 
 from .base import Note

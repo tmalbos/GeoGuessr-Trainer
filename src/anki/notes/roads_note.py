@@ -1,6 +1,6 @@
 import yaml
 
-from src.db.geo_signals import ROAD_LINE_SPEC, normalize_geo_signals
+from src.anki.geo_signal_mapper import ROAD_LINE_SPEC, normalize_geo_signals
 from src.i18n.lang import translate
 
 from .base import Note

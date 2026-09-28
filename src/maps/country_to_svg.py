@@ -16,7 +16,7 @@ v2 design:
     shared-edge arcs of the fine file's own topology.
   - --group CSV (GroupName,Level1,...,LevelN) turns the Land layer into one
     path per group.
-  - --overlay-polygons loads any other TopoJSON that fills the national
+  - --overlay loads any other TopoJSON that fills the national
     area with its own polygons (ecoregions, area codes, or anything else
     of that shape), optionally grouped by --overlay-field, and renders it
     as its own "Overlay" layer.
@@ -242,7 +242,7 @@ def build_parser():
         help="Optional world roads GeoJSON (plain GeoJSON, not TopoJSON, LineString/MultiLineString features rather than polygons). Each road is clipped to the national border and added as its own 'Roads' layer in the output SVG, stroked (no fill) in road color and non-clickable, rendered on top of every other layer.",
     )
     ap.add_argument(
-        "--overlay-polygons",
+        "--overlay",
         default=None,
         metavar="PATH",
         help="Optional TopoJSON of polygons that fill (or mostly fill) the national area -- ecoregions, "
@@ -254,7 +254,7 @@ def build_parser():
         "--overlay-field",
         default=None,
         metavar="NAME",
-        help="Display name for the --overlay-polygons layer in the output SVG (e.g. 'Ecoregions', "
+        help="Display name for the --overlay layer in the output SVG (e.g. 'Ecoregions', "
         "'AreaCodes'). Purely cosmetic -- has no effect on how features are grouped. Default: "
         "'Overlay'.",
     )
@@ -267,8 +267,8 @@ def validate_args(args) -> None:
         sys.exit(
             f"Error: fine_level ({args.fine_level}) debe ser >= coarse_level ({args.coarse_level})."
         )
-    if args.overlay_polygons and args.group:
-        sys.exit("Error: --overlay-polygons y --group no pueden usarse juntos.")
+    if args.overlay and args.group:
+        sys.exit("Error: --overlay y --group no pueden usarse juntos.")
 
 
 # ---------------------------------------------------------------------------
@@ -570,12 +570,12 @@ def groups_from_land(args, admin, group_rows, proj):
     return geoms
 
 
-def groups_from_overlay_polygons(args, admin, proj):
-    print("\n=== Procesando --overlay-polygons ===", file=sys.stderr)
+def groups_from_overlay(args, admin, proj):
+    print("\n=== Procesando --overlay ===", file=sys.stderr)
     national_union = admin.national_union
     national_bounds = national_union.bounds
 
-    all_feats = load_features(args.overlay_polygons)
+    all_feats = load_features(args.overlay)
     feats = [
         f for f in all_feats if bounds_overlap(geometry_bounds(f["geometry"]), national_bounds)
     ]
@@ -614,8 +614,8 @@ def build_group_geoms(args, admin, group_mode, group_rows, overlays, proj):
         return groups_from_points(admin, group_rows, overlays, proj)
     if group_mode == "land":
         return groups_from_land(args, admin, group_rows, proj)
-    if args.overlay_polygons:
-        return groups_from_overlay_polygons(args, admin, proj)
+    if args.overlay:
+        return groups_from_overlay(args, admin, proj)
     return {}
 
 
@@ -627,7 +627,7 @@ def build_group_geoms(args, admin, group_mode, group_rows, overlays, proj):
 def render_land_layer(args, admin, group_mode, group_geoms, proj):
     if group_mode:
         return render_area_codes_group(args.country, group_geoms, "Land")
-    if args.overlay_polygons:
+    if args.overlay:
         layer_id = args.overlay_field or "Overlay"
         return render_area_codes_group(args.country, group_geoms, layer_id)
     return render_fine_group(args.country, admin.fine_feats, admin.name_chains, "Land", *proj.args)

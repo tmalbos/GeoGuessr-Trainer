@@ -13,7 +13,7 @@ import httpx
 import src.anki.notes as notes_pkg
 from src.anki.anki_connect import AnkiConnectClient
 from src.anki.notes.base import Note
-from src.db.db import DbAdapter
+from src.db.repositories.game_repository import GameRepository
 
 
 def _remove_accents(text: str) -> str:
@@ -44,7 +44,7 @@ _cache: dict[str, dict] = {}
 
 async def build_notes(
     country_code: str,
-    db: DbAdapter,
+    db: GameRepository,
     http_client: httpx.AsyncClient,
     anki_client: AnkiConnectClient,
 ) -> list[dict]:

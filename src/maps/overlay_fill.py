@@ -1,7 +1,7 @@
 """Fill overlay-polygon gaps along the coastline (or any boundary) where
 the overlay's own coastline doesn't exactly match Land's.
 
-Problem: an --overlay-polygons dataset (ecoregions, area codes, ...) has
+Problem: an --overlay dataset (ecoregions, area codes, ...) has
 its own idea of where the coast is. Clipping the overlay to the national
 border alone leaves a sliver of national territory belonging to no
 overlay group at all wherever the two coastlines disagree.

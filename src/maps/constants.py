@@ -33,6 +33,7 @@ COUNTRIES_COLORS = {
     "Georgia": {"water_color": "#77D3E7", "land_color": "#BAEBD6"},
     "Ghana": {"water_color": "#83D6EB", "land_color": "#CAF4DD"},
     "Greece": {"water_color": "#82D6EB", "land_color": "#C9F3DD"},
+    "Guatemala": {"water_color": "#86D7EB", "land_color": "#BFF2D4"},
     "Hungary": {"water_color": "#86D7EB", "land_color": "#CFF6DF"},
     "Iceland": {"water_color": "#82D6EB", "land_color": "#C9F3DD"},
     "India": {"water_color": "#79D4E9", "land_color": "#BEEDD8"},
