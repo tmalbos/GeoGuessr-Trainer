@@ -23,10 +23,11 @@ async def fetch_replay(
 def compress_replay(events: list[dict]) -> list[dict]:
     """Rewrite absolute (epoch ms) timestamps as milliseconds relative to
     this replay's own first event. Collapses consecutive PanoPov/PanoZoom
-    into deduped 'Deliberating' markers (no payload). Strips panoId from
-    PanoPosition. Everything else (MapPosition, MapZoom, MapDisplay,
-    PinPosition, GuessWithLatLng, ...) is kept verbatim aside from the
-    relative timestamp.
+    into deduped 'Deliberating' markers (no payload), except a PanoPov at
+    heading=0, pitch=-89 (north + ground, the align hotkey), which is kept
+    as a single 'Aligning' event. Strips panoId from PanoPosition.
+    Everything else (MapPosition, MapZoom, MapDisplay, PinPosition,
+    GuessWithLatLng, ...) is kept verbatim aside from the relative timestamp.
     """
     if not events:
         return []
@@ -37,6 +38,12 @@ def compress_replay(events: list[dict]) -> list[dict]:
     for ev in events:
         rel_time_ms = ev["time"] - anchor_ms
         etype = ev["type"]
+
+        if etype == "PanoPov":
+            payload = ev.get("payload") or {}
+            if payload.get("heading") == 0 and payload.get("pitch") == -89:
+                compressed.append({"time": rel_time_ms, "type": "Aligning"})
+                continue
 
         if etype in {"PanoPov", "PanoZoom"}:
             if compressed and compressed[-1]["type"] == "Deliberating":
@@ -70,4 +77,4 @@ def had_movement(compressed_events: list[dict]) -> bool:
 
 
 def had_pan_or_zoom(compressed_events: list[dict]) -> bool:
-    return any(ev["type"] == "Deliberating" for ev in compressed_events)
+    return any(ev["type"] in {"Deliberating", "Aligning"} for ev in compressed_events)
