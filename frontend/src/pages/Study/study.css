@@ -1,0 +1,2 @@
+.study-card { text-align: left; cursor: pointer; font: inherit; color: inherit; }
+.study-card:hover { border-color: var(--sea); }
