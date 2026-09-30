@@ -2,19 +2,15 @@
 
 GEO_LEVELS = [
     ("general", "General"),
-    ("realm", "Realm"),
     ("continent", "Continent"),
     ("biome", "Biome"),
     ("country", "Country"),
-    ("ecoregion", "Ecoregion"),
 ]
 
 
 CHILD_LEVEL = {
     "general": None,
-    "realm": "biome",
     "continent": "country",
-    "biome": "ecoregion",
+    "biome": None,
     "country": "state",
-    "ecoregion": None,
 }

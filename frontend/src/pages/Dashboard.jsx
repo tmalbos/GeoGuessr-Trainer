@@ -10,7 +10,7 @@ export default function Dashboard() {
   const items = s && [
     ["Database", s.db ? "ok" : "bad", s.db ? "Connected" : "Unavailable. Check Postgres and PG_DSN."],
     ["Anki", s.anki ? "ok" : "bad", s.anki ? "AnkiConnect reachable" : "Open Anki with AnkiConnect."],
-    ["Ecoregions", { ready: "ok", loading: "wait", error: "bad" }[s.ecoregions], { ready: "Shapefile loaded", loading: "Loading shapefile…", error: "Shapefile failed to load" }[s.ecoregions]],
+    ["Geodata", { ready: "ok", loading: "wait", error: "bad" }[s.geodata], { ready: "Geo layers loaded", loading: "Loading geo layers…", error: "Geo layers failed to load. Check data/geo/." }[s.geodata]],
     ["GeoGuessr cookie", s.cookie ? "ok" : "bad", s.cookie ? "Cookie saved" : "Add one in Settings."],
   ];
   return <><h2>Dashboard</h2>{!s ? <p className="err">Backend unreachable. Is uvicorn running?</p> :

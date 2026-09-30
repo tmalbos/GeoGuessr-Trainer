@@ -7,14 +7,12 @@ CREATE TYPE continents AS ENUM (
     'Africa', 'Antarctica', 'Asia', 'Europe', 'North America', 'Oceania', 'South America'
 );
 
--- ENUMS: biomes
-CREATE TYPE realm_type AS ENUM (
-    'Afrotropic', 'Antarctica', 'Australasia', 'Indomalayan', 'Nearctic', 'Neotropic', 'Oceania', 'Palearctic'
-);
-
 -- ENUMS: games
 CREATE TYPE match_type AS ENUM ('daily', 'challenge', 'duel');
 CREATE TYPE move_type  AS ENUM ('moving', 'no_move', 'nmpz');
+
+-- ENUMS: point classification
+CREATE TYPE area_type AS ENUM ('urban', 'rural');
 
 -- ENUMS: road lines
 CREATE TYPE line_color AS ENUM (
@@ -50,8 +48,9 @@ CREATE TABLE country (
 
 CREATE TABLE biome (
     biome_id SERIAL      PRIMARY KEY,
-    realm    realm_type  NOT NULL,
-    name     VARCHAR(60) NOT NULL
+    name     VARCHAR(60) NOT NULL,
+
+    CONSTRAINT uq_biome_name UNIQUE (name)
 );
 
 CREATE TABLE game (
@@ -212,15 +211,6 @@ CREATE TABLE city (
     FOREIGN KEY (country_code, state_id) REFERENCES state(country_code, state_id)
 );
 
-CREATE TABLE ecoregion (
-    biome_id     INTEGER,
-    ecoregion_id SERIAL,
-    name         VARCHAR(100) UNIQUE NOT NULL,
-
-    PRIMARY KEY (biome_id, ecoregion_id),
-    FOREIGN KEY (biome_id) REFERENCES biome(biome_id) ON DELETE CASCADE
-);
-
 CREATE TABLE round (
     challenge_token    CHAR(16),
     game_id            CHAR(16),
@@ -229,18 +219,20 @@ CREATE TABLE round (
     guess_latitude     NUMERIC(10,7),
     guess_longitude    NUMERIC(10,7),
     guess_country_code CHAR(2),
-    guess_state_id     INTEGER,
+    guess_state        VARCHAR(120),
+    guess_subregion    VARCHAR(120),
     guess_city         VARCHAR(200),
     guess_biome_id     INTEGER,
-    guess_ecoregion_id INTEGER,
+    guess_area_type    area_type,
 
     real_latitude      NUMERIC(10,7) NOT NULL,
     real_longitude     NUMERIC(10,7) NOT NULL,
     real_country_code  CHAR(2)       NOT NULL,
-    real_state_id      INTEGER,
+    real_state         VARCHAR(120),
+    real_subregion     VARCHAR(120),
     real_city          VARCHAR(200),
     real_biome_id      INTEGER       NOT NULL,
-    real_ecoregion_id  INTEGER       NOT NULL,
+    real_area_type     area_type     NOT NULL,
 
     score              SMALLINT      NOT NULL,
     distance_km        NUMERIC(7,1)  NOT NULL,
@@ -251,10 +243,8 @@ CREATE TABLE round (
     FOREIGN KEY (challenge_token, game_id) REFERENCES game(challenge_token, game_id) ON DELETE CASCADE,
     FOREIGN KEY (guess_country_code) REFERENCES country(code) ON DELETE RESTRICT,
     FOREIGN KEY (real_country_code) REFERENCES country(code) ON DELETE RESTRICT,
-    FOREIGN KEY (guess_country_code, guess_state_id) REFERENCES state(country_code, state_id) ON DELETE RESTRICT,
-    FOREIGN KEY (real_country_code, real_state_id) REFERENCES state(country_code, state_id) ON DELETE RESTRICT,
-    FOREIGN KEY (guess_biome_id, guess_ecoregion_id) REFERENCES ecoregion(biome_id, ecoregion_id) ON DELETE RESTRICT,
-    FOREIGN KEY (real_biome_id, real_ecoregion_id) REFERENCES ecoregion(biome_id, ecoregion_id) ON DELETE RESTRICT,
+    CONSTRAINT fk_round_guess_biome FOREIGN KEY (guess_biome_id) REFERENCES biome(biome_id) ON DELETE RESTRICT,
+    CONSTRAINT fk_round_real_biome  FOREIGN KEY (real_biome_id)  REFERENCES biome(biome_id) ON DELETE RESTRICT,
 
     CONSTRAINT chk_round_round_number_unsigned CHECK (round_number >= 0),
     CONSTRAINT chk_round_score_range CHECK (score BETWEEN 0 AND 5000),
@@ -264,26 +254,7 @@ CREATE TABLE round (
     CONSTRAINT chk_round_guess_latitude_range CHECK (guess_latitude IS NULL OR guess_latitude BETWEEN -90 AND 90),
     CONSTRAINT chk_round_guess_longitude_range CHECK (guess_longitude IS NULL OR guess_longitude BETWEEN -180 AND 180),
     CONSTRAINT chk_round_real_latitude_range CHECK (real_latitude BETWEEN -90 AND 90),
-    CONSTRAINT chk_round_real_longitude_range CHECK (real_longitude BETWEEN -180 AND 180),
-    CONSTRAINT chk_round_real_all_or_none CHECK (
-        (
-            real_latitude IS NULL
-            AND real_longitude IS NULL
-            AND real_country_code IS NULL
-            AND real_biome_id IS NULL
-            AND real_ecoregion_id IS NULL
-            AND real_state_id IS NULL
-            AND real_city IS NULL
-        )
-        OR
-        (
-            real_latitude IS NOT NULL
-            AND real_longitude IS NOT NULL
-            AND real_country_code IS NOT NULL
-            AND real_biome_id IS NOT NULL
-            AND real_ecoregion_id IS NOT NULL
-        )
-    )
+    CONSTRAINT chk_round_real_longitude_range CHECK (real_longitude BETWEEN -180 AND 180)
 );
 
 CREATE TABLE round_replay (

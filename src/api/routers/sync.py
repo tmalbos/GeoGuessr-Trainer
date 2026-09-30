@@ -53,10 +53,12 @@ async def _run_sync(ctx: AppContext, job: SyncJob, match_types: set[str]) -> Non
         # if not await wait_for_anki(ctx.anki_client):
         #     return await fail("Anki is not reachable. Open Anki with AnkiConnect installed.")
 
-        await ctx.ecoregion_ready.wait()
+        await ctx.geodata_ready.wait()
 
-        if ctx.ecoregion_gdf is None:
-            return await fail("Ecoregion shapefile failed to load. Check Ecoregions2017/.")
+        if ctx.local_geo is None:
+            return await fail(
+                "Geo layers failed to load. Check data/geo/ (see scripts/convert_geo.py)."
+            )
 
         for _ in range(2):
             client = ctx.create_geoguessr_client()

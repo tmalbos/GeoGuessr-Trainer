@@ -25,36 +25,11 @@ def _parse_datetime(value: str | None) -> datetime | None:
         return None
 
 
-async def _resolve_state_id(
-    conn: asyncpg.Connection,
-    country_code: str | None,
-    state_name: str,
-) -> int | None:
-    """Returns state_id for (country_code, state name), or None if not found."""
-    if not country_code or not state_name:
+async def _resolve_biome(conn: asyncpg.Connection, biome_name: str) -> int | None:
+    """Returns biome_id for a given biome name, or None."""
+    if not biome_name:
         return None
-    row = await conn.fetchrow(
-        "SELECT state_id FROM state WHERE country_code = $1 AND name = $2",
-        country_code,
-        state_name,
-    )
-    return row["state_id"] if row else None
-
-
-async def _resolve_ecoregion(
-    conn: asyncpg.Connection,
-    ecoregion_name: str,
-) -> tuple[int, int] | tuple[None, None]:
-    """Returns (biome_id, ecoregion_id) for a given ecoregion name, or (None, None)."""
-    if not ecoregion_name:
-        return None, None
-    row = await conn.fetchrow(
-        "SELECT biome_id, ecoregion_id FROM ecoregion WHERE name = $1",
-        ecoregion_name,
-    )
-    if row is None:
-        return None, None
-    return row["biome_id"], row["ecoregion_id"]
+    return await conn.fetchval("SELECT biome_id FROM biome WHERE name = $1", biome_name)
 
 
 class GameRepository:
@@ -94,19 +69,19 @@ class GameRepository:
 
                     real_c.continent     AS real_continent,
                     real_c.name          AS real_country,
-                    real_s.name          AS real_state,
+                    r.real_state,
+                    r.real_subregion,
                     r.real_city,
-                    real_b.realm         AS real_realm,
                     real_b.name          AS real_biome,
-                    real_e.name          AS real_ecoregion,
+                    r.real_area_type::text AS real_area_type,
 
                     guess_c.continent    AS guess_continent,
                     guess_c.name         AS guess_country,
-                    guess_s.name         AS guess_state,
+                    r.guess_state,
+                    r.guess_subregion,
                     r.guess_city,
-                    guess_b.realm        AS guess_realm,
                     guess_b.name         AS guess_biome,
-                    guess_e.name         AS guess_ecoregion
+                    r.guess_area_type::text AS guess_area_type
 
                 FROM round r
                 JOIN game g
@@ -114,21 +89,9 @@ class GameRepository:
                     AND g.game_id         = r.game_id
 
                 JOIN country  real_c ON real_c.code           = r.real_country_code
-                LEFT JOIN state real_s
-                    ON  real_s.country_code = r.real_country_code
-                    AND real_s.state_id     = r.real_state_id
-                JOIN ecoregion real_e
-                    ON  real_e.ecoregion_id = r.real_ecoregion_id
-                    AND real_e.biome_id     = r.real_biome_id
                 JOIN biome real_b ON real_b.biome_id = r.real_biome_id
 
                 LEFT JOIN country  guess_c ON guess_c.code           = r.guess_country_code
-                LEFT JOIN state    guess_s
-                    ON  guess_s.country_code = r.guess_country_code
-                    AND guess_s.state_id     = r.guess_state_id
-                LEFT JOIN ecoregion guess_e
-                    ON  guess_e.ecoregion_id = r.guess_ecoregion_id
-                    AND guess_e.biome_id     = r.guess_biome_id
                 LEFT JOIN biome    guess_b ON guess_b.biome_id = r.guess_biome_id
 
                 WHERE g.match_type = $1
@@ -156,19 +119,19 @@ class GameRepository:
                     "continent": row["real_continent"],
                     "country": row["real_country"],
                     "state": row["real_state"],
+                    "subregion": row["real_subregion"],
                     "city": row["real_city"],
-                    "realm": row["real_realm"],
                     "biome": row["real_biome"],
-                    "ecoregion": row["real_ecoregion"],
+                    "area_type": row["real_area_type"],
                 },
                 "guess_geo": {
                     "continent": row["guess_continent"],
                     "country": row["guess_country"],
                     "state": row["guess_state"],
+                    "subregion": row["guess_subregion"],
                     "city": row["guess_city"],
-                    "realm": row["guess_realm"],
                     "biome": row["guess_biome"],
-                    "ecoregion": row["guess_ecoregion"],
+                    "area_type": row["guess_area_type"],
                 },
             }
             for row in rows
@@ -309,40 +272,25 @@ class GameRepository:
                 real_country = real_geo.get("country_code", "")
                 guess_country = guess_geo.get("country_code") or None
 
-                real_state_id = await _resolve_state_id(
-                    conn, real_country, real_geo.get("state", "")
-                )
-                guess_state_id = (
-                    await _resolve_state_id(conn, guess_country, guess_geo.get("state", ""))
-                    if guess_country
-                    else None
-                )
-
-                real_biome_id, real_eco_id = await _resolve_ecoregion(
-                    conn, real_geo.get("ecoregion", "")
-                )
-                guess_biome_id, guess_eco_id = (
-                    await _resolve_ecoregion(conn, guess_geo.get("ecoregion", ""))
-                    if guess_geo.get("ecoregion")
-                    else (None, None)
-                )
+                real_biome_id = await _resolve_biome(conn, real_geo.get("biome", ""))
+                guess_biome_id = await _resolve_biome(conn, guess_geo.get("biome", ""))
 
                 await conn.execute(
                     """
                     INSERT INTO round (
                         challenge_token, game_id, round_number,
                         guess_latitude, guess_longitude,
-                        guess_country_code, guess_state_id, guess_city,
-                        guess_biome_id, guess_ecoregion_id,
+                        guess_country_code, guess_state, guess_subregion, guess_city,
+                        guess_biome_id, guess_area_type,
                         real_latitude,  real_longitude,
-                        real_country_code,  real_state_id,  real_city,
-                        real_biome_id,  real_ecoregion_id,
+                        real_country_code,  real_state,  real_subregion, real_city,
+                        real_biome_id,  real_area_type,
                         score, distance_km, steps, time_sec
                     ) VALUES (
                         $1,  $2,  $3,
-                        $4,  $5,  $6,  $7,  $8,  $9,  $10,
-                        $11, $12, $13, $14, $15, $16, $17,
-                        $18, $19, $20, $21
+                        $4,  $5,  $6,  $7,  $8,  $9,  $10, $11,
+                        $12, $13, $14, $15, $16, $17, $18, $19,
+                        $20, $21, $22, $23
                     )
                     ON CONFLICT DO NOTHING
                     """,
@@ -352,17 +300,19 @@ class GameRepository:
                     guess_geo.get("lat"),
                     guess_geo.get("lng"),
                     guess_country,
-                    guess_state_id,
+                    guess_geo.get("state") or None,
+                    guess_geo.get("subregion") or None,
                     guess_geo.get("city") or None,
                     guess_biome_id,
-                    guess_eco_id,
+                    guess_geo.get("area_type"),
                     real_geo["lat"],
                     real_geo["lng"],
                     real_country,
-                    real_state_id,
+                    real_geo.get("state") or None,
+                    real_geo.get("subregion") or None,
                     real_geo.get("city") or None,
                     real_biome_id,
-                    real_eco_id,
+                    real_geo["area_type"],
                     r.get("score"),
                     r.get("distance_km"),
                     r["steps"],

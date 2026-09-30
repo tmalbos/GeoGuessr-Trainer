@@ -1,4 +1,4 @@
-"""status.py — Health of DB, Anki, ecoregion shapefile and cookie."""
+"""status.py — Health of DB, Anki, geo layers and cookie."""
 
 from fastapi import APIRouter, Request
 
@@ -11,13 +11,13 @@ router = APIRouter()
 @router.get("/status")
 async def status(request: Request):
     ctx = get_ctx(request)
-    task = ctx._ecoregion_task  # noqa: SLF001
-    if ctx.ecoregion_gdf is not None:
-        eco = "ready"
+    task = ctx._geodata_task  # noqa: SLF001
+    if ctx.local_geo is not None:
+        geo = "ready"
     elif task is not None and task.done() and task.exception():
-        eco = "error"
+        geo = "error"
     else:
-        eco = "loading"
+        geo = "loading"
     anki = False
     if ctx.http_client is not None:
         try:
@@ -31,7 +31,7 @@ async def status(request: Request):
     return {
         "db": await ctx.db_adapter.check_connection(),
         "anki": anki,
-        "ecoregions": eco,
+        "geodata": geo,
         "cookie": bool(load_cookie()),
         "sync_running": bool(job and job.running),
     }
