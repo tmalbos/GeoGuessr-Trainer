@@ -97,4 +97,4 @@ tr.open .chev { transform: rotate(90deg); color: var(--sea-hi); }
 .pager .btn { padding: 7px 14px; }
 .pager-nav, .pager-size { display: flex; align-items: center; gap: 10px; }
 .pager-size select { width: auto; padding: 6px 10px; }
-.more { display: inline-block; margin-top: 4px; font-size: 12px; font-weight: 600; color: var(--sea-hi); }
+.more { display: block; margin-top: 4px; font-size: 12px; font-weight: 600; color: var(--sea-hi); }
