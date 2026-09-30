@@ -22,7 +22,6 @@ async def generate_cards_for_game(
     seen = {r["real_geo"]["country_code"] for r in rounds if r["real_geo"].get("country_code")}
 
     if not seen:
-        print("\n  " + translate("⚠️  No countries found in rounds."))
         return []
 
     await anki_client.ensure_deck(DECK)
@@ -55,13 +54,6 @@ async def generate_cards_for_game(
                 else:
                     errors.append(f"({code}): {e}")
 
-    print(
-        translate(
-            "  ✅ Cards created: {created}  |  Already existed: {skipped}",
-            created=created,
-            skipped=skipped,
-        ),
-    )
     return errors
 
 
@@ -72,7 +64,6 @@ async def wait_for_anki(anki_client: AnkiConnectClient) -> bool:
     if await anki_client.is_running():
         return True
 
-    print("\n  " + translate("⚠️  Anki is not open"))
     print(translate("  Open Anki and make sure AnkiConnect is installed"))
 
     while True:
@@ -81,6 +72,4 @@ async def wait_for_anki(anki_client: AnkiConnectClient) -> bool:
             lambda: input(translate("  Press Enter when Anki is ready... ")),
         )
         if await anki_client.is_running():
-            print(translate("  ✅ Anki detected"))
             return True
-        print("\n  " + translate("⚠️  Anki still not responding"))

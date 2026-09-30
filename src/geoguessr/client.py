@@ -61,16 +61,23 @@ class GeoguessrClient:
             items = parsed if isinstance(parsed, list) else [parsed]
             for item in items:
                 payload = item.get("payload", item)
-                token = payload.get("challengeToken")
+
+                # The only place game types are filtered: Standard only (drops Streak, etc.).
+                if payload.get("gameMode") != "Standard":
+                    continue
+
+                game_token = payload.get("gameToken")
+                token = payload.get("challengeToken") or game_token
                 if not token:
                     continue
                 if token in {e["challenge_token"] for e in entries}:
                     continue
 
-                date_str = entry.get("time", "")[:10]
+                date_str = (item.get("time") or entry.get("time", ""))[:10]
                 entries.append(
                     {
                         "challenge_token": token,
+                        "game_token": game_token,
                         "is_daily": payload.get("isDailyChallenge", False),
                         "date_str": date_str,
                     },

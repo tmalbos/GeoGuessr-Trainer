@@ -43,6 +43,7 @@ async def process_game(
         *[client.fetch_replay(user_id, game_id, r["round_number"]) for r in normalized_rounds],
     )
 
+    is_duel = match_type == "duel"
     rounds_to_save = []
     compressed_replays = []
     total_score = 0
@@ -52,6 +53,15 @@ async def process_game(
         compressed = compress_replay(raw_replays[i])
         compressed_replays.append(compressed)
 
+        # Duels expose no steps/time, so they come from the replay.
+        # Dailies/challenges report both in the game payload.
+        if is_duel:
+            steps = steps_from_replay(compressed)
+            time_sec = time_sec_from_replay(compressed)
+        else:
+            steps = r["steps"] or 0
+            time_sec = r["time_sec"] or 0
+
         row = {
             "game_id": game_id,
             "round_number": r["round_number"],
@@ -59,8 +69,8 @@ async def process_game(
             "guess_geo": guess_enriched[i],
             "score": r["score"],
             "distance_km": r["distance_km"],
-            "steps": steps_from_replay(compressed),
-            "time_sec": time_sec_from_replay(compressed),
+            "steps": steps,
+            "time_sec": time_sec,
             "replay": compressed,
         }
         total_score += r["score"] or 0
@@ -70,7 +80,7 @@ async def process_game(
 
     move_type = (
         infer_move_type_from_replays(compressed_replays)
-        if match_type == "duel"
+        if is_duel
         else move_type_from_challenge(forbid_flags or {})
     )
 

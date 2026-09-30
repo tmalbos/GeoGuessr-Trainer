@@ -23,10 +23,12 @@ async def fetch_challenge_worker(
     try:
         for entry in entries:
             token = entry["challenge_token"]
-            if entry["is_daily"]:
-                game_token = await client.fetch_daily_game_token(entry["date_str"], user_id())
-            else:
-                game_token = await client.fetch_game_token(token)
+            game_token = entry.get("game_token")
+            if not game_token:
+                if entry["is_daily"]:
+                    game_token = await client.fetch_daily_game_token(entry["date_str"], user_id())
+                else:
+                    game_token = await client.fetch_game_token(token)
 
             if not game_token:
                 await log(emit, f"[{token}] No game token.", "warn")

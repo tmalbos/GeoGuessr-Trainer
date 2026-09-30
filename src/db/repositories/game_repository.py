@@ -361,8 +361,6 @@ class GameRepository:
                         json.dumps(replay_events),
                     )
 
-        print(f"\n  💾 Saved to PostgreSQL — game_id: {game['game_id']}")
-
     async def fetch_rows(self, query: str, *args) -> list[dict]:
         """Execute a query and return rows as a list of dicts."""
         async with self._pool.acquire() as conn:

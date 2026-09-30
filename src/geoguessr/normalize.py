@@ -52,6 +52,8 @@ def normalize_challenge_rounds(game_data: dict) -> list[dict]:
                 "guess_lng": guess.get("lng"),
                 "score": guess.get("roundScoreInPoints", 0),
                 "distance_km": round(dist_m / 1000, 1) if dist_m else None,
+                "steps": guess.get("stepsCount"),
+                "time_sec": guess.get("time"),
             },
         )
     return normalized
