@@ -5,4 +5,8 @@ export const tlLabel = (v) => (v == null ? "No limit" : `${Math.round(v / 60)} m
 
 export const time = (s) => (s == null ? "—" : `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`);
 export const num = (n) => (n == null ? "—" : n.toLocaleString());
-export const tone = (score) => `hsl(${Math.max(0, Math.min(1, (score - 2000) / 3000)) * 150} 60% 38%)`;
+export const tone = (score) => `hsl(${Math.max(0, Math.min(1, (score - 2000) / 3000)) * 150} 65% 60%)`;
+
+const AREA_HUES = { urban: 35, rural: 140 };
+export const areaHue = (t) => AREA_HUES[t] ?? 220;
+export const areaLabel = (t) => (t ? t[0].toUpperCase() + t.slice(1) : "");

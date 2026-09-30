@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import StatusGrid from "../components/StatusGrid.jsx";
 import { api } from "../lib/api.js";
 
 export default function Settings() {
@@ -9,6 +10,9 @@ export default function Settings() {
   const run = async (fn, ok) => { try { await fn(); setMsg(ok); api("/settings").then(setS); } catch (e) { setMsg(e.message); } };
   if (!s) return null;
   return <><h2>Settings</h2>
+    <h3>System status</h3>
+    <StatusGrid />
+    <h3>Configuration</h3>
     <label htmlFor="ck">GeoGuessr cookie (_ncfa) {s.cookie && <span className="muted">— saved</span>}</label>
     <input id="ck" type="password" value={cookie} onChange={(e) => setCookie(e.target.value)} placeholder="Paste cookie value" />
     <p><button className="btn" disabled={!cookie} onClick={() => run(() => api("/settings/cookie", { method: "PUT", body: { cookie } }), "Cookie saved").then(() => setCookie(""))}>Save cookie</button>{" "}

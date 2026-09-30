@@ -46,18 +46,21 @@ export default function Sync() {
     else if (e.type === "feed") logs.push({ level: "info", msg: `${e.data.found} games in feed, ${e.data.new} new.` });
   });
 
-  return <><h2>Sync games</h2>
-    <label htmlFor="match-types">Match types</label>
-    <MultiSelectDropdown
-      options={MATCH_TYPES.map(([value, label]) => ({ value, label }))}
-      selected={types}
-      onChange={setTypes}
-      placeholder="Select match types"
-    />
-    <p><button className="btn" onClick={start} disabled={running || !types.length}>{running ? "Syncing…" : "Sync new games"}</button></p>
-    {err && <p className="err">{err}</p>}
-    {logs.map((l, i) => <div key={i} className={`log ${l.level}`}>{l.msg}</div>)}
-    {games.map((g) => <div className="card" key={g.game_id} style={{ marginTop: 12 }}>
+  return <div className="sync-page">
+    <div className="sync-head">
+      <h2>Sync games</h2>
+      <label htmlFor="match-types">Match types</label>
+      <MultiSelectDropdown
+        options={MATCH_TYPES.map(([value, label]) => ({ value, label }))}
+        selected={types}
+        onChange={setTypes}
+        placeholder="Select match types"
+      />
+      <p><button className="btn" onClick={start} disabled={running || !types.length}>{running ? "Syncing…" : "Sync new games"}</button></p>
+      {err && <p className="err">{err}</p>}
+      {logs.map((l, i) => <div key={i} className={`log ${l.level}`}>{l.msg}</div>)}
+    </div>
+    {[...games].reverse().map((g) => <div className="card" key={g.game_id} style={{ marginTop: 12 }}>
       <b>{g.map_name}</b>{g.done ? <span className="muted"> — {num(g.done.total_score)} / 25,000, avg {num(g.done.avg_distance_km)} km</span> : <span className="muted"> — processing…</span>}
       {g.rounds.map((r) => <div className="round" key={r.round_number}>
         <span className="muted">{r.round_number}</span>
@@ -65,5 +68,6 @@ export default function Sync() {
         <div style={{ textAlign: "right" }}><b style={{ color: tone(r.score) }}>{num(r.score)}</b><div className="muted">{num(r.distance_km)} km · {time(r.time_sec)} · {r.steps} steps</div></div>
       </div>)}
     </div>)}
-    {!running && !events.length && <p className="muted">Nothing synced in this session yet.</p>}</>;
+    {!running && !events.length && <p className="muted" style={{ textAlign: "center" }}>Nothing synced in this session yet.</p>}
+  </div>;
 }

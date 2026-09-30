@@ -1,6 +1,8 @@
-"""history.py — Played-game history with filters and sorting."""
+"""history.py — Played-game history with filters, sorting and pagination."""
 
-from fastapi import APIRouter, HTTPException, Request
+from typing import Annotated
+
+from fastapi import APIRouter, HTTPException, Query, Request
 
 from src.api.deps import get_ctx
 
@@ -25,10 +27,12 @@ async def history(
     max_score: int | None = None,
     sort_by: str = "date",
     sort_dir: str = "desc",
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=100)] = 20,
 ):
     mode, value = _time_limit_mode_value(time_limit)
     try:
-        return await get_ctx(request).db_adapter.fetch_game_history(
+        items, total = await get_ctx(request).db_adapter.fetch_game_history(
             match_type,
             move_type,
             mode,
@@ -37,6 +41,9 @@ async def history(
             max_score,
             sort_by,
             sort_dir,
+            limit=page_size,
+            offset=(page - 1) * page_size,
         )
     except ValueError as e:
         raise HTTPException(422, str(e)) from e
+    return {"items": items, "total": total, "page": page, "page_size": page_size}

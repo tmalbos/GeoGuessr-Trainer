@@ -5,11 +5,13 @@ from datetime import datetime
 
 import asyncpg
 
+# Each sort key maps to the expressions it orders by (direction is applied to each).
 _HISTORY_SORT_COLUMNS = {
-    "date": "g.played_at",
-    "total_score": "total_score",
-    "total_steps": "total_steps",
-    "total_time": "total_time_sec",
+    "date": ["g.played_at"],
+    "mode": ["g.match_type::text", "g.move_type::text", "g.time_limit_sec"],
+    "total_score": ["total_score"],
+    "total_steps": ["total_steps"],
+    "total_time": ["total_time_sec"],
 }
 
 
@@ -161,8 +163,11 @@ class GameRepository:
         max_score: int | None,
         sort_by: str,
         sort_dir: str,
-    ) -> list[dict]:
-        """One row per game, with its rounds (ordered) and totals. Never mixes
+        limit: int = 20,
+        offset: int = 0,
+    ) -> tuple[list[dict], int]:
+        """One page of games, each with its rounds (ordered, with real-location detail)
+        and totals. Returns (games, total_matching_games). Never mixes
         match_type/move_type/time_limit — caller passes an exact combo or 'any'.
         """
         if sort_by not in _HISTORY_SORT_COLUMNS:
@@ -172,7 +177,9 @@ class GameRepository:
             msg = f"Invalid sort_dir: {sort_dir}"
             raise ValueError(msg)
 
-        order_expr = f"{_HISTORY_SORT_COLUMNS[sort_by]} {sort_dir.upper()}"
+        direction = sort_dir.upper()
+        order_expr = ", ".join(f"{e} {direction}" for e in _HISTORY_SORT_COLUMNS[sort_by])
+        order_expr += ", g.played_at DESC, g.game_id"
 
         query = f"""
             SELECT
@@ -191,11 +198,20 @@ class GameRepository:
                         'score', r.score,
                         'steps', r.steps,
                         'time_sec', r.time_sec,
-                        'country_code', r.real_country_code
+                        'country_code', r.real_country_code,
+                        'country', c.name,
+                        'state', r.real_state,
+                        'subregion', r.real_subregion,
+                        'city', r.real_city,
+                        'area_type', r.real_area_type::text,
+                        'biome', b.name
                     ) ORDER BY r.round_number
-                ) AS rounds
+                ) AS rounds,
+                COUNT(*) OVER() AS total_count
             FROM game g
             JOIN round r ON r.challenge_token = g.challenge_token AND r.game_id = g.game_id
+            LEFT JOIN country c ON c.code = r.real_country_code
+            LEFT JOIN biome b ON b.biome_id = r.real_biome_id
             WHERE ($1::text IS NULL OR g.match_type::text = $1)
               AND ($2::text IS NULL OR g.move_type::text = $2)
               AND (
@@ -207,6 +223,7 @@ class GameRepository:
             HAVING ($5::int IS NULL OR SUM(r.score) >= $5)
                AND ($6::int IS NULL OR SUM(r.score) <= $6)
             ORDER BY {order_expr}
+            LIMIT $7 OFFSET $8
         """
 
         async with self._pool.acquire() as conn:
@@ -218,14 +235,18 @@ class GameRepository:
                 time_limit_value,
                 min_score,
                 max_score,
+                limit,
+                offset,
             )
 
+        total = rows[0]["total_count"] if rows else 0
         result = []
         for row in rows:
             d = dict(row)
+            d.pop("total_count")
             d["rounds"] = json.loads(d["rounds"]) if isinstance(d["rounds"], str) else d["rounds"]
             result.append(d)
-        return result
+        return result, total
 
     async def fetch_saved_challenge_tokens(self, challenge_tokens: list[str]) -> set[str]:
         """Return the subset of the given challenge tokens that are already in the DB."""

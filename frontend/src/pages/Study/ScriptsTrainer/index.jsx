@@ -225,8 +225,9 @@ export default function ScriptsTrainer({ onExit }) {
     {status === "error" && <p className="err">{msg}</p>}
     {status === "ready" && current && <div className="card">
       <div className="sc-word" lang={lang.id} dir={lang.dir}>{current.name}</div>
+      {/* readOnly (not disabled) after a miss: a disabled input drops focus, so Enter would stop working. */}
       <input ref={inputRef} className={`sc-answer ${result || ""}`} value={answer}
-        disabled={result === "bad"} autoComplete="off" autoCapitalize="off" spellCheck={false}
+        readOnly={result === "bad"} autoComplete="off" autoCapitalize="off" spellCheck={false}
         placeholder="Type the transliteration" aria-label="Transliteration"
         onChange={(e) => setAnswer(e.target.value)}
         onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); check(); } }} />
