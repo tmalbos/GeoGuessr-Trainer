@@ -3,7 +3,7 @@
 data/*
 Ecoregions2017/*
 frontend/dist/*
-frontend/node_modules/*
+**/node_modules/*
 maps/*
 src/maps/fabdem/*
 src/maps/srtm_global/*

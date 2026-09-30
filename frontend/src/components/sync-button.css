@@ -1,0 +1,27 @@
+.hist-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px 20px; margin-bottom: 20px; }
+.hist-head h2 { margin: 0; }
+.sync-area { display: flex; align-items: center; gap: 14px; }
+.sync-status { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--mute); max-width: 340px; }
+.sync-status.ok { color: var(--ok); }
+.sync-status.err { color: var(--coral); }
+.sync-status span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sync-status button { background: none; border: 0; color: inherit; cursor: pointer; padding: 0 4px; font-size: 16px; line-height: 1; }
+
+.split { position: relative; display: inline-flex; }
+.split .btn { display: inline-flex; align-items: center; gap: 8px; }
+.split-main { border-radius: 6px 0 0 6px; padding: 10px 18px 10px 16px; }
+.split-caret { border-radius: 0 6px 6px 0; padding: 10px 12px; border-left: 1px solid #ffffff40 !important; font-size: 11px; }
+.split-icon { display: inline-block; font-size: 17px; line-height: 1; }
+.split-icon.spin { animation: split-spin 1s linear infinite; }
+@keyframes split-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .split-icon.spin { animation: none; } }
+.split-badge { font-size: 11px; font-weight: 700; padding: 1px 7px; border-radius: 999px; background: #ffffff2e; }
+
+.split-menu { position: absolute; right: 0; top: calc(100% + 6px); z-index: 30; min-width: 240px;
+  background: var(--card); border: 1px solid var(--line); border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0,0,0,.55); padding: 8px; }
+.split-menu h4 { margin: 4px 10px 6px; font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--mute); }
+.split-option { display: flex; align-items: center; gap: 10px; margin: 0; padding: 9px 10px; border-radius: 6px; cursor: pointer; font-weight: 400; }
+.split-option:hover { background: var(--raise); }
+.split-option input { width: auto; padding: 0; }
+.split-hint { margin: 6px 10px 2px; font-size: 12px; color: var(--coral); }

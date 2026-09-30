@@ -1,0 +1,18 @@
+{
+  "name": "geoguessr",
+  "version": "1.0.0",
+  "description": "A command-line tool to analyze GeoGuessr games, enrich round data with geographic context (ecoregions, traffic signs, license plates), and generate Anki flashcards to improve your gameplay.",
+  "main": "index.js",
+  "directories": {
+    "test": "tests"
+  },
+  "scripts": {
+    "dev": "concurrently \"uvicorn src.api.app:app --port 8000 --reload\" \"npm --prefix frontend run dev\""
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "concurrently": "^10.0.5"
+  }
+}

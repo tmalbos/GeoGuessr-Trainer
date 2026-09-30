@@ -3,12 +3,11 @@ import Analysis from "./pages/Analysis/index.jsx";
 import History from "./pages/History.jsx";
 import Settings from "./pages/Settings.jsx";
 import Study from "./pages/Study/index.jsx";
-import Sync from "./pages/Sync.jsx";
 
-const PAGES = { Sync, History, Analysis, Study, Settings };
+const PAGES = { History, Analysis, Study, Settings };
 
 export default function App() {
-  const [page, setPage] = useState("Sync");
+  const [page, setPage] = useState("History");
   const Page = PAGES[page];
   return <div className="app">
     <div className="rail-wrap">

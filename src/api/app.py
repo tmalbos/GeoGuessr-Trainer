@@ -6,7 +6,6 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 from fastapi import FastAPI
-from fastapi.staticfiles import StaticFiles
 
 from src.api.routers import analysis, history, settings, status, study_scripts, sync
 from src.app_context import AppContext
@@ -30,7 +29,3 @@ app = FastAPI(lifespan=lifespan)
 
 for router_module in (status, sync, analysis, history, settings, study_scripts):
     app.include_router(router_module.router, prefix="/api")
-
-# Must stay LAST: a mount at "/" swallows any route registered after it.
-if DIST.exists():
-    app.mount("/", StaticFiles(directory=DIST, html=True), name="web")

@@ -1,6 +1,8 @@
-import { Fragment, useEffect, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
+import SyncButton from "../components/SyncButton.jsx";
 import { api } from "../lib/api.js";
 import { MATCH_TYPE_LABELS, MOVE_TYPE_LABELS, areaHue, areaLabel, num, time, tlKey, tlLabel, tone } from "../lib/format.js";
+import "./history.css";
 
 const PAGE_SIZES = [10, 20, 50, 100];
 const MAX_ROUND_COLS = 5;
@@ -17,9 +19,16 @@ const Flag = ({ code }) => {
     onError={(e) => { e.currentTarget.style.visibility = "hidden"; }} />;
 };
 
-const placeName = (r) => [...new Set([r.city, r.subregion, r.state, r.country].filter(Boolean))].join(", ");
-const matchLabel = (t) => (t === "daily" ? "Daily Challenge" : t === "challenge" ? "Challenge" : "Duel");
-const modeSub = (g) => [MOVE_TYPE_LABELS[g.move_type] || g.move_type, g.time_limit_sec != null ? `${Math.round(g.time_limit_sec / 60)} min` : null].filter(Boolean).join(" · ");
+// Every level that is available, most specific first: city, subregion, region, country.
+const placeName = (p) => [p.city, p.subregion, p.state, p.country].filter(Boolean).join(", ");
+
+const gameName = (g) =>
+  g.match_type === "daily" ? "Daily Challenge"
+  : g.match_type === "duel" ? `${MOVE_TYPE_LABELS[g.move_type] || g.move_type} Duel`
+  : "Challenge";
+// Only challenges get the extra line.
+const modeSub = (g) => g.match_type !== "challenge" ? "" :
+  [MOVE_TYPE_LABELS[g.move_type] || g.move_type, g.time_limit_sec != null ? `${Math.round(g.time_limit_sec / 60)} min` : null].filter(Boolean).join(" · ");
 const fmtDate = (iso) => iso ? new Date(iso).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" }) : "—";
 
 function SortHeader({ col, label, q, onSort, className }) {
@@ -42,15 +51,24 @@ function RoundCell({ r }) {
   </div></td>;
 }
 
+function PlaceLine({ kind, p }) {
+  const guess = kind === "guess";
+  const name = placeName(p);
+  const fallback = guess && !p.has_guess ? "No guess" : "Unknown location";
+  return <div className={`pl ${kind}`}>
+    <span className="pl-tag">{guess ? "Your guess" : "Actual"}</span>
+    <Flag code={p.country_code} />
+    <span className={`pl-name ${name ? "" : "dim"}`}>{name || fallback}</span>
+    {p.area_type && <span className="chip" style={{ "--h": areaHue(p.area_type) }}>{areaLabel(p.area_type)}</span>}
+  </div>;
+}
+
 function Detail({ g }) {
   return <div className="rounds">{g.rounds.map((r) => <div className="rd" key={r.round_number}>
     <span className="rd-n">{r.round_number}</span>
-    <div>
-      <div className="rd-name"><Flag code={r.country_code} />{placeName(r) || "Unknown location"}</div>
-      <div className="rd-sub">
-        {r.area_type && <span className="chip" style={{ "--h": areaHue(r.area_type) }}>{areaLabel(r.area_type)}</span>}
-        {r.biome && <span className="muted">{r.biome}</span>}
-      </div>
+    <div className="rd-places">
+      <PlaceLine kind="real" p={{ country_code: r.country_code, country: r.country, state: r.state, subregion: r.subregion, city: r.city, area_type: r.area_type }} />
+      <PlaceLine kind="guess" p={{ has_guess: r.has_guess, country_code: r.guess_country_code, country: r.guess_country, state: r.guess_state, subregion: r.guess_subregion, city: r.guess_city, area_type: r.guess_area_type }} />
     </div>
     <div className="rd-stat"><span className="muted">Time</span>{time(r.time_sec)}</div>
     <div className="rd-stat"><span className="muted">Steps</span>{r.steps}</div>
@@ -68,6 +86,8 @@ export default function History() {
   const [busy, setBusy] = useState(false);
   const [open, setOpen] = useState(null);
   const [err, setErr] = useState("");
+  const [refreshKey, setRefreshKey] = useState(0);
+  const appliedQ = useRef(null);
 
   const update = (patch) => setQ((p) => ({ ...p, page: 1, ...patch }));
   const onSort = (col) => q.sortBy === col
@@ -76,10 +96,14 @@ export default function History() {
 
   useEffect(() => { api("/analysis/filters").then(setOpts).catch((e) => setErr(e.message)); }, []);
 
+  const ready = !!opts;
+  // Re-runs on filter/sort/page changes AND on refreshKey (new synced games). Both go
+  // through the same query, so fresh rows land wherever the current order puts them.
   useEffect(() => {
-    if (!opts) return;
+    if (!ready) return;
     let stale = false;
-    setBusy(true);
+    const qChanged = appliedQ.current !== q;
+    if (qChanged) setBusy(true);
     const t = setTimeout(() => {
       const qs = new URLSearchParams({
         time_limit: q.timeLimit, sort_by: q.sortBy, sort_dir: q.sortDir, page: q.page, page_size: q.pageSize,
@@ -91,11 +115,19 @@ export default function History() {
       api(`/history?${qs}`).then((r) => {
         if (stale) return;
         if (!r.items.length && q.page > 1) { setQ((p) => ({ ...p, page: p.page - 1 })); return; }
-        setData(r); setErr(""); setOpen(null); setBusy(false);
+        appliedQ.current = q;
+        setData(r); setErr(""); setBusy(false);
+        if (qChanged) setOpen(null); // keep an expanded game open across sync refreshes
       }).catch((e) => { if (!stale) { setData({ items: [], total: 0 }); setErr(e.message); setBusy(false); } });
     }, 250);
     return () => { stale = true; clearTimeout(t); };
-  }, [opts, q]);
+  }, [ready, q, refreshKey]);
+
+  const refresh = () => setRefreshKey((k) => k + 1);
+  const onSyncFinished = () => {
+    api("/analysis/filters").then(setOpts).catch(() => {}); // new combos may exist now
+    refresh();
+  };
 
   if (!opts) return <><h2>History</h2>{err ? <p className="err">{err}</p> : <p className="muted">Loading…</p>}</>;
 
@@ -107,7 +139,11 @@ export default function History() {
   const from = total ? (q.page - 1) * q.pageSize + 1 : 0;
   const to = Math.min(total, q.page * q.pageSize);
 
-  return <><h2>History</h2>
+  return <>
+    <div className="hist-head">
+      <h2>History</h2>
+      <SyncButton onGameSaved={refresh} onFinished={onSyncFinished} />
+    </div>
     <div className="hist-filters">
       <div><label htmlFor="h-match">Game type</label><select id="h-match" value={q.matchType} onChange={(e) => update({ matchType: e.target.value })}>
         <option value="">All</option>
@@ -125,7 +161,7 @@ export default function History() {
       <div><label htmlFor="h-max">Max score</label><input id="h-max" type="number" value={q.maxScore} onChange={(e) => update({ maxScore: e.target.value })} style={{ width: 100 }} /></div>
     </div>
     {err && <p className="err">{err}</p>}
-    {!data ? <p className="muted">Loading…</p> : !items.length ? <p className="muted">No games match these filters.</p> :
+    {!data ? <p className="muted">Loading…</p> : !items.length ? <p className="muted">No games match these filters. Use “Sync games” to import your latest games.</p> :
       <div className={`tbl-wrap ${busy ? "busy" : ""}`}><table className="tbl">
         <thead><tr>
           <th aria-label="Expand" />
@@ -140,12 +176,13 @@ export default function History() {
           const key = `${g.challenge_token}-${g.game_id}`;
           const isOpen = open === key;
           const toggle = () => setOpen(isOpen ? null : key);
+          const sub = modeSub(g);
           return <Fragment key={key}>
             <tr className={`g ${isOpen ? "open" : ""}`} tabIndex={0} aria-expanded={isOpen} onClick={toggle}
               onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggle(); } }}>
               <td className="chev-cell"><span className="chev" aria-hidden="true">▸</span></td>
               <td><b>{fmtDate(g.played_at)}</b></td>
-              <td><b>{matchLabel(g.match_type)}</b><div className="muted">{modeSub(g)}</div>{g.rounds.length > MAX_ROUND_COLS && <div className="more">+{g.rounds.length - MAX_ROUND_COLS} more rounds</div>}</td>
+              <td><b>{gameName(g)}</b>{sub && <div className="muted">{sub}</div>}{g.rounds.length > MAX_ROUND_COLS && <div className="more">+{g.rounds.length - MAX_ROUND_COLS} more rounds</div>}</td>
               {Array.from({ length: roundCols }, (_, i) => <RoundCell key={i} r={g.rounds[i]} />)}
               <td className="num"><span className="tot" style={{ color: tone(g.total_score / (g.rounds.length || 1)) }}>{num(g.total_score)}</span></td>
               <td className="num">{num(g.total_steps)}</td>

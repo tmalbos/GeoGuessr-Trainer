@@ -1,0 +1,8 @@
+.rd-places { display: grid; gap: 6px; min-width: 0; }
+.pl { --c: var(--mute); display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; padding: 6px 12px;
+  border-left: 3px solid var(--c); border-radius: 0 6px 6px 0; background: color-mix(in srgb, var(--c) 9%, transparent); }
+.pl.real { --c: var(--ok); }
+.pl.guess { --c: var(--coral); }
+.pl-tag { min-width: 84px; font-size: 11px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: var(--c); }
+.pl-name { font-weight: 600; font-size: 15px; }
+.pl-name.dim { color: var(--mute); font-weight: 400; }

@@ -166,8 +166,8 @@ class GameRepository:
         limit: int = 20,
         offset: int = 0,
     ) -> tuple[list[dict], int]:
-        """One page of games, each with its rounds (ordered, with real-location detail)
-        and totals. Returns (games, total_matching_games). Never mixes
+        """One page of games, each with its rounds (ordered, with real- and guess-location
+        detail) and totals. Returns (games, total_matching_games). Never mixes
         match_type/move_type/time_limit — caller passes an exact combo or 'any'.
         """
         if sort_by not in _HISTORY_SORT_COLUMNS:
@@ -204,14 +204,20 @@ class GameRepository:
                         'subregion', r.real_subregion,
                         'city', r.real_city,
                         'area_type', r.real_area_type::text,
-                        'biome', b.name
+                        'has_guess', r.guess_latitude IS NOT NULL,
+                        'guess_country_code', r.guess_country_code,
+                        'guess_country', gc.name,
+                        'guess_state', r.guess_state,
+                        'guess_subregion', r.guess_subregion,
+                        'guess_city', r.guess_city,
+                        'guess_area_type', r.guess_area_type::text
                     ) ORDER BY r.round_number
                 ) AS rounds,
                 COUNT(*) OVER() AS total_count
             FROM game g
             JOIN round r ON r.challenge_token = g.challenge_token AND r.game_id = g.game_id
-            LEFT JOIN country c ON c.code = r.real_country_code
-            LEFT JOIN biome b ON b.biome_id = r.real_biome_id
+            LEFT JOIN country c  ON c.code  = r.real_country_code
+            LEFT JOIN country gc ON gc.code = r.guess_country_code
             WHERE ($1::text IS NULL OR g.match_type::text = $1)
               AND ($2::text IS NULL OR g.move_type::text = $2)
               AND (
