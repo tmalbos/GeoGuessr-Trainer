@@ -46,6 +46,7 @@ COUNTRIES_COLORS = {
     "Kenya": {"water_color": "#77D3E7", "land_color": "#F4EFE3"},
     "Kyrgyzstan": {"water_color": "#84D7EB", "land_color": "#CDF5DF"},
     "Latvia": {"water_color": "#86D7EB", "land_color": "#B0EFCA"},
+    "Lithuania": {"water_color": "#86D7EB", "land_color": "#CEF5DF"},
     "Luxembourg": {"water_color": "#91D1E3", "land_color": "#CAEDD8"},
     "Malaysia": {"water_color": "#81D5E9", "land_color": "#A3E9C6"},
     "Mexico": {"water_color": "#77D3E7", "land_color": "#BAEBD6"},
