@@ -1,5 +1,7 @@
 import { memo, useEffect, useRef, useState } from "react";
+import { api as request } from "../../lib/api.js";
 import { loadWorld } from "./geo.js";
+import "./worldmap.css";
 
 const MAX_K = 120; // zoom relative to "whole world fits the tab"
 // ── Click circles for tiny countries: tweak these three to taste (all in screen pixels) ──
@@ -13,22 +15,28 @@ const SMOOTH_MS = 60; // zoom easing time constant
 // Where the map was left, so coming back from a country page keeps the view.
 let saved = null;
 
-// Static geometry: React never re-renders this. All zooming happens by editing the <g> transform directly.
-const Shapes = memo(function Shapes({ world }) {
+// Static geometry: React never re-renders this except when `has` (countries with clues) arrives.
+// All zooming happens by editing the <g> transform directly.
+const Shapes = memo(function Shapes({ world, has }) {
   return <>
     <path className="wm-land" d={world.land} fillRule="evenodd" />
-    {world.countries.map((c) => <g key={c.id} className="wm-c" data-id={c.id} role="button" aria-label={c.name}>
-      <path d={c.d} fillRule="evenodd" />
-      {c.dots.map(([x, y], i) => <g key={i} className="wm-pt" data-size={c.size}>
-        <circle className="wm-hit" cx={x} cy={y} r="0" />
-        <circle className="wm-dot" cx={x} cy={y} r="0" />
-      </g>)}
-    </g>)}
+    {world.countries.map((c) => {
+      const none = has && !has.has(String(c.id).toUpperCase());
+      return <g key={c.id} className={`wm-c${none ? " none" : ""}`} data-id={c.id} role="button"
+        aria-label={none ? `${c.name}, no clues yet` : c.name}>
+        <path d={c.d} fillRule="evenodd" />
+        {c.dots.map(([x, y], i) => <g key={i} className="wm-pt" data-size={c.size}>
+          <circle className="wm-hit" cx={x} cy={y} r="0" />
+          <circle className="wm-dot" cx={x} cy={y} r="0" />
+        </g>)}
+      </g>;
+    })}
   </>;
 });
 
 export default function WorldMap({ onSelect }) {
   const [world, setWorld] = useState(null);
+  const [has, setHas] = useState(null); // Set of ISO codes with clues; null = unknown (nothing dimmed)
   const [err, setErr] = useState("");
   const box = useRef(null);
   const gRef = useRef(null);
@@ -39,6 +47,7 @@ export default function WorldMap({ onSelect }) {
   useEffect(() => {
     let off = false;
     loadWorld().then((w) => !off && setWorld(w)).catch((e) => !off && setErr(e.message));
+    request("/clues/summary").then((r) => !off && setHas(new Set(r.countries))).catch(() => {});
     return () => { off = true; };
   }, []);
 
@@ -218,7 +227,7 @@ export default function WorldMap({ onSelect }) {
 
   return <div className="wm" ref={box} tabIndex={0} aria-label="World map. Click a country to open its clues. Use plus and minus to zoom, arrow keys to move.">
     {world && <svg className="wm-svg" width="100%" height="100%">
-      <g ref={gRef}><Shapes world={world} /></g>
+      <g ref={gRef}><Shapes world={world} has={has} /></g>
     </svg>}
     {!world && !err && <p className="wm-msg muted">Loading map…</p>}
     {err && <p className="wm-msg err">{err}</p>}

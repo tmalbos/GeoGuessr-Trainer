@@ -31,6 +31,51 @@ const modeSub = (g) => g.match_type !== "challenge" ? "" :
   [MOVE_TYPE_LABELS[g.move_type] || g.move_type, g.time_limit_sec != null ? `${Math.round(g.time_limit_sec / 60)} min` : null].filter(Boolean).join(" · ");
 const fmtDate = (iso) => iso ? new Date(iso).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" }) : "—";
 
+const svgProps = { width: 16, height: 16, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 2, strokeLinecap: "round", strokeLinejoin: "round", "aria-hidden": true };
+const CopyIcon = () => <svg {...svgProps}><rect x="9" y="9" width="11" height="11" rx="2" /><path d="M5 15V6a2 2 0 0 1 2-2h9" /></svg>;
+const CheckIcon = () => <svg {...svgProps}><path d="M5 12.5l4.5 4.5L19 7.5" /></svg>;
+const StreetViewIcon = () => <svg {...svgProps}><circle cx="12" cy="5" r="2.5" /><path d="M8 21l1.5-7M16 21l-1.5-7M7.5 14h9L15 9H9z" /></svg>;
+
+async function copyText(text) {
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch {
+    // Fallback for contexts where the Clipboard API is unavailable.
+    const ta = document.createElement("textarea");
+    ta.value = text;
+    ta.style.position = "fixed";
+    ta.style.opacity = "0";
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand("copy");
+    ta.remove();
+  }
+}
+
+function CoordButtons({ lat, lng }) {
+  const [copied, setCopied] = useState(false);
+  const timer = useRef(null);
+  useEffect(() => () => clearTimeout(timer.current), []);
+  if (lat == null || lng == null) return null;
+  const text = `${lat},${lng}`;
+  const onCopy = async () => {
+    await copyText(text);
+    setCopied(true);
+    clearTimeout(timer.current);
+    timer.current = setTimeout(() => setCopied(false), 1200);
+  };
+  return <span className="pl-actions">
+    <button type="button" className={`pl-btn ${copied ? "done" : ""}`} onClick={onCopy}
+      title={copied ? "Copied" : "Copy coordinates"} aria-label="Copy coordinates">
+      {copied ? <CheckIcon /> : <CopyIcon />}
+    </button>
+    <a className="pl-btn" href={`https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${lat},${lng}`}
+      target="_blank" rel="noopener noreferrer" title="Open in Street View" aria-label="Open in Street View">
+      <StreetViewIcon />
+    </a>
+  </span>;
+}
+
 function SortHeader({ col, label, q, onSort, className }) {
   const active = q.sortBy === col;
   return <th className={className} aria-sort={active ? (q.sortDir === "asc" ? "ascending" : "descending") : "none"}>
@@ -60,6 +105,7 @@ function PlaceLine({ kind, p }) {
     <Flag code={p.country_code} />
     <span className={`pl-name ${name ? "" : "dim"}`}>{name || fallback}</span>
     {p.area_type && <span className="chip" style={{ "--h": areaHue(p.area_type) }}>{areaLabel(p.area_type)}</span>}
+    <CoordButtons lat={p.lat} lng={p.lng} />
   </div>;
 }
 
@@ -67,8 +113,8 @@ function Detail({ g }) {
   return <div className="rounds">{g.rounds.map((r) => <div className="rd" key={r.round_number}>
     <span className="rd-n">{r.round_number}</span>
     <div className="rd-places">
-      <PlaceLine kind="real" p={{ country_code: r.country_code, country: r.country, state: r.state, subregion: r.subregion, city: r.city, area_type: r.area_type }} />
-      <PlaceLine kind="guess" p={{ has_guess: r.has_guess, country_code: r.guess_country_code, country: r.guess_country, state: r.guess_state, subregion: r.guess_subregion, city: r.guess_city, area_type: r.guess_area_type }} />
+      <PlaceLine kind="real" p={{ country_code: r.country_code, country: r.country, state: r.state, subregion: r.subregion, city: r.city, area_type: r.area_type, lat: r.lat, lng: r.lng }} />
+      <PlaceLine kind="guess" p={{ has_guess: r.has_guess, country_code: r.guess_country_code, country: r.guess_country, state: r.guess_state, subregion: r.guess_subregion, city: r.guess_city, area_type: r.guess_area_type, lat: r.guess_lat, lng: r.guess_lng }} />
     </div>
     <div className="rd-stat"><span className="muted">Time</span>{time(r.time_sec)}</div>
     <div className="rd-stat"><span className="muted">Steps</span>{r.steps}</div>

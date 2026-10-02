@@ -6,3 +6,10 @@
 .pl-tag { min-width: 84px; font-size: 11px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: var(--c); }
 .pl-name { font-weight: 600; font-size: 15px; }
 .pl-name.dim { color: var(--mute); font-weight: 400; }
+
+/* Copy / open-in-maps buttons, pinned to the far right of the box */
+.pl-actions { margin-left: auto; display: inline-flex; gap: 6px; }
+.pl-btn { display: inline-grid; place-items: center; width: 28px; height: 28px; padding: 0; cursor: pointer;
+  color: var(--mute); background: var(--raise); border: 1px solid var(--line); border-radius: 6px; text-decoration: none; }
+.pl-btn:hover { color: var(--ink); border-color: var(--c); }
+.pl-btn.done { color: var(--ok); border-color: var(--ok); }

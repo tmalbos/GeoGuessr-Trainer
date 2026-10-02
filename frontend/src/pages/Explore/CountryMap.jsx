@@ -39,7 +39,7 @@ export default function CountryMap({ id }) {
       onMouseOver={(e) => setHover(e.target.dataset?.name ?? "")} onMouseLeave={() => setHover("")}>
       <Regions regions={data.regions} />
     </svg>
-    <div className="cm-name" aria-live="polite">{hover || (n > 1 ? `${n} subdivisions` : "")}</div>
+    <div className="cm-name" aria-live="polite">{hover}</div>
     {omitted.length > 0 && <p className="muted cm-omit">
       Not shown: {omitted.slice(0, MAX_LISTED).join(", ")}{omitted.length > MAX_LISTED ? ` and ${omitted.length - MAX_LISTED} more` : ""}
     </p>}

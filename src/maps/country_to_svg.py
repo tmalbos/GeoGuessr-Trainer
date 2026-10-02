@@ -20,9 +20,13 @@ v2 design:
     area with its own polygons (ecoregions, area codes, or anything else
     of that shape), optionally grouped by --overlay-field, and renders it
     as its own "Overlay" layer.
+  - --print-projection skips SVG generation and prints the minimal
+    projection parameters (lon0, lat0, scale) as JSON, for converting an
+    SVG back to TopoJSON (see utilities/svg_to_topojson.py).
 """
 
 import argparse
+import json
 import math
 import pathlib
 import sys
@@ -108,6 +112,7 @@ class Projection:
     """Lon/lat -> SVG pixel transform plus the resulting canvas width."""
 
     lon0: float
+    lat0: float
     cos_lat0: float
     scale: float
     off_x: float
@@ -189,6 +194,11 @@ def build_parser():
         help="Finest admin level to load. This level's file is the sole source of geometric truth (national border = union of its polygons).",
     )
     ap.add_argument("-o", "--output")
+    ap.add_argument(
+        "--print-projection",
+        action="store_true",
+        help="Don't generate the SVG: print the minimal projection parameters (lon0, lat0, scale) as JSON to stdout and exit. Use the same country/levels/--min-island-percent as for the SVG.",
+    )
     ap.add_argument(
         "--min-island-percent",
         type=float,
@@ -533,12 +543,24 @@ def compute_projection(fine_feats) -> Projection:
     scale = (HEIGHT - 2 * PADDING) / raw_h if raw_h else 1
     return Projection(
         lon0=lon0,
+        lat0=lat0,
         cos_lat0=cos_lat0,
         scale=scale,
         off_x=PADDING - min(xs) * scale,
         off_y=PADDING - min(ys) * scale,
         width=raw_w * scale + 2 * PADDING,
     )
+
+
+def projection_only(args, levels, country_dir) -> Projection:
+    """Compute just the projection, running the same load/prune/validate
+    steps as load_admin() (so the national frame matches the SVG run) but
+    skipping parent assignment, name chains and overlays.
+    """
+    feats_by_level = load_level_features(country_dir, levels)
+    prune_islands(feats_by_level, levels, args.min_island_percent)
+    validate_level_geoms(feats_by_level, levels)
+    return compute_projection(feats_by_level[levels[-1]])
 
 
 # ---------------------------------------------------------------------------
@@ -691,6 +713,13 @@ def main() -> None:
 
     levels = list(range(args.coarse_level, args.fine_level + 1))
     country_dir = pathlib.Path("maps") / args.country
+
+    if args.print_projection:
+        # All logging goes to stderr, so stdout stays clean JSON.
+        proj = projection_only(args, levels, country_dir)
+        print(json.dumps({"lon0": proj.lon0, "lat0": proj.lat0, "scale": proj.scale}, indent=2))
+        return
+
     group_rows, group_mode = resolve_group_mode(args, levels)
 
     print(f"=== Cargando niveles administrativos {levels} para {args.country} ===", file=sys.stderr)

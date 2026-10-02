@@ -1,0 +1,4 @@
+/* Countries without clues are dimmed gray; the ones with clues keep the normal blue. */
+.wm-c.none path { fill: #3b4452; }
+.wm-c.none .wm-dot { fill: #3b4452; stroke: #6b7686; }
+.wm:not(.moving) .wm-c.none:hover path, .wm:not(.moving) .wm-c.none:hover .wm-dot { fill: #505b6c; }

@@ -9,7 +9,6 @@ backend = subprocess.Popen(
         "src.api.app:app",
         "--port",
         "8000",
-        "--reload",
     ]
 )
 

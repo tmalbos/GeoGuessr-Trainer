@@ -7,7 +7,16 @@ from pathlib import Path
 from dotenv import load_dotenv
 from fastapi import FastAPI
 
-from src.api.routers import analysis, history, settings, status, study_scripts, sync
+from src.api.routers import (
+    analysis,
+    clues,
+    countries,
+    history,
+    settings,
+    status,
+    study_scripts,
+    sync,
+)
 from src.app_context import AppContext
 from src.i18n.lang import load as load_lang
 
@@ -27,5 +36,5 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(lifespan=lifespan)
 
-for router_module in (status, sync, analysis, history, settings, study_scripts):
+for router_module in (status, sync, analysis, history, settings, study_scripts, clues, countries):
     app.include_router(router_module.router, prefix="/api")
