@@ -23,7 +23,7 @@ async def available_levels(
     move_type: str,
     time_limit_sec: int | None,
 ) -> list[tuple]:
-    """Discover geo levels with enough rounds for analysis, within one filter combo."""
+    """Geo levels that have at least one zone with enough rounds, as (level, label, zone_count)."""
     rounds = await load_rounds(db, match_type, move_type, time_limit_sec)
     if not rounds:
         return []
@@ -32,15 +32,16 @@ async def available_levels(
     for level, label in GEO_LEVELS:
         if level == "general":
             if total >= min_rounds:
-                result.append((level, label, total))
+                result.append((level, label, 1))
         else:
             counts: dict[str, int] = defaultdict(int)
             for r in rounds:
                 zone = (r.get("real_geo") or {}).get(level, "")
                 if zone:
                     counts[zone] += 1
-            if any(v >= min_rounds for v in counts.values()):
-                result.append((level, label, total))
+            zones = sum(1 for v in counts.values() if v >= min_rounds)
+            if zones:
+                result.append((level, label, zones))
     return result
 
 

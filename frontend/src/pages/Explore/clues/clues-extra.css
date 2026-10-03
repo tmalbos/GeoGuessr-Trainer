@@ -1,0 +1,71 @@
+/* ── Editor header: title on the left, tag slot on the right ── */
+.modal-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 14px; }
+.modal .modal-head h3 { margin: 0; }
+.tag-slot { position: relative; flex-shrink: 0; }
+.tag-pair { display: flex; gap: 6px; }
+.tag-empty { min-width: 112px; padding: 4px 22px; border: 1.5px dashed var(--sea-hi); border-radius: 999px;
+  background: transparent; color: var(--sea-hi); font-size: 13px; font-weight: 700; cursor: pointer; opacity: .85; }
+.tag-empty:hover, .tag-empty[aria-expanded="true"] { background: #6cc0e51a; opacity: 1; }
+.tag-pop { position: absolute; right: 0; top: calc(100% + 8px); z-index: 10; width: min(460px, 80vw);
+  display: flex; flex-wrap: wrap; gap: 6px; padding: 12px; background: var(--card);
+  border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,.55); }
+.tag-pop.small { width: max-content; }
+.ico { vertical-align: -2px; }
+
+/* Category = neutral (what it is). Location keeps its color (where it applies). */
+.chip.neutral { background: var(--raise); color: var(--ink); border-color: var(--line); }
+.chip.loc { padding: 2px 8px; }
+.chip.loc .ico { vertical-align: -3px; }
+.tag.neutral { border-color: var(--line); color: var(--ink); }
+.tag.neutral:hover { border-color: var(--mute); }
+.tag.neutral.on { background: var(--raise); border-color: var(--mute); }
+
+/* ── Rating dots ── */
+.rates-dots { display: grid; gap: 6px; margin-top: 14px; }
+.rdots-row { display: grid; grid-template-columns: 96px auto auto auto 24px; align-items: center; gap: 8px; }
+.rdots-row.ro { grid-template-columns: 96px auto; }
+.rdots-label { font-size: 13px; font-weight: 600; }
+.rdots { display: inline-flex; gap: 5px; }
+.rdots i, .rdots button { width: 12px; height: 12px; padding: 0; border-radius: 50%; border: 1.5px solid var(--mute); background: transparent; display: block; }
+.rdots button { cursor: pointer; }
+.rdots i.on, .rdots button.on { background: var(--sea-hi); border-color: var(--sea-hi); }
+.rdots-row small { font-size: 12px; }
+.clue-rates { display: grid; gap: 4px; margin-top: 12px; }
+.rate-clear { background: none; border: 0; color: var(--mute); cursor: pointer; font-size: 18px; line-height: 1; padding: 0; }
+.rate-clear:hover:not(:disabled) { color: var(--ink); }
+.rate-clear:disabled { visibility: hidden; }
+
+/* ── Visibility: label and select on one line ── */
+.vis-row { display: flex; align-items: center; gap: 12px; margin-top: 14px; }
+.vis-row label { margin: 0; }
+.vis-row select { width: auto; min-width: 160px; }
+.problems { margin: 8px 0 0; text-align: right; font-size: 12px; }
+
+/* ── Clue card tools ── */
+.clue-tools { position: absolute; top: 12px; right: 0; display: flex; gap: 6px; z-index: 1; }
+.clue-tools .clue-del, .clue-edit { position: static; display: grid; place-items: center; padding: 7px; background: none; border-radius: 6px; cursor: pointer; }
+.clue-edit { color: var(--sea-hi); border: 1px solid var(--sea-hi); }
+.clue-edit:hover { background: #6cc0e51a; }
+.clue-body.has-tools { padding-right: 92px; }
+
+/* ── Filters and groups ── */
+.clue-filter { display: grid; gap: 10px; margin-bottom: 8px; }
+.clue-filter-row { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; }
+.clue-filter select { width: auto; margin-left: auto; }
+.clue-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.fchip { display: inline-flex; align-items: center; gap: 6px; padding: 4px 12px; border-radius: 999px; border: 1px solid var(--line); background: var(--card); cursor: pointer; font-size: 13px; }
+.fchip:hover { border-color: var(--sea-hi); }
+.fchip.on { background: var(--sea); border-color: var(--sea); color: #fff; }
+.fchip.loc { border-color: hsl(var(--h) 45% 32%); color: hsl(var(--h) 80% 78%); }
+.fchip.loc.on { background: hsl(var(--h) 45% 24%); border-color: hsl(var(--h) 70% 60%); color: hsl(var(--h) 90% 88%); }
+.count { margin-left: 4px; padding: 0 7px; border-radius: 999px; background: #ffffff1a; font-size: 11px; font-weight: 700; }
+.clue-group { position: sticky; top: 0; z-index: 2; margin: 16px 0 0; padding: 10px 0; background: var(--paper); border-bottom: 1px solid var(--line);
+  font-size: 15px; font-weight: 700; }
+
+/* ── Empty state ── */
+.cat-empty { display: grid; justify-items: center; gap: 6px; text-align: center; padding: 48px 16px; }
+.cat-empty svg { width: min(220px, 60%); height: auto; }
+.cat-empty h3 { margin: 12px 0 0; font-size: 24px; font-weight: 800; letter-spacing: -.02em; }
+.cat-tear { animation: cat-tear 2.6s ease-in infinite; }
+@keyframes cat-tear { 0% { transform: translateY(0); opacity: 1; } 80% { opacity: 1; } 100% { transform: translateY(16px); opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .cat-tear { animation: none; } }

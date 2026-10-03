@@ -1,0 +1,84 @@
+/* Shared UI pieces: toasts, skeletons, errors, status icons, badges, filters, range slider, dialogs */
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+kbd { display: inline-block; min-width: 22px; padding: 1px 7px; font-family: inherit; font-size: 12px; font-weight: 600; text-align: center;
+  color: var(--ink); background: var(--raise); border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 5px; }
+.link-btn { background: none; border: 0; padding: 0; color: var(--sea-hi); cursor: pointer; text-decoration: underline; font-size: 13px; }
+.empty { display: grid; justify-items: center; gap: 12px; padding: 40px 16px; text-align: center; }
+.empty p { margin: 0; }
+.pad { padding: 32px 40px 48px 56px; }
+.btn.danger { background: var(--coral); color: #14243a; }
+.btn.danger:hover:not(:disabled) { background: #ff8a72; }
+
+/* Sync button in the side rail */
+.rail .rail-sync { margin-top: auto; display: flex; align-items: center; gap: 8px; border: 1px solid var(--line); }
+.rail .rail-sync:disabled { opacity: .6; cursor: default; }
+
+/* Toasts */
+.toasts { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); z-index: 200; display: grid; gap: 8px;
+  justify-items: center; pointer-events: none; width: max-content; max-width: calc(100vw - 32px); }
+.toast { pointer-events: auto; display: flex; align-items: center; gap: 12px; padding: 10px 14px; background: var(--raise);
+  border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,.55); }
+.toast.ok { border-color: var(--ok); }
+.toast.err { border-color: var(--coral); }
+.toast-act { background: none; border: 0; color: var(--sea-hi); font-weight: 700; cursor: pointer; padding: 2px 6px; }
+.toast-x { background: none; border: 0; color: var(--mute); cursor: pointer; font-size: 18px; line-height: 1; padding: 0 2px; }
+
+/* Skeletons */
+.skel { display: block; background: linear-gradient(90deg, var(--raise) 25%, #263040 50%, var(--raise) 75%); background-size: 200% 100%; animation: skel 1.4s ease-in-out infinite; }
+@keyframes skel { to { background-position: -200% 0; } }
+.skel-card { display: grid; gap: 10px; }
+.skel-rows { display: grid; gap: 8px; }
+@media (prefers-reduced-motion: reduce) { .skel { animation: none; } }
+
+/* Errors */
+.err-box { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; padding: 14px 16px; margin-bottom: 12px;
+  border: 1px solid var(--coral); border-radius: 8px; background: #ff73570f; }
+.err-box p { margin: 0; color: var(--coral); flex: 1 1 260px; }
+.err-box details { flex-basis: 100%; }
+.err-box summary { cursor: pointer; color: var(--mute); font-size: 13px; }
+.err-box pre { margin: 8px 0 0; white-space: pre-wrap; font-size: 12px; color: var(--mute); }
+
+/* Status icons */
+.st-icon { display: inline-flex; vertical-align: -4px; margin-right: 8px; }
+.st-icon.ok { color: var(--ok); } .st-icon.bad { color: var(--coral); }
+.st-icon.warn { color: #e6b84a; } .st-icon.wait { color: var(--sand); }
+.st-icon .spin { animation: ui-spin 1s linear infinite; }
+@keyframes ui-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .st-icon .spin { animation: none; } }
+
+/* Badges and bars */
+.badge { display: inline-flex; align-items: center; gap: 6px; padding: 2px 10px; border-radius: 999px; font-size: 12px; font-weight: 700;
+  border: 1px solid var(--line); color: var(--mute); white-space: nowrap; }
+.badge.on { color: var(--ok); border-color: #3fb97a66; background: #3fb97a14; }
+.badge.best { color: var(--sand); border-color: #cdbf9366; background: #cdbf9314; }
+.bar { height: 6px; background: var(--paper); border-radius: 3px; overflow: hidden; }
+.bar i { display: block; height: 100%; background: var(--sea-hi); border-radius: 3px; transition: width .25s ease; }
+
+/* Filter bar */
+.filter-bar { display: flex; flex-wrap: wrap; gap: 12px 16px; margin-bottom: 16px; align-items: flex-end; }
+.filter-bar > div > label { margin: 0 0 4px; font-size: 12px; color: var(--mute); }
+.filter-bar select { width: auto; min-width: 120px; }
+.filter-bar .filter-clear { padding: 8px 14px; }
+
+/* Two-handle range slider */
+.range-wrap { width: 240px; }
+.range { position: relative; height: 28px; }
+.range-track { position: absolute; left: 0; right: 0; top: 50%; height: 4px; margin-top: -2px; background: var(--line); border-radius: 2px; }
+.range-track i { position: absolute; top: 0; bottom: 0; background: var(--sea-hi); border-radius: 2px; }
+.range input[type="range"] { position: absolute; inset: 0; width: 100%; max-width: none; height: 28px; margin: 0; padding: 0; border: 0;
+  background: none; pointer-events: none; -webkit-appearance: none; appearance: none; }
+.range input[type="range"]::-webkit-slider-runnable-track { height: 28px; background: transparent; }
+.range input[type="range"]::-moz-range-track { background: transparent; }
+.range input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; pointer-events: auto; width: 16px; height: 16px; margin-top: 6px;
+  border-radius: 50%; background: var(--paper); border: 2px solid var(--sea-hi); cursor: pointer; }
+.range input[type="range"]::-moz-range-thumb { pointer-events: auto; width: 12px; height: 12px; border-radius: 50%; background: var(--paper);
+  border: 2px solid var(--sea-hi); cursor: pointer; }
+.range input[type="range"]:focus-visible::-webkit-slider-thumb { outline: 2px solid var(--coral); outline-offset: 2px; }
+.range-value { display: block; margin-top: 2px; font-size: 12px; color: var(--mute); }
+
+/* Confirm dialog (sits above the clue editor modal) */
+.confirm-back { position: fixed; inset: 0; z-index: 120; background: rgba(0,0,0,.6); display: grid; place-items: center; padding: 16px; }
+.confirm { width: min(420px, 100%); background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 20px 22px; }
+.confirm h3 { margin: 0 0 8px; font-size: 20px; }
+.confirm p { margin: 0; }
+.confirm-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 18px; }

@@ -31,6 +31,18 @@ def score_label(score: int) -> str:
     return translate("Inhuman")
 
 
+def score_tiers() -> list[dict]:
+    """The tier ladder (same thresholds as score_label), lowest first. `max` is the upper bound."""
+    return [
+        {"label": translate("Terrible"), "max": 2500},
+        {"label": translate("Decent"), "max": 3750},
+        {"label": translate("High"), "max": 4375},
+        {"label": translate("Exceptional"), "max": 4713},
+        {"label": translate("Elite"), "max": 4857},
+        {"label": translate("Inhuman"), "max": 5000},
+    ]
+
+
 def arrow(now_val, prev_val, lower_is_better=True) -> str:
     if now_val is None or prev_val is None:
         return "→"

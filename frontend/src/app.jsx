@@ -1,23 +1,36 @@
-import { useState } from "react";
+import SyncChip from "./components/SyncChip.jsx";
+import { navigate, useHashRoute } from "./lib/router.js";
+import { useSync } from "./lib/sync.jsx";
 import Analysis from "./pages/Analysis/index.jsx";
 import Explore from "./pages/Explore/index.jsx";
 import History from "./pages/History.jsx";
 import Settings from "./pages/Settings.jsx";
 import Study from "./pages/Study/index.jsx";
 
-const PAGES = { Explore, History, Analysis, Study, Settings };
+// [url key, rail label, component]. The URL is the source of truth: #/explore/AR, #/analysis/country, ...
+const PAGES = [
+  ["explore", "Explore", Explore],
+  ["history", "History", History],
+  ["analysis", "Analysis", Analysis],
+  ["study", "Study", Study],
+  ["settings", "Settings", Settings],
+];
 
 export default function App() {
-  const [page, setPage] = useState("Explore");
-  const [country, setCountry] = useState(null); // ISO code of the open country page, or null = world map
-  const Page = PAGES[page];
-  // Clicking "Explore" while already on Explore goes back to the world map.
-  const go = (p) => { if (p === "Explore" && page === "Explore") setCountry(null); setPage(p); };
+  const { segments, query } = useHashRoute();
+  const [key, ...seg] = segments;
+  const [page, , Page] = PAGES.find((p) => p[0] === key) ?? PAGES[0];
+  const { running, types, start } = useSync();
   return <div className="app">
     <div className="rail-wrap">
       <nav className="rail" aria-label="Main"><h1>GeoGuessr Trainer</h1>
-        {Object.keys(PAGES).map((p) => <button key={p} className={p === page ? "on" : ""} aria-current={p === page ? "page" : undefined} onClick={() => go(p)}>{p}</button>)}</nav>
+        {PAGES.map(([k, label]) => <button key={k} className={k === page ? "on" : ""} aria-current={k === page ? "page" : undefined} onClick={() => navigate(`/${k}`)}>{label}</button>)}
+        <button type="button" className="rail-sync" onClick={start} disabled={running || !types.length}>
+          <span className={`split-icon ${running ? "spin" : ""}`} aria-hidden="true">↻</span>{running ? "Syncing…" : "Sync games"}
+        </button>
+      </nav>
     </div>
-    <main className={page === "Explore" ? "bleed" : undefined}><Page country={country} onSelect={setCountry} /></main>
+    <main className={page === "explore" ? "bleed" : undefined}><Page seg={seg} query={query} /></main>
+    <SyncChip />
   </div>;
 }

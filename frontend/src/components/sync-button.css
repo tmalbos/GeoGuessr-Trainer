@@ -1,11 +1,5 @@
 .hist-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px 20px; margin-bottom: 20px; }
 .hist-head h2 { margin: 0; }
-.sync-area { display: flex; align-items: center; gap: 14px; }
-.sync-status { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--mute); max-width: 340px; }
-.sync-status.ok { color: var(--ok); }
-.sync-status.err { color: var(--coral); }
-.sync-status span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.sync-status button { background: none; border: 0; color: inherit; cursor: pointer; padding: 0 4px; font-size: 16px; line-height: 1; }
 
 .split { position: relative; display: inline-flex; }
 .split .btn { display: inline-flex; align-items: center; gap: 8px; }
@@ -25,3 +19,17 @@
 .split-option:hover { background: var(--raise); }
 .split-option input { width: auto; padding: 0; }
 .split-hint { margin: 6px 10px 2px; font-size: 12px; color: var(--coral); }
+
+/* Global sync status: bottom-left, clear of the world-map zoom buttons and the country sidebar */
+.sync-chip { position: fixed; left: 36px; bottom: 20px; z-index: 150; width: min(320px, calc(100vw - 52px));
+  display: grid; gap: 8px; padding: 12px 14px; background: var(--raise); border: 1px solid var(--line);
+  border-radius: 10px; box-shadow: 0 8px 24px rgba(0,0,0,.55); font-size: 13px; }
+.sync-chip.ok { border-color: var(--ok); }
+.sync-chip.err { border-color: var(--coral); }
+.sync-chip.err .sync-chip-text { color: var(--coral); }
+.sync-chip-row { display: flex; align-items: center; gap: 10px; }
+.sync-chip-row .st-icon { margin: 0; }
+.sync-chip-text { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.sync-chip-row > button { background: none; border: 0; color: var(--mute); cursor: pointer; font-size: 18px; line-height: 1; padding: 0 4px; }
+.sync-chip .link-btn { justify-self: start; }
+.sync-chip pre { margin: 0; max-height: 120px; overflow: auto; white-space: pre-wrap; font-size: 12px; color: var(--mute); }

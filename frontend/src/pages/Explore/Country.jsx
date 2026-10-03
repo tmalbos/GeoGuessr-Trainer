@@ -2,15 +2,15 @@ import { useEffect, useState } from "react";
 import Flag from "../../components/Flag.jsx";
 import { api } from "../../lib/api.js";
 import CountryMap from "./CountryMap.jsx";
+import CountryStats from "./CountryStats.jsx";
 import { loadWorld } from "./geo.js";
 import SECTIONS from "./sections.js";
 
 const Pencil = () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
   <path d="M12 20h9" /><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" /></svg>;
 
-export default function Country({ id, onBack }) {
+export default function Country({ id, section, onSection, onBack }) {
   const [name, setName] = useState("");
-  const [active, setActive] = useState(null);
   const [editing, setEditing] = useState(false);
   const [domain, setDomain] = useState("");
 
@@ -25,7 +25,7 @@ export default function Country({ id, onBack }) {
   }, [id]);
 
   const sections = SECTIONS.filter((s) => !s.available || s.available(id));
-  const current = sections.find((s) => s.id === active) ?? sections[0];
+  const current = sections.find((s) => s.id === section) ?? sections[0];
   const title = name || id;
 
   return <div className={`cp ${editing ? "editing" : ""}`}>
@@ -52,9 +52,10 @@ export default function Country({ id, onBack }) {
           aria-label={editing ? "Exit edit mode" : `Edit ${title} clues`} title={editing ? "Exit edit mode" : "Edit clues"}
           onClick={() => setEditing((e) => !e)}><Pencil /></button>
       </div>
-      {sections.length > 0 && <nav className="tabs cp-tabs" aria-label="Sections">
+      <CountryStats code={id} name={title} />
+      {sections.length > 1 && <nav className="tabs cp-tabs" aria-label="Sections">
         {sections.map((s) => <button key={s.id} type="button" className={s === current ? "on" : ""}
-          aria-current={s === current ? "page" : undefined} onClick={() => setActive(s.id)}>{s.label}</button>)}
+          aria-current={s === current ? "page" : undefined} onClick={() => onSection(s.id)}>{s.label}</button>)}
       </nav>}
       <CountryMap id={id} />
     </aside>

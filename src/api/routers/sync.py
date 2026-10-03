@@ -3,7 +3,6 @@
 import asyncio
 import json
 import logging
-import traceback
 from dataclasses import asdict
 
 from fastapi import APIRouter, HTTPException, Request
@@ -43,8 +42,9 @@ class SyncBody(BaseModel):
 
 
 async def _run_sync(ctx: AppContext, job: SyncJob, match_types: set[str]) -> None:
-    async def fail(msg: str) -> None:
-        await job.emit(Event("error", {"message": msg}))
+    async def fail(msg: str, detail: str = "") -> None:
+        # `message` is shown to the user; `detail` sits behind a "Details" toggle.
+        await job.emit(Event("error", {"message": msg, "detail": detail}))
 
     try:
         if not load_cookie():
@@ -84,9 +84,11 @@ async def _run_sync(ctx: AppContext, job: SyncJob, match_types: set[str]) -> Non
             finally:
                 await client.aclose()
     except Exception as e:
-        tb = traceback.format_exc()
-        logger.exception("Sync failed:\n%s", tb)
-        return await fail(f"Unexpected error: {e}\n{tb}")
+        logger.exception("Sync failed")
+        return await fail(
+            "Sync stopped unexpectedly. Check the server log for the full error.",
+            f"{type(e).__name__}: {e}",
+        )
     finally:
         job.running = False
         await job.emit(Event("done"))

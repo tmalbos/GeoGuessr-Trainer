@@ -20,7 +20,6 @@
 .sc-answer.ok { border-color: #2f8f5b; }
 .sc-answer.bad { border-color: var(--coral); }
 .sc-feedback { min-height: 2.6em; margin-top: 12px; font-size: 18px; text-align: center; }
-.sc-expected { color: var(--coral); font-weight: 600; }
 .sc-row { display: flex; gap: 10px; justify-content: center; margin: 12px 0; }
 .sc table { border-collapse: collapse; width: 100%; background: var(--card); margin-bottom: 16px; }
 .sc th, .sc td { padding: 8px; border-bottom: 1px solid var(--line); text-align: center; }
@@ -35,7 +34,36 @@
 /* Timed sessions */
 .sc-timer { font-weight: 800; font-size: 22px; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
 .sc-timer.low { color: var(--coral); }
-.sc-setup { max-width: 560px; margin-top: 16px; }
-.sc-setup label { margin-top: 0; }
+.sc-setup { max-width: 560px; margin-top: 16px; display: grid; gap: 8px; justify-items: start; }
+.sc-setup label { margin: 0; }
+.sc-setup .tabs { margin: 0; }
 .sc-hist { margin-top: 28px; max-width: 560px; }
 .sc-hist h3 { margin: 0 0 8px; }
+.sc-hist table { margin-bottom: 0; }
+
+/* Loading places */
+.sc-loading { display: grid; justify-items: center; gap: 14px; padding: 32px 0; }
+.sc-flags { display: flex; gap: 14px; }
+.sc-flags span { opacity: .4; transition: opacity .2s, transform .2s; }
+.sc-flags .cur { opacity: 1; transform: scale(1.15); }
+.sc-flags .done { opacity: 1; }
+.sc-loading .bar { width: min(260px, 80%); }
+
+/* Answer feedback */
+.sc-keys { display: flex; gap: 16px; justify-content: center; align-items: center; margin: 10px 0 0; }
+.sc-keys span { display: inline-flex; align-items: center; gap: 6px; }
+.sc-where { display: inline-flex; vertical-align: middle; margin-right: 10px; }
+.sc-ok { color: var(--ok); font-weight: 700; vertical-align: middle; }
+.sc-diff { display: inline-grid; gap: 4px; margin-top: 8px; text-align: left; }
+.sc-diff > div { display: flex; align-items: baseline; gap: 12px; }
+.sc-diff .muted { min-width: 52px; }
+.sc-mono { font-size: 22px; letter-spacing: .02em; }
+.sc-x { background: #ff735740; color: var(--coral); border-radius: 3px; text-decoration: underline; }
+.sc-raw { margin: 4px 0 0; }
+
+/* Results */
+.sc-acc { display: flex; align-items: baseline; flex-wrap: wrap; gap: 8px 12px; margin-bottom: 4px; }
+.sc-acc b { font-size: 44px; font-weight: 800; letter-spacing: -.03em; }
+.sc-chart { display: block; width: 100%; max-width: 560px; height: auto; margin-bottom: 12px; background: var(--card); border: 1px solid var(--line); border-radius: 8px; }
+.acc { display: inline-flex; align-items: center; gap: 8px; }
+.acc .bar { width: 52px; }

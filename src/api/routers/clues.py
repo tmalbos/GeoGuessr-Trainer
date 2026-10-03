@@ -1,8 +1,9 @@
-"""clues.py — Per-country clues: stage uploads (convert + simplify), save, list, delete.
+"""clues.py — Per-country clues: stage uploads (convert + simplify), save, edit, list, delete.
 
 Layout:  data/clues/{CC}/clues.yaml  +  data/clues/{CC}/<nat|reg>_<tag>_#####.<ext>
 Flow:    POST /clues/stage/{kind}  -> file is converted/simplified into data/clues/.staging, preview returned
          POST /clues/{CC}          -> staged files are renamed into the country folder, entry added to yaml
+         PUT  /clues/{CC}/{id}     -> same body; only the files that are sent get replaced
 Needs:   Pillow, geopandas, shapely (>= 2.1 for gap-free coverage simplification), pyarrow, pyyaml.
 """
 
@@ -41,6 +42,7 @@ GENERAL_TAGS = [
 
 KINDS = ("image", "csv", "polygons", "lines", "points")
 AREA_KINDS = ("csv", "polygons", "lines", "points")
+GEOM_KINDS = ("polygons", "lines", "points")
 GEOM_KIND = {"Polygon": "polygons", "LineString": "lines", "Point": "points"}
 STAGE_KINDS = ("image", "csv", "geometry")
 
@@ -328,7 +330,8 @@ class ClueBody(BaseModel):
     files: dict[str, str] = {}  # kind -> staging token
 
 
-def _validate(b: ClueBody) -> tuple[str, str]:
+def _validate(b: ClueBody, have: set[str] | frozenset[str] = frozenset()) -> tuple[str, str]:
+    """`have` = file kinds the clue already stores (when editing), which count as present."""
     unknown = [t for t in b.tags if t not in LOCATION_TAGS + GENERAL_TAGS]
     if unknown:
         raise HTTPException(422, f"Unknown tags: {', '.join(unknown)}")
@@ -344,9 +347,10 @@ def _validate(b: ClueBody) -> tuple[str, str]:
     extra = set(b.files) - allowed
     if extra:
         raise HTTPException(422, f"{', '.join(sorted(extra))} not allowed in a {b.scope} clue")
-    if b.scope == "nat" and "image" not in b.files:
+    kinds = set(b.files) | set(have)
+    if b.scope == "nat" and "image" not in kinds:
         raise HTTPException(422, "A national clue needs an image")
-    if b.scope == "reg" and not any(k in b.files for k in AREA_KINDS):
+    if b.scope == "reg" and not any(k in kinds for k in AREA_KINDS):
         raise HTTPException(422, "A regional clue needs a csv, polygons, lines or points file")
     return loc[0], gen[0]
 
@@ -420,6 +424,58 @@ def add_clue(cc: str, body: ClueBody):
             for name in names.values():
                 (folder / name).unlink(missing_ok=True)
             raise
+    return entry
+
+
+@router.put("/clues/{cc}/{clue_id}")
+def update_clue(cc: str, clue_id: str, body: ClueBody):
+    """Edit a clue. Text, tags, ratings and visibility are replaced; files only when new ones are sent
+    (a new geometry file replaces whichever geometry the clue had).
+    """
+    cc = _cc(cc)
+    folder = CLUES_DIR / cc
+    with _LOCK:
+        items = _load(cc)
+        old = next((c for c in items if c.get("id") == clue_id), None)
+        if old is None:
+            raise HTTPException(404, "Clue not found")
+        if old.get("scope") != body.scope:
+            raise HTTPException(422, "A clue can't switch between national and regional")
+        location, general = _validate(body, {k for k in KINDS if old.get(k)})
+        staged = {k: _staged_path(t, k) for k, t in body.files.items()}
+        replaced = set(staged)
+        if replaced & set(GEOM_KINDS):
+            replaced |= set(GEOM_KINDS)
+        names: dict[str, str] = {}
+        try:
+            for kind in KINDS:
+                if kind in staged:
+                    name = _next_name(folder, body.scope, general, staged[kind].suffix)
+                    shutil.move(staged[kind], folder / name)
+                    names[kind] = name
+            kept = {k: old[k] for k in KINDS if old.get(k) and k not in replaced}
+            entry = {
+                "id": old["id"],
+                "scope": old["scope"],
+                "info": body.info.strip(),
+                "tags": [location, general],
+                "frequency": body.frequency,
+                "ease": body.ease,
+                "reliability": body.reliability,
+                "visibility": body.visibility,
+                **kept,
+                **names,
+            }
+            entry = {k: v for k, v in entry.items() if v is not None}
+            _save(cc, [entry if c is old else c for c in items])
+        except Exception:
+            for name in names.values():
+                (folder / name).unlink(missing_ok=True)
+            raise
+        for kind in replaced:
+            old_name = old.get(kind)
+            if old_name and ASSET_RE.fullmatch(old_name):
+                (folder / old_name).unlink(missing_ok=True)
     return entry
 
 

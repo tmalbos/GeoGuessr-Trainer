@@ -60,12 +60,13 @@ async function streamLines(stream, onLine) {
   if (rest) onLine(rest);
 }
 
+/** onProgress({ code, index, total }) fires as each country file starts loading. */
 export async function loadPlaces(lang, onProgress) {
   const acc = { list: [], seen: new Set() };
-  const failed = [];
   let loaded = 0;
-  for (const code of lang.countries) {
-    onProgress?.(code);
+  const total = lang.countries.length;
+  for (const [index, code] of lang.countries.entries()) {
+    onProgress?.({ code, index, total });
     try {
       const r = await fetch(`/api/study/scripts/geonames/${code}`);
       if (!r.ok) throw new Error(`${code}.txt: HTTP ${r.status}`);
@@ -73,12 +74,12 @@ export async function loadPlaces(lang, onProgress) {
       if (r.body) await streamLines(r.body, onLine);
       else for (const l of (await r.text()).split(/\r?\n/)) onLine(l);
       loaded++;
-    } catch (e) { failed.push(e.message); }
+    } catch { /* try the next country; we only fail if none load */ }
   }
-  if (!loaded) throw new Error(`Could not read GeoNames files. ${failed.join(" | ")}`);
+  if (!loaded) throw new Error("Couldn't load the place names. Check that the GeoNames files are in data/study/scripts/geonames/.");
   const map = new Map();
   for (const p of acc.list) map.set(`${p.countryCode}|${p.name}`, p);
   const places = [...map.values()];
-  if (!places.length) throw new Error("No usable names for this language.");
+  if (!places.length) throw new Error("No usable place names found for this language.");
   return places;
 }

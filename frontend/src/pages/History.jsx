@@ -1,23 +1,17 @@
 import { Fragment, useEffect, useRef, useState } from "react";
+import ErrorBox from "../components/ErrorBox.jsx";
+import FilterBar from "../components/FilterBar.jsx";
+import Flag from "../components/Flag.jsx";
+import RangeSlider from "../components/RangeSlider.jsx";
+import { SkeletonRows } from "../components/Skeleton.jsx";
 import SyncButton from "../components/SyncButton.jsx";
-import { api } from "../lib/api.js";
-import { MATCH_TYPE_LABELS, MOVE_TYPE_LABELS, areaHue, areaLabel, num, time, tlKey, tlLabel, tone } from "../lib/format.js";
+import { api, errorText } from "../lib/api.js";
+import { MAX_TOTAL, resetFilters, setFilters, useAppFilters } from "../lib/filters.js";
+import { MOVE_TYPE_LABELS, areaHue, areaLabel, num, time, tone } from "../lib/format.js";
+import { useSync, useSyncEvents } from "../lib/sync.jsx";
 import "./history.css";
 
 const PAGE_SIZES = [10, 20, 50, 100];
-const MAX_ROUND_COLS = 5;
-const INITIAL = {
-  matchType: "", moveType: "", timeLimit: "any", minScore: "", maxScore: "",
-  sortBy: "date", sortDir: "desc", page: 1, pageSize: 20,
-};
-
-const Flag = ({ code }) => {
-  if (!code) return null;
-  const c = code.trim().toLowerCase();
-  return <img className="flag" alt={code} width="24" height="18" loading="lazy"
-    src={`https://flagcdn.com/w40/${c}.png`} srcSet={`https://flagcdn.com/w80/${c}.png 2x`}
-    onError={(e) => { e.currentTarget.style.visibility = "hidden"; }} />;
-};
 
 // Every level that is available, most specific first: city, subregion, region, country.
 const placeName = (p) => [p.city, p.subregion, p.state, p.country].filter(Boolean).join(", ");
@@ -30,11 +24,12 @@ const gameName = (g) =>
 const modeSub = (g) => g.match_type !== "challenge" ? "" :
   [MOVE_TYPE_LABELS[g.move_type] || g.move_type, g.time_limit_sec != null ? `${Math.round(g.time_limit_sec / 60)} min` : null].filter(Boolean).join(" · ");
 const fmtDate = (iso) => iso ? new Date(iso).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" }) : "—";
+const fmtK = (v, isMax) => (isMax && v >= MAX_TOTAL ? `${MAX_TOTAL / 1000}k+` : v >= 1000 ? `${+(v / 1000).toFixed(1)}k` : String(v));
 
 const svgProps = { width: 16, height: 16, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 2, strokeLinecap: "round", strokeLinejoin: "round", "aria-hidden": true };
 const CopyIcon = () => <svg {...svgProps}><rect x="9" y="9" width="11" height="11" rx="2" /><path d="M5 15V6a2 2 0 0 1 2-2h9" /></svg>;
 const CheckIcon = () => <svg {...svgProps}><path d="M5 12.5l4.5 4.5L19 7.5" /></svg>;
-const StreetViewIcon = () => <svg {...svgProps}><circle cx="12" cy="5" r="2.5" /><path d="M8 21l1.5-7M16 21l-1.5-7M7.5 14h9L15 9H9z" /></svg>;
+const PinIcon = () => <svg {...svgProps}><path d="M12 21s-7-6.2-7-11a7 7 0 0 1 14 0c0 4.8-7 11-7 11z" /><circle cx="12" cy="10" r="2.5" /></svg>;
 
 async function copyText(text) {
   try {
@@ -70,30 +65,26 @@ function CoordButtons({ lat, lng }) {
       {copied ? <CheckIcon /> : <CopyIcon />}
     </button>
     <a className="pl-btn" href={`https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${lat},${lng}`}
-      target="_blank" rel="noopener noreferrer" title="Open in Street View" aria-label="Open in Street View">
-      <StreetViewIcon />
+      target="_blank" rel="noopener noreferrer" title="Open in Google Maps" aria-label="Open in Google Maps">
+      <PinIcon />
     </a>
   </span>;
 }
 
-function SortHeader({ col, label, q, onSort, className }) {
-  const active = q.sortBy === col;
-  return <th className={className} aria-sort={active ? (q.sortDir === "asc" ? "ascending" : "descending") : "none"}>
-    {label}
-    <button type="button" className={`sort ${active ? "on" : ""}`} onClick={() => onSort(col)}
-      aria-label={`Sort by ${label}${active ? (q.sortDir === "asc" ? ", currently ascending" : ", currently descending") : ""}`}>
-      {active ? (q.sortDir === "asc" ? "↑" : "↓") : "↕"}
+function SortHeader({ col, label, sort, onSort, className }) {
+  const active = sort.by === col;
+  return <th className={className} aria-sort={active ? (sort.dir === "asc" ? "ascending" : "descending") : "none"}>
+    <button type="button" className={`sort-head ${active ? "on" : ""}`} onClick={() => onSort(col)}>
+      {label}<span className="sort-ico" aria-hidden="true">{active ? (sort.dir === "asc" ? "↑" : "↓") : "↕"}</span>
     </button>
   </th>;
 }
 
-function RoundCell({ r }) {
-  if (!r) return <td />;
-  return <td><div className="rc">
-    <div className="rc-top"><Flag code={r.country_code} /><span style={{ color: tone(r.score) }}>{num(r.score)}</span></div>
-    <span className="muted">{time(r.time_sec)}</span>
-    <span className="muted">{r.steps} steps</span>
-  </div></td>;
+function RoundStrip({ rounds }) {
+  return <div className="rstrip" role="img" aria-label={`Round scores: ${rounds.map((r) => num(r.score)).join(", ")}`}>
+    {rounds.map((r) => <i key={r.round_number} title={`Round ${r.round_number}: ${num(r.score)}`}
+      style={{ height: `${Math.max(8, Math.min(100, r.score / 50))}%`, background: tone(r.score) }} />)}
+  </div>;
 }
 
 function PlaceLine({ kind, p }) {
@@ -102,7 +93,7 @@ function PlaceLine({ kind, p }) {
   const fallback = guess && !p.has_guess ? "No guess" : "Unknown location";
   return <div className={`pl ${kind}`}>
     <span className="pl-tag">{guess ? "Your guess" : "Actual"}</span>
-    <Flag code={p.country_code} />
+    <Flag code={p.country_code} width={24} />
     <span className={`pl-name ${name ? "" : "dim"}`}>{name || fallback}</span>
     {p.area_type && <span className="chip" style={{ "--h": areaHue(p.area_type) }}>{areaLabel(p.area_type)}</span>}
     <CoordButtons lat={p.lat} lng={p.lng} />
@@ -126,97 +117,88 @@ function Detail({ g }) {
 }
 
 export default function History() {
-  const [opts, setOpts] = useState(null);
-  const [q, setQ] = useState(INITIAL);
+  const { f, options, error: optError, reload: reloadOptions, ready } = useAppFilters(false);
+  const { start } = useSync();
+  const [sort, setSort] = useState({ by: "date", dir: "desc" });
+  const [pageSize, setPageSize] = useState(20);
+  const [pg, setPg] = useState({ n: 1, key: "" });
   const [data, setData] = useState(null);
   const [busy, setBusy] = useState(false);
   const [open, setOpen] = useState(null);
   const [err, setErr] = useState("");
   const [refreshKey, setRefreshKey] = useState(0);
-  const appliedQ = useRef(null);
+  const appliedKey = useRef(null);
 
-  const update = (patch) => setQ((p) => ({ ...p, page: 1, ...patch }));
-  const onSort = (col) => q.sortBy === col
-    ? update({ sortDir: q.sortDir === "asc" ? "desc" : "asc" })
-    : update({ sortBy: col, sortDir: col === "mode" ? "asc" : "desc" });
+  // The page resets to 1 whenever a filter, the sort or the page size changes.
+  const queryKey = [f.matchType, f.moveType, f.timeLimit, f.minScore, f.maxScore, sort.by, sort.dir, pageSize].join("|");
+  const page = pg.key === queryKey ? pg.n : 1;
+  const setPage = (n) => setPg({ n, key: queryKey });
+  const refresh = () => setRefreshKey((k) => k + 1);
+  useSyncEvents({ onGameSaved: refresh, onFinished: refresh });
 
-  useEffect(() => { api("/analysis/filters").then(setOpts).catch((e) => setErr(e.message)); }, []);
+  const onSort = (col) => setSort((s) => s.by === col
+    ? { by: col, dir: s.dir === "asc" ? "desc" : "asc" }
+    : { by: col, dir: col === "mode" ? "asc" : "desc" });
 
-  const ready = !!opts;
-  // Re-runs on filter/sort/page changes AND on refreshKey (new synced games). Both go
-  // through the same query, so fresh rows land wherever the current order puts them.
+  const active = !!(f.matchType || f.moveType || f.timeLimit !== "any" || f.minScore > 0 || f.maxScore < MAX_TOTAL);
+
+  // Re-runs on filter/sort/page changes AND on refreshKey (new synced games).
   useEffect(() => {
-    if (!ready) return;
+    if (!ready) return undefined;
     let stale = false;
-    const qChanged = appliedQ.current !== q;
-    if (qChanged) setBusy(true);
+    setBusy(true);
     const t = setTimeout(() => {
-      const qs = new URLSearchParams({
-        time_limit: q.timeLimit, sort_by: q.sortBy, sort_dir: q.sortDir, page: q.page, page_size: q.pageSize,
-      });
-      if (q.matchType) qs.set("match_type", q.matchType);
-      if (q.moveType) qs.set("move_type", q.moveType);
-      if (q.minScore !== "") qs.set("min_score", q.minScore);
-      if (q.maxScore !== "") qs.set("max_score", q.maxScore);
+      const qs = new URLSearchParams({ time_limit: f.timeLimit, sort_by: sort.by, sort_dir: sort.dir, page, page_size: pageSize });
+      if (f.matchType) qs.set("match_type", f.matchType);
+      if (f.moveType) qs.set("move_type", f.moveType);
+      if (f.minScore > 0) qs.set("min_score", f.minScore);
+      if (f.maxScore < MAX_TOTAL) qs.set("max_score", f.maxScore);
       api(`/history?${qs}`).then((r) => {
         if (stale) return;
-        if (!r.items.length && q.page > 1) { setQ((p) => ({ ...p, page: p.page - 1 })); return; }
-        appliedQ.current = q;
+        if (!r.items.length && page > 1) { setPage(page - 1); return; }
         setData(r); setErr(""); setBusy(false);
-        if (qChanged) setOpen(null); // keep an expanded game open across sync refreshes
-      }).catch((e) => { if (!stale) { setData({ items: [], total: 0 }); setErr(e.message); setBusy(false); } });
+        if (appliedKey.current !== queryKey) setOpen(null); // keep an expanded game open across sync refreshes
+        appliedKey.current = queryKey;
+      }).catch((e) => { if (!stale) { setData({ items: [], total: 0 }); setErr(errorText(e)); setBusy(false); } });
     }, 250);
     return () => { stale = true; clearTimeout(t); };
-  }, [ready, q, refreshKey]);
+  }, [ready, queryKey, page, refreshKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const refresh = () => setRefreshKey((k) => k + 1);
-  const onSyncFinished = () => {
-    api("/analysis/filters").then(setOpts).catch(() => {}); // new combos may exist now
-    refresh();
-  };
-
-  if (!opts) return <><h2>History</h2>{err ? <p className="err">{err}</p> : <p className="muted">Loading…</p>}</>;
+  const head = <div className="hist-head"><h2>History</h2><SyncButton /></div>;
+  if (optError) return <>{head}<ErrorBox message={optError} onRetry={reloadOptions} /></>;
+  if (!ready) return <>{head}<SkeletonRows n={6} /></>;
 
   const items = data?.items ?? [];
   const total = data?.total ?? 0;
-  const pages = Math.max(1, Math.ceil(total / q.pageSize));
-  const roundCols = MAX_ROUND_COLS;
-  const colSpan = 1 + 2 + roundCols + 3;
-  const from = total ? (q.page - 1) * q.pageSize + 1 : 0;
-  const to = Math.min(total, q.page * q.pageSize);
+  const pages = Math.max(1, Math.ceil(total / pageSize));
+  const colSpan = 1 + 2 + 1 + 3;
+  const from = total ? (page - 1) * pageSize + 1 : 0;
+  const to = Math.min(total, page * pageSize);
 
   return <>
-    <div className="hist-head">
-      <h2>History</h2>
-      <SyncButton onGameSaved={refresh} onFinished={onSyncFinished} />
-    </div>
-    <div className="hist-filters">
-      <div><label htmlFor="h-match">Game type</label><select id="h-match" value={q.matchType} onChange={(e) => update({ matchType: e.target.value })}>
-        <option value="">All</option>
-        {opts.match_types.map((m) => <option key={m} value={m}>{MATCH_TYPE_LABELS[m] || m}</option>)}
-      </select></div>
-      <div><label htmlFor="h-move">Game mode</label><select id="h-move" value={q.moveType} onChange={(e) => update({ moveType: e.target.value })}>
-        <option value="">All</option>
-        {opts.move_types.map((m) => <option key={m} value={m}>{MOVE_TYPE_LABELS[m] || m}</option>)}
-      </select></div>
-      <div><label htmlFor="h-time">Time limit</label><select id="h-time" value={q.timeLimit} onChange={(e) => update({ timeLimit: e.target.value })}>
-        <option value="any">All</option>
-        {opts.time_limits.map((t) => <option key={tlKey(t)} value={tlKey(t)}>{tlLabel(t)}</option>)}
-      </select></div>
-      <div><label htmlFor="h-min">Min score</label><input id="h-min" type="number" value={q.minScore} onChange={(e) => update({ minScore: e.target.value })} style={{ width: 100 }} /></div>
-      <div><label htmlFor="h-max">Max score</label><input id="h-max" type="number" value={q.maxScore} onChange={(e) => update({ maxScore: e.target.value })} style={{ width: 100 }} /></div>
-    </div>
-    {err && <p className="err">{err}</p>}
-    {!data ? <p className="muted">Loading…</p> : !items.length ? <p className="muted">No games match these filters. Use “Sync games” to import your latest games.</p> :
+    {head}
+    <FilterBar f={f} options={options}>
+      <div><label>Total score</label>
+        <RangeSlider label="Total score" min={0} max={MAX_TOTAL} step={500} value={[f.minScore, f.maxScore]} format={fmtK}
+          onChange={([a, b]) => setFilters({ minScore: a, maxScore: b })} /></div>
+      {active && <button type="button" className="btn ghost filter-clear" onClick={resetFilters}>Clear filters</button>}
+    </FilterBar>
+    {err && <ErrorBox message={err} onRetry={refresh} />}
+    {!data && !err ? <SkeletonRows n={6} /> : !items.length && !err ?
+      <div className="empty">
+        <p className="muted">{active ? "No games match these filters." : "No games yet."}</p>
+        {active ? <button type="button" className="btn" onClick={resetFilters}>Clear filters</button>
+          : <button type="button" className="btn" onClick={start}>Sync games</button>}
+      </div> : items.length > 0 &&
       <div className={`tbl-wrap ${busy ? "busy" : ""}`}><table className="tbl">
         <thead><tr>
           <th aria-label="Expand" />
-          <SortHeader col="date" label="Date" q={q} onSort={onSort} />
-          <SortHeader col="mode" label="Game Mode" q={q} onSort={onSort} />
-          {Array.from({ length: roundCols }, (_, i) => <th key={i}>Round {i + 1}</th>)}
-          <SortHeader col="total_score" label="Total Score" q={q} onSort={onSort} className="num" />
-          <SortHeader col="total_steps" label="Total Steps" q={q} onSort={onSort} className="num" />
-          <SortHeader col="total_time" label="Total Time" q={q} onSort={onSort} className="num" />
+          <SortHeader col="date" label="Date" sort={sort} onSort={onSort} />
+          <SortHeader col="mode" label="Game Mode" sort={sort} onSort={onSort} />
+          <th>Rounds</th>
+          <SortHeader col="total_score" label="Total Score" sort={sort} onSort={onSort} className="num" />
+          <SortHeader col="total_steps" label="Total Steps" sort={sort} onSort={onSort} className="num" />
+          <SortHeader col="total_time" label="Total Time" sort={sort} onSort={onSort} className="num" />
         </tr></thead>
         <tbody>{items.map((g) => {
           const key = `${g.challenge_token}-${g.game_id}`;
@@ -228,8 +210,8 @@ export default function History() {
               onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggle(); } }}>
               <td className="chev-cell"><span className="chev" aria-hidden="true">▸</span></td>
               <td><b>{fmtDate(g.played_at)}</b></td>
-              <td><b>{gameName(g)}</b>{sub && <div className="muted">{sub}</div>}{g.rounds.length > MAX_ROUND_COLS && <div className="more">+{g.rounds.length - MAX_ROUND_COLS} more rounds</div>}</td>
-              {Array.from({ length: roundCols }, (_, i) => <RoundCell key={i} r={g.rounds[i]} />)}
+              <td><b>{gameName(g)}</b>{sub && <div className="muted">{sub}</div>}</td>
+              <td><RoundStrip rounds={g.rounds} /></td>
               <td className="num"><span className="tot" style={{ color: tone(g.total_score / (g.rounds.length || 1)) }}>{num(g.total_score)}</span></td>
               <td className="num">{num(g.total_steps)}</td>
               <td className="num">{time(g.total_time_sec)}</td>
@@ -238,16 +220,15 @@ export default function History() {
           </Fragment>;
         })}</tbody>
       </table></div>}
-    {items.some((g) => g.rounds.length > MAX_ROUND_COLS) && <p className="muted">Games with more than {MAX_ROUND_COLS} rounds show only the first {MAX_ROUND_COLS} here. Expand a game to see every round.</p>}
     {!!total && <div className="pager">
       <span className="muted">Showing {from}–{to} of {num(total)} games</span>
       <div className="pager-nav">
-        <button className="btn ghost" disabled={q.page <= 1} onClick={() => setQ((p) => ({ ...p, page: p.page - 1 }))}>Previous</button>
-        <span>Page {q.page} of {pages}</span>
-        <button className="btn ghost" disabled={q.page >= pages} onClick={() => setQ((p) => ({ ...p, page: p.page + 1 }))}>Next</button>
+        <button className="btn ghost" disabled={page <= 1} onClick={() => setPage(page - 1)}>Previous</button>
+        <span>Page {page} of {pages}</span>
+        <button className="btn ghost" disabled={page >= pages} onClick={() => setPage(page + 1)}>Next</button>
       </div>
       <div className="pager-size"><label htmlFor="h-size" style={{ margin: 0, fontWeight: 400 }} className="muted">Per page</label>
-        <select id="h-size" value={q.pageSize} onChange={(e) => update({ pageSize: Number(e.target.value) })}>
+        <select id="h-size" value={pageSize} onChange={(e) => setPageSize(Number(e.target.value))}>
           {PAGE_SIZES.map((n) => <option key={n} value={n}>{n}</option>)}
         </select></div>
     </div>}

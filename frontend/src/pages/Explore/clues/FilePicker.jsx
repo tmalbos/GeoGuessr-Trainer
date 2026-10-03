@@ -43,8 +43,9 @@ function Preview({ kind, v }) {
   </div>;
 }
 
-/** Path box + browse button. Also accepts drag and drop, and Ctrl+V of a path, a copied file or an image. */
-export default function FilePicker({ kind, label, hint, accept, value, onChange }) {
+/** Path box + browse button. Also accepts drag and drop, and Ctrl+V of a path, a copied file or an image.
+ *  `current` ({ src?, text }) = the file a clue already has (edit mode); picking a new one replaces it. */
+export default function FilePicker({ kind, label, hint, accept, value, onChange, current }) {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
   const [drag, setDrag] = useState(false);
@@ -74,6 +75,10 @@ export default function FilePicker({ kind, label, hint, accept, value, onChange 
     onDrop={(e) => { e.preventDefault(); setDrag(false); upload(e.dataTransfer.files[0]); }}>
     <div className="fp-head"><b>{label}</b>{hint && <Info text={hint} />}</div>
     {value && <Preview kind={kind} v={value} />}
+    {!value && current && <div className="fp-prev">
+      {current.src && <img className="fp-img" src={current.src} alt="Current file" />}
+      <div className="muted">{current.text} · pick another to replace it</div>
+    </div>}
     <div className="fp-row">
       <input value={text} disabled={busy} placeholder="Type a path, or paste a path, file or image" aria-label={`${label} path`}
         onChange={(e) => setText(e.target.value)} onPaste={onPaste}

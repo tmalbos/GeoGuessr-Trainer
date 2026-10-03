@@ -1,5 +1,5 @@
-"""Bounded centroidal Voronoi tessellation (CVT) of the --points/--extra
-data, grouped by department and renamed/unioned to AreaCode.
+"""Bounded Voronoi tessellation of the --points/--extra data, grouped by
+department and renamed/unioned to AreaCode.
 
 Pipeline (see build_area_code_geometries, the single entry point):
 
@@ -15,16 +15,23 @@ Pipeline (see build_area_code_geometries, the single entry point):
      These two normally agree, but nothing here assumes they must.
 
   2. Points are grouped by that spatial department (admin_idx into
-     fine_feats). For each department with 2+ points, a bounded CVT is
-     computed: repeated Voronoi-diagram + clip-to-boundary + recenter-on-
-     centroid (Lloyd's algorithm) until seed movement is negligible or an
-     iteration cap is hit. A department with exactly one point needs no
-     computation at all: its one cell is simply the whole department.
+     fine_feats). For each department with 2+ points, a bounded Voronoi
+     diagram is computed with the seeds FIXED at the points' own
+     positions (every point claims the area closer to it than to any
+     other point, clipped to the department). A cell whose clipped shape
+     comes out in several disconnected pieces (a bay or channel let it
+     reach across) keeps only the piece its seed is in; the other pieces
+     are handed to the neighbouring cell they share the longest border
+     with. A department with exactly one point (or whose points all
+     share one AreaCode) needs no computation: the whole department goes
+     to that code.
 
   3. Every resulting cell is looked up by its owning point's AreaCode and
      accumulated; AreaCodes that are shared by several localities (in the
      same department or different ones) end up as the union of every cell
-     that carries that code.
+     that carries that code. Unions are done on a fixed snap grid so that
+     the ~1e-14 floating-point seams between independently clipped cells
+     can't survive as hairline slits.
 
 Everything here works in already-projected SVG pixel space (the same
 project_point()/scale/off_x/off_y used by svg_render.py to draw the Land
@@ -34,21 +41,64 @@ boundary is pixel-for-pixel the same shape as its Land-layer path.
 
 import sys
 
+import shapely
 from geometry import extract_polygons, flatten_point_coords, to_multi_or_single_polygon
 from shapely.geometry import MultiPoint, Point
 from shapely.geometry import MultiPolygon as ShapelyMultiPolygon
 from shapely.geometry import Polygon as ShapelyPolygon
-from shapely.ops import transform, unary_union, voronoi_diagram
+from shapely.ops import transform, voronoi_diagram
+from shapely.strtree import STRtree
 from shapely.validation import make_valid
 from svg_render import project_point
 from topo_io import get_feature_name, group_depth, point_group_key
 
-# Lloyd's-algorithm knobs. Implementation details, not exposed as CLI
-# flags: 8 iterations comfortably converges typical department-sized point
-# counts, and a 0.01px seed-movement tolerance is well below anything
-# visible at this output's PRECISION/scale.
-_CVT_ITERATIONS = 10
-_CVT_TOLERANCE = 1e-5
+# Lloyd relaxation passes. 0 = seeds stay exactly where the points are
+# (pure "everyone claims what is closest to them", so a point boxed in by
+# its neighbours gets a small cell). Raising it re-centres seeds on their
+# own cells and evens cell sizes out, which is the opposite behaviour.
+_LLOYD_ITERATIONS = 0
+_LLOYD_TOLERANCE = 1e-5
+
+# Snap grid for unions, in output-SVG pixels. Finer than the SVG's own
+# output precision (constants.PRECISION = 5 decimals) so it never moves
+# anything visibly, but far coarser than the ~1e-14 float noise that
+# creates seams.
+_UNION_GRID = 1e-6
+
+
+# Holes smaller than this (px^2) inside a unioned shape are seams left by
+# independently clipped cells, not real gaps: a real hole is a whole
+# unclaimed enclave and is orders of magnitude bigger.
+_MIN_HOLE_AREA = 1e-3
+
+
+def _drop_tiny_holes(geom):
+    polys = extract_polygons(geom)
+    cleaned = [
+        ShapelyPolygon(
+            p.exterior, [r for r in p.interiors if ShapelyPolygon(r).area >= _MIN_HOLE_AREA]
+        )
+        for p in polys
+    ]
+    return to_multi_or_single_polygon(cleaned)
+
+
+# Hairline cracks narrower than 2 * this (px) between cells that should be
+# one shape are closed. Independently clipped cells that share a long
+# straight edge can end up with that edge a hair apart (one endpoint
+# snapped differently), leaving a wedge-shaped crack that is open to the
+# outside, so the small-hole filter above can't see it.
+_SEAM_CLOSE = 1e-3
+
+
+def union_geoms(geoms):
+    """Union on the snap grid (see _UNION_GRID), with hairline cracks
+    closed (see _SEAM_CLOSE) and seam-sized holes removed (see
+    _MIN_HOLE_AREA).
+    """
+    merged = shapely.union_all(list(geoms), grid_size=_UNION_GRID)
+    closed = merged.buffer(_SEAM_CLOSE, join_style="mitre").buffer(-_SEAM_CLOSE, join_style="mitre")
+    return _drop_tiny_holes(closed if not closed.is_empty else merged)
 
 
 def _point_csv_key(feat, n_levels):
@@ -69,7 +119,7 @@ def _project_department_boundary(geometry, lon0, cos_lat0, scale, off_x, off_y, 
     render_fine_group() draws for the Land layer) into an SVG-pixel-space
     shapely polygon, repairing it with make_valid() in the rare case the
     raw rings are self-intersecting -- mirrors geometry.feature_to_shape()
-    so this stays valid for the intersection/centroid ops CVT needs.
+    so this stays valid for the intersection ops the expansion needs.
     """
     gtype = geometry["type"]
     coords = geometry["coordinates"]
@@ -103,9 +153,9 @@ def _project_department_boundary(geometry, lon0, cos_lat0, scale, off_x, off_y, 
 
 
 def _voronoi_cells_by_index(seeds, boundary):
-    """Voronoi-partition `boundary` using `seeds` as generators, returning
-    one clipped cell per seed, index-aligned with `seeds`. Cell-to-seed
-    correspondence has to be recovered after the fact because
+    """Euclidean Voronoi-partition `boundary` using `seeds` as generators,
+    returning one clipped cell per seed, index-aligned with `seeds`.
+    Cell-to-seed correspondence has to be recovered after the fact because
     shapely.ops.voronoi_diagram() returns its cells in no particular
     order: each raw (unclipped) cell is guaranteed to cover exactly the
     one seed it was generated from, so that's used as the join key.
@@ -130,45 +180,96 @@ def _voronoi_cells_by_index(seeds, boundary):
 
 
 def voronoi_cells_in_boundary(seeds, boundary):
-    """Public entry point for a single-pass bounded Voronoi partition (no
-    Lloyd's-algorithm relaxation): one cell per seed, index-aligned,
-    each clipped to `boundary`. Used by overlay_fill.fill_overlay_gaps,
-    where seeds already follow the shape to be filled and shouldn't be
-    recentered.
+    """Public entry point: one connected cell per seed, index-aligned,
+    partitioning `boundary` (see _bounded_voronoi). Used by
+    build_area_code_geometries below AND by overlay_fill.fill_overlay_gaps,
+    so the Points/--group path and the --overlay path share one algorithm.
     """
-    return _voronoi_cells_by_index(seeds, boundary)
+    return _bounded_voronoi(seeds, boundary)
 
 
-def _bounded_centroidal_voronoi(seeds, boundary):
-    """Lloyd's algorithm: repeatedly replace each seed with its own cell's
-    centroid and re-partition, until cells stop moving (or the iteration
-    cap is hit). Returns final cells, index-aligned with the ORIGINAL
-    `seeds` order (seed identity, i.e. which locality owns which cell,
-    never changes across iterations -- only its position does).
+def _lloyd(seeds, boundary, iterations=_LLOYD_ITERATIONS):
+    """Voronoi cells for `seeds` inside `boundary`, optionally relaxed with
+    Lloyd's algorithm. Returns (cells, final_seeds), both index-aligned
+    with the ORIGINAL `seeds` order. With iterations == 0 this is a single
+    plain pass and final_seeds == seeds.
     """
-    if len(seeds) <= 1:
-        return _voronoi_cells_by_index(seeds, boundary)
-
     current = list(seeds)
     cells = _voronoi_cells_by_index(current, boundary)
-
-    for _ in range(_CVT_ITERATIONS):
-        next_seeds = []
-        max_shift = 0.0
+    for _ in range(iterations):
+        nxt, max_shift = [], 0.0
         for cell, seed in zip(cells, current, strict=False):
             if cell is None or cell.is_empty or cell.area <= 0:
-                next_seeds.append(seed)
+                nxt.append(seed)
                 continue
             c = cell.centroid
             max_shift = max(max_shift, ((c.x - seed[0]) ** 2 + (c.y - seed[1]) ** 2) ** 0.5)
-            next_seeds.append((c.x, c.y))
-
-        current = next_seeds
+            nxt.append((c.x, c.y))
+        current = nxt
         cells = _voronoi_cells_by_index(current, boundary)
-        if max_shift < _CVT_TOLERANCE:
+        if max_shift < _LLOYD_TOLERANCE:
             break
+    return cells, current
 
-    return cells
+
+def _bounded_voronoi(seeds, boundary):
+    """One cell per seed (index-aligned), each connected, partitioning
+    `boundary` between them.
+
+    Clipping a Euclidean Voronoi cell to a non-convex boundary can leave
+    pieces of it cut off from its seed (it reached across a bay or an
+    inlet). Those would not be reachable by a "liquid" poured at the seed
+    without crossing a wall, so each such piece is moved to the neighbour
+    it shares the longest border with.
+    """
+    n = len(seeds)
+    if n <= 1:
+        return _voronoi_cells_by_index(seeds, boundary)
+
+    cells, final_seeds = _lloyd(seeds, boundary)
+
+    mains = [None] * n
+    orphans = []  # (owner index, polygon)
+    for i, (cell, seed) in enumerate(zip(cells, final_seeds, strict=False)):
+        if cell is None or cell.is_empty:
+            continue
+        parts = extract_polygons(cell)
+        if not parts:
+            continue
+        sp = Point(seed)
+        parts.sort(key=lambda p: (p.distance(sp), -p.area))
+        mains[i] = parts[0]
+        orphans.extend((i, p) for p in parts[1:])
+
+    live = [j for j, m in enumerate(mains) if m is not None]
+    tree = STRtree([mains[j] for j in live]) if live else None
+
+    extra = [[] for _ in range(n)]
+    for owner, piece in orphans:
+        best, best_len = None, 0.0
+        if tree is not None:
+            for pos in tree.query(piece, predicate="intersects"):
+                j = live[int(pos)]
+                if j == owner:
+                    continue
+                shared = piece.boundary.intersection(mains[j].boundary).length
+                if shared > best_len:
+                    best, best_len = j, shared
+        if best is None:
+            # Touches nobody along an edge: give it to the closest cell.
+            candidates = [(mains[j].distance(piece), j) for j in live if j != owner]
+            if candidates:
+                best = min(candidates)[1]
+        if best is not None:
+            extra[best].append(piece)
+
+    out = []
+    for main, add in zip(mains, extra, strict=False):
+        if main is None:
+            out.append(None if not add else union_geoms(add))
+        else:
+            out.append(union_geoms([main, *add]) if add else main)
+    return out
 
 
 def build_area_code_geometries(
@@ -243,14 +344,14 @@ def build_area_code_geometries(
             geoms_by_area_code.setdefault(area_codes[0], []).append(boundary)
             continue
 
-        cells = _bounded_centroidal_voronoi(seeds, boundary)
+        cells = voronoi_cells_in_boundary(seeds, boundary)
 
         for cell, area_code in zip(cells, area_codes, strict=False):
             if cell is None or cell.is_empty:
                 continue
             geoms_by_area_code.setdefault(area_code, []).append(cell)
 
-    return {area_code: unary_union(geoms) for area_code, geoms in geoms_by_area_code.items()}
+    return {area_code: union_geoms(geoms) for area_code, geoms in geoms_by_area_code.items()}
 
 
 def group_polygons_by_field(feats, geoms, code_field):
@@ -266,7 +367,7 @@ def group_polygons_by_field(feats, geoms, code_field):
         if code is None:
             continue
         groups.setdefault(str(code), []).append(geom)
-    return {code: unary_union(g) for code, g in groups.items()}
+    return {code: union_geoms(g) for code, g in groups.items()}
 
 
 def project_geometry(geom, lon0, cos_lat0, scale, off_x, off_y):

@@ -73,15 +73,6 @@
 .clue-bar { justify-content: flex-end; }
 
 /* ── Rating sliders ── */
-.rates { display: grid; gap: 2px; margin-top: 14px; }
-.rate { display: grid; grid-template-columns: 110px minmax(0, 1fr) 24px 24px; align-items: center; gap: 10px; }
-.rate label { margin: 0; }
-.rate input[type="range"] { padding: 0; border: 0; background: none; max-width: none; accent-color: var(--sea-hi); }
-.rate.unset input[type="range"] { opacity: .4; }
-.rate output { text-align: center; font-weight: 700; }
-.rate-clear { background: none; border: 0; color: var(--mute); cursor: pointer; font-size: 18px; line-height: 1; padding: 0; }
-.rate-clear:hover:not(:disabled) { color: var(--ink); }
-.rate-clear:disabled { visibility: hidden; }
 .cp-tld { font-size: 22px; font-weight: 800; letter-spacing: -.02em; }
 
 /* ── Edit mode: a subtle indigo palette ── */
