@@ -14,10 +14,6 @@
 .pl-btn:hover { color: var(--ink); border-color: var(--c); }
 .pl-btn.done { color: var(--ok); border-color: var(--ok); }
 
-/* One bar per round, height = score: the whole game at a glance, for any number of rounds */
-.rstrip { display: flex; align-items: flex-end; gap: 3px; height: 34px; min-width: 64px; }
-.rstrip i { display: block; width: 10px; min-height: 3px; border-radius: 2px 2px 0 0; }
-
 /* Whole header cell is the sort button */
 .sort-head { display: inline-flex; align-items: center; gap: 6px; background: none; border: 0; padding: 4px 6px; margin: -4px -6px;
   border-radius: 6px; color: inherit; font-weight: 600; font-size: 13px; cursor: pointer; white-space: nowrap; }

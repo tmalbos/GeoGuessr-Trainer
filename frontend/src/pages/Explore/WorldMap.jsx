@@ -1,5 +1,5 @@
 import { memo, useEffect, useRef, useState } from "react";
-import { api as request } from "../../lib/api.js";
+import { clueCountriesCached, loadClueCountries } from "./clueCountries.js";
 import { loadWorld } from "./geo.js";
 import "./worldmap.css";
 
@@ -36,7 +36,9 @@ const Shapes = memo(function Shapes({ world, has }) {
 
 export default function WorldMap({ onSelect }) {
   const [world, setWorld] = useState(null);
-  const [has, setHas] = useState(null); // Set of ISO codes with clues; null = unknown (nothing dimmed)
+  // Set of ISO codes with clues. Comes from an in-memory cache, so after the first visit it is known immediately.
+  const [has, setHas] = useState(clueCountriesCached);
+  const [hasFailed, setHasFailed] = useState(false); // couldn't load it: show the map without dimming
   const [err, setErr] = useState("");
   const box = useRef(null);
   const gRef = useRef(null);
@@ -44,10 +46,13 @@ export default function WorldMap({ onSelect }) {
   const selectRef = useRef(onSelect);
   selectRef.current = onSelect;
 
+  // The map stays hidden until it knows which countries have clues, so it never flashes "all colored".
+  const known = !!has || hasFailed;
+
   useEffect(() => {
     let off = false;
     loadWorld().then((w) => !off && setWorld(w)).catch((e) => !off && setErr(e.message));
-    request("/clues/summary").then((r) => !off && setHas(new Set(r.countries))).catch(() => {});
+    if (!has) loadClueCountries().then((s) => !off && setHas(s)).catch(() => !off && setHasFailed(true));
     return () => { off = true; };
   }, []);
 
@@ -226,10 +231,10 @@ export default function WorldMap({ onSelect }) {
   }, [world]);
 
   return <div className="wm" ref={box} tabIndex={0} aria-label="World map. Click a country to open its clues. Use plus and minus to zoom, arrow keys to move.">
-    {world && <svg className="wm-svg" width="100%" height="100%">
+    {world && <svg className="wm-svg" width="100%" height="100%" style={known ? undefined : { visibility: "hidden" }}>
       <g ref={gRef}><Shapes world={world} has={has} /></g>
     </svg>}
-    {!world && !err && <p className="wm-msg muted">Loading map…</p>}
+    {(!world || !known) && !err && <p className="wm-msg muted">Loading map…</p>}
     {err && <p className="wm-msg err">{err}</p>}
     {world && <div className="wm-zoom">
       <button type="button" className="btn" aria-label="Zoom in" onClick={() => api.current.zoomBy(1.6)}>+</button>

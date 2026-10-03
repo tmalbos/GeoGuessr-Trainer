@@ -3,6 +3,7 @@ import ErrorBox from "../../../components/ErrorBox.jsx";
 import { SkeletonCard } from "../../../components/Skeleton.jsx";
 import { useToast } from "../../../components/Toast.jsx";
 import { api, errorText } from "../../../lib/api.js";
+import { invalidateClueCountries, setHasClues } from "../clueCountries.js";
 import ClueCard from "./ClueCard.jsx";
 import ClueEditor from "./ClueEditor.jsx";
 import EmptyCat from "./EmptyCat.jsx";
@@ -11,10 +12,10 @@ import { CATEGORY_ICONS, GENERAL_TAGS, LOCATION_TAGS, tagHue } from "./tags.js";
 import "./clues.css";
 import "./clues-extra.css";
 
-const SORTS = [["category", "By category"], ["frequency", "Most frequent"], ["ease", "Easiest"], ["reliability", "Most reliable"]];
 const catOf = (c) => c.tags.find((t) => GENERAL_TAGS.includes(t));
 const locOf = (c) => c.tags.find((t) => LOCATION_TAGS.includes(t));
 const UNDO_MS = 5000;
+const SHOWN = ["visible", "guide-only"]; // what counts as "has clues" on the world map
 
 export default function ClueList({ id, name, editing }) {
   const toast = useToast();
@@ -25,13 +26,17 @@ export default function ClueList({ id, name, editing }) {
   const [hidden, setHidden] = useState(() => new Set()); // deleted but still undoable
   const [cat, setCat] = useState("");
   const [loc, setLoc] = useState("");
-  const [sort, setSort] = useState("category");
   const pending = useRef(new Map()); // key -> { cc, clueId }, deletes waiting out their undo window
 
   useEffect(() => {
     let off = false;
     setItems(null); setErr("");
-    api(`/clues/${id}${editing ? "?all=true" : ""}`).then((d) => !off && setItems(d)).catch((e) => !off && setErr(errorText(e)));
+    api(`/clues/${id}${editing ? "?all=true" : ""}`).then((d) => {
+        if (off) return;
+        setItems(d);
+        // This list is the truth about whether the country has clues: tell the world map without refetching.
+        setHasClues(id, d.some((c) => SHOWN.includes(c.visibility ?? "visible")));
+      }).catch((e) => !off && setErr(errorText(e)));
     return () => { off = true; };
   }, [id, editing, version]);
 
@@ -52,7 +57,7 @@ export default function ClueList({ id, name, editing }) {
 
   // Leaving the page mid-undo-window: finish the deletes instead of silently dropping them.
   useEffect(() => () => {
-    for (const e of pending.current.values()) api(`/clues/${e.cc}/${e.clueId}`, { method: "DELETE" }).catch(() => {});
+    for (const e of pending.current.values()) api(`/clues/${e.cc}/${e.clueId}`, { method: "DELETE" }).catch(() => {}).finally(invalidateClueCountries);
     pending.current.clear();
   }, []);
 
@@ -71,7 +76,7 @@ export default function ClueList({ id, name, editing }) {
   const cats = GENERAL_TAGS.filter((t) => visible.some((c) => catOf(c) === t));
   const count = (t) => visible.filter((c) => catOf(c) === t).length;
   const filtered = visible.filter((c) => (!cat || catOf(c) === cat) && (!loc || locOf(c) === loc));
-  const grouped = sort === "category" && !cat && cats.length > 1;
+  const grouped = !cat && cats.length > 1;
   const card = (c) => <ClueCard key={c.id} cc={id} clue={c} editing={editing} onDelete={remove} onEdit={setForm} />;
   const clear = () => { setCat(""); setLoc(""); };
 
@@ -91,8 +96,7 @@ export default function ClueList({ id, name, editing }) {
       {other.map(card)}
     </>;
   } else {
-    const metric = sort === "category" ? null : sort;
-    list = (metric ? [...filtered].sort((a, b) => (b[metric] ?? -1) - (a[metric] ?? -1)) : filtered).map(card);
+    list = filtered.map(card);
   }
 
   return <>
@@ -114,8 +118,6 @@ export default function ClueList({ id, name, editing }) {
               {LOCATION_TAGS.map((t) => <button key={t} type="button" className={`fchip loc ${loc === t ? "on" : ""}`} style={{ "--h": tagHue(t) }}
                 aria-pressed={loc === t} onClick={() => setLoc(loc === t ? "" : t)}><LocationIcon t={t} /> {t}</button>)}
             </div>
-            <select aria-label="Sort clues" value={sort} onChange={(e) => setSort(e.target.value)}>
-              {SORTS.map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select>
           </div>
         </div>}
         {list}

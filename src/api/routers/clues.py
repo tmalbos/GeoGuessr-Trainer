@@ -55,6 +55,37 @@ PREVIEW_MAX_FEATURES = 5000
 ASSET_RE = re.compile(r"(nat|reg)_[a-z]+_\d{5}\.(webp|csv|parquet)")
 _LOCK = threading.Lock()
 
+# Countries that have at least one clue shown in the normal view. Built from disk on first request,
+# then kept in memory for the life of the server (never written to disk) and updated by each change.
+_SUM_LOCK = threading.Lock()
+_HAS: set[str] | None = None
+_SHOWN = {"visible", "guide-only"}
+
+
+def _has_shown(items: list[dict]) -> bool:
+    return any(c.get("visibility", "visible") in _SHOWN for c in items)
+
+
+def _summary() -> set[str]:
+    global _HAS  # noqa: PLW0603
+    with _SUM_LOCK:
+        if _HAS is None:
+            _HAS = {
+                d.name.upper()
+                for d in sorted(CLUES_DIR.glob("??"))
+                if d.is_dir() and re.fullmatch(r"[A-Za-z]{2}", d.name) and _has_shown(_load(d.name))
+            }
+        return set(_HAS)
+
+
+def _set_has(cc: str, items: list[dict]) -> None:
+    """Called after a country's clues change: only that country's entry is touched, nothing is rescanned."""
+    with _SUM_LOCK:
+        if _HAS is None:  # not built yet; the first request will read the final state from disk
+            return
+        (_HAS.add if _has_shown(items) else _HAS.discard)(cc)
+
+
 router = APIRouter()
 
 
@@ -358,14 +389,7 @@ def _validate(b: ClueBody, have: set[str] | frozenset[str] = frozenset()) -> tup
 @router.get("/clues/summary")
 def clues_summary():
     """Countries that have at least one clue shown in the normal view (must stay above /clues/{cc})."""
-    out = [
-        d.name.upper()
-        for d in sorted(CLUES_DIR.glob("??"))
-        if d.is_dir()
-        and re.fullmatch(r"[A-Za-z]{2}", d.name)
-        and any(c.get("visibility", "visible") in {"visible", "guide-only"} for c in _load(d.name))
-    ]
-    return {"countries": out}
+    return {"countries": sorted(_summary())}
 
 
 @router.get("/clues/{cc}")
@@ -419,7 +443,9 @@ def add_clue(cc: str, body: ClueBody):
                 **names,
             }
             entry = {k: v for k, v in entry.items() if v is not None}
-            _save(cc, [*_load(cc), entry])
+            items = [*_load(cc), entry]
+            _save(cc, items)
+            _set_has(cc, items)
         except Exception:
             for name in names.values():
                 (folder / name).unlink(missing_ok=True)
@@ -467,7 +493,9 @@ def update_clue(cc: str, clue_id: str, body: ClueBody):
                 **names,
             }
             entry = {k: v for k, v in entry.items() if v is not None}
-            _save(cc, [entry if c is old else c for c in items])
+            updated = [entry if c is old else c for c in items]
+            _save(cc, updated)
+            _set_has(cc, updated)
         except Exception:
             for name in names.values():
                 (folder / name).unlink(missing_ok=True)
@@ -487,7 +515,9 @@ def delete_clue(cc: str, clue_id: str):
         gone = next((c for c in items if c.get("id") == clue_id), None)
         if gone is None:
             raise HTTPException(404, "Clue not found")
-        _save(cc, [c for c in items if c is not gone])
+        remaining = [c for c in items if c is not gone]
+        _save(cc, remaining)
+        _set_has(cc, remaining)
         for kind in KINDS:
             if gone.get(kind) and ASSET_RE.fullmatch(gone[kind]):
                 (CLUES_DIR / cc / gone[kind]).unlink(missing_ok=True)

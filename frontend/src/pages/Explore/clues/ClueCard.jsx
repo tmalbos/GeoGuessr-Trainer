@@ -1,8 +1,7 @@
 import ClueMap from "./ClueMap.jsx";
-import RatingDots from "./RatingDots.jsx";
 import RichText from "./richText.jsx";
 import { CategoryChip, LocationChip } from "./tagUi.jsx";
-import { GENERAL_TAGS, LOCATION_TAGS, RATINGS } from "./tags.js";
+import { GENERAL_TAGS, LOCATION_TAGS } from "./tags.js";
 
 const ico = { width: 16, height: 16, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 2, strokeLinecap: "round", strokeLinejoin: "round", "aria-hidden": true };
 const Trash = () => <svg {...ico}><path d="M3 6h18" /><path d="M8 6V4h8v2" /><path d="M19 6l-1 14H6L5 6" /><path d="M10 11v6M14 11v6" /></svg>;
@@ -13,7 +12,6 @@ export default function ClueCard({ cc, clue, editing, onDelete, onEdit }) {
   const map = hasMap && <ClueMap cc={cc} clue={clue} />;
   const loc = clue.tags.find((t) => LOCATION_TAGS.includes(t));
   const cat = clue.tags.find((t) => GENERAL_TAGS.includes(t));
-  const rated = RATINGS.filter(([k]) => clue[k] != null);
   return <article className="clue">
     {editing && <div className="clue-tools">
       <button type="button" className="clue-edit" aria-label="Edit clue" title="Edit clue" onClick={() => onEdit(clue)}><Pencil /></button>
@@ -35,9 +33,6 @@ export default function ClueCard({ cc, clue, editing, onDelete, onEdit }) {
         {clue.visibility === "analysis-only" && <span className="chip" style={{ "--h": 0 }}>Analysis only (hidden)</span>}
       </div>
       <p className="clue-info"><RichText text={clue.info} /></p>
-      {rated.length > 0 && <div className="clue-rates">
-        {rated.map(([k, label]) => <RatingDots key={k} readOnly label={label} value={clue[k]} />)}
-      </div>}
     </div>
   </article>;
 }

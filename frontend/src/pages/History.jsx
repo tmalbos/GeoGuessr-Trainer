@@ -12,6 +12,7 @@ import { useSync, useSyncEvents } from "../lib/sync.jsx";
 import "./history.css";
 
 const PAGE_SIZES = [10, 20, 50, 100];
+const MAX_ROUND_COLS = 5;
 
 // Every level that is available, most specific first: city, subregion, region, country.
 const placeName = (p) => [p.city, p.subregion, p.state, p.country].filter(Boolean).join(", ");
@@ -80,11 +81,13 @@ function SortHeader({ col, label, sort, onSort, className }) {
   </th>;
 }
 
-function RoundStrip({ rounds }) {
-  return <div className="rstrip" role="img" aria-label={`Round scores: ${rounds.map((r) => num(r.score)).join(", ")}`}>
-    {rounds.map((r) => <i key={r.round_number} title={`Round ${r.round_number}: ${num(r.score)}`}
-      style={{ height: `${Math.max(8, Math.min(100, r.score / 50))}%`, background: tone(r.score) }} />)}
-  </div>;
+function RoundCell({ r }) {
+  if (!r) return <td />;
+  return <td><div className="rc">
+    <div className="rc-top"><Flag code={r.country_code} width={24} /><span style={{ color: tone(r.score) }}>{num(r.score)}</span></div>
+    <span className="muted">{time(r.time_sec)}</span>
+    <span className="muted">{r.steps} steps</span>
+  </div></td>;
 }
 
 function PlaceLine({ kind, p }) {
@@ -171,7 +174,7 @@ export default function History() {
   const items = data?.items ?? [];
   const total = data?.total ?? 0;
   const pages = Math.max(1, Math.ceil(total / pageSize));
-  const colSpan = 1 + 2 + 1 + 3;
+  const colSpan = 1 + 2 + MAX_ROUND_COLS + 3;
   const from = total ? (page - 1) * pageSize + 1 : 0;
   const to = Math.min(total, page * pageSize);
 
@@ -195,7 +198,7 @@ export default function History() {
           <th aria-label="Expand" />
           <SortHeader col="date" label="Date" sort={sort} onSort={onSort} />
           <SortHeader col="mode" label="Game Mode" sort={sort} onSort={onSort} />
-          <th>Rounds</th>
+          {Array.from({ length: MAX_ROUND_COLS }, (_, i) => <th key={i}>Round {i + 1}</th>)}
           <SortHeader col="total_score" label="Total Score" sort={sort} onSort={onSort} className="num" />
           <SortHeader col="total_steps" label="Total Steps" sort={sort} onSort={onSort} className="num" />
           <SortHeader col="total_time" label="Total Time" sort={sort} onSort={onSort} className="num" />
@@ -210,8 +213,8 @@ export default function History() {
               onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggle(); } }}>
               <td className="chev-cell"><span className="chev" aria-hidden="true">▸</span></td>
               <td><b>{fmtDate(g.played_at)}</b></td>
-              <td><b>{gameName(g)}</b>{sub && <div className="muted">{sub}</div>}</td>
-              <td><RoundStrip rounds={g.rounds} /></td>
+              <td><b>{gameName(g)}</b>{sub && <div className="muted">{sub}</div>}{g.rounds.length > MAX_ROUND_COLS && <div className="more">+{g.rounds.length - MAX_ROUND_COLS} more rounds</div>}</td>
+              {Array.from({ length: MAX_ROUND_COLS }, (_, i) => <RoundCell key={i} r={g.rounds[i]} />)}
               <td className="num"><span className="tot" style={{ color: tone(g.total_score / (g.rounds.length || 1)) }}>{num(g.total_score)}</span></td>
               <td className="num">{num(g.total_steps)}</td>
               <td className="num">{time(g.total_time_sec)}</td>
@@ -220,6 +223,7 @@ export default function History() {
           </Fragment>;
         })}</tbody>
       </table></div>}
+    {items.some((g) => g.rounds.length > MAX_ROUND_COLS) && <p className="muted">Games with more than {MAX_ROUND_COLS} rounds show only the first {MAX_ROUND_COLS} here. Expand a game to see every round.</p>}
     {!!total && <div className="pager">
       <span className="muted">Showing {from}–{to} of {num(total)} games</span>
       <div className="pager-nav">

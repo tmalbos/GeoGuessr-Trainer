@@ -9,7 +9,7 @@ import SECTIONS from "./sections.js";
 const Pencil = () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
   <path d="M12 20h9" /><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" /></svg>;
 
-export default function Country({ id, section, onSection, onBack }) {
+export default function Country({ id, section, onSection, onBack, backLabel = "World map" }) {
   const [name, setName] = useState("");
   const [editing, setEditing] = useState(false);
   const [domain, setDomain] = useState("");
@@ -31,7 +31,7 @@ export default function Country({ id, section, onSection, onBack }) {
   return <div className={`cp ${editing ? "editing" : ""}`}>
     <section className="cp-main" aria-label={`${title} clues`}>
       <div className="cp-head">
-        <button type="button" className="btn ghost cp-back" onClick={onBack}>← World map</button>
+        <button type="button" className="btn ghost cp-back" onClick={onBack}>← {backLabel}</button>
         <h2>{title}</h2>
         <span />
       </div>

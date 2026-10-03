@@ -23,14 +23,11 @@
 /* ── Rating dots ── */
 .rates-dots { display: grid; gap: 6px; margin-top: 14px; }
 .rdots-row { display: grid; grid-template-columns: 96px auto auto auto 24px; align-items: center; gap: 8px; }
-.rdots-row.ro { grid-template-columns: 96px auto; }
 .rdots-label { font-size: 13px; font-weight: 600; }
 .rdots { display: inline-flex; gap: 5px; }
-.rdots i, .rdots button { width: 12px; height: 12px; padding: 0; border-radius: 50%; border: 1.5px solid var(--mute); background: transparent; display: block; }
-.rdots button { cursor: pointer; }
-.rdots i.on, .rdots button.on { background: var(--sea-hi); border-color: var(--sea-hi); }
+.rdots button { width: 12px; height: 12px; padding: 0; border-radius: 50%; border: 1.5px solid var(--mute); background: transparent; display: block; cursor: pointer; }
+.rdots button.on { background: var(--sea-hi); border-color: var(--sea-hi); }
 .rdots-row small { font-size: 12px; }
-.clue-rates { display: grid; gap: 4px; margin-top: 12px; }
 .rate-clear { background: none; border: 0; color: var(--mute); cursor: pointer; font-size: 18px; line-height: 1; padding: 0; }
 .rate-clear:hover:not(:disabled) { color: var(--ink); }
 .rate-clear:disabled { visibility: hidden; }
@@ -51,7 +48,6 @@
 /* ── Filters and groups ── */
 .clue-filter { display: grid; gap: 10px; margin-bottom: 8px; }
 .clue-filter-row { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; }
-.clue-filter select { width: auto; margin-left: auto; }
 .clue-chips { display: flex; flex-wrap: wrap; gap: 6px; }
 .fchip { display: inline-flex; align-items: center; gap: 6px; padding: 4px 12px; border-radius: 999px; border: 1px solid var(--line); background: var(--card); cursor: pointer; font-size: 13px; }
 .fchip:hover { border-color: var(--sea-hi); }
