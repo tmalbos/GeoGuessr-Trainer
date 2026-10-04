@@ -12,6 +12,7 @@ from src.api.routers import (
     clues,
     countries,
     history,
+    replay_report,
     settings,
     status,
     study_scripts,
@@ -36,5 +37,15 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(lifespan=lifespan)
 
-for router_module in (status, sync, analysis, history, settings, study_scripts, clues, countries):
+for router_module in (
+    status,
+    sync,
+    analysis,
+    history,
+    settings,
+    study_scripts,
+    clues,
+    countries,
+    replay_report,
+):
     app.include_router(router_module.router, prefix="/api")

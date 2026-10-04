@@ -9,6 +9,7 @@ import { api, errorText } from "../lib/api.js";
 import { MAX_TOTAL, resetFilters, setFilters, useAppFilters } from "../lib/filters.js";
 import { MOVE_TYPE_LABELS, areaHue, areaLabel, num, time, tone } from "../lib/format.js";
 import { useSync, useSyncEvents } from "../lib/sync.jsx";
+import ReplayReport from "./ReplayReport/index.jsx";
 import "./history.css";
 
 const PAGE_SIZES = [10, 20, 50, 100];
@@ -103,20 +104,25 @@ function PlaceLine({ kind, p }) {
   </div>;
 }
 
-function Detail({ g }) {
-  return <div className="rounds">{g.rounds.map((r) => <div className="rd" key={r.round_number}>
-    <span className="rd-n">{r.round_number}</span>
-    <div className="rd-places">
-      <PlaceLine kind="real" p={{ country_code: r.country_code, country: r.country, state: r.state, subregion: r.subregion, city: r.city, area_type: r.area_type, lat: r.lat, lng: r.lng }} />
-      <PlaceLine kind="guess" p={{ has_guess: r.has_guess, country_code: r.guess_country_code, country: r.guess_country, state: r.guess_state, subregion: r.guess_subregion, city: r.guess_city, area_type: r.guess_area_type, lat: r.guess_lat, lng: r.guess_lng }} />
+function Detail({ g, onReport }) {
+  return <div className="rounds">
+    <div style={{ padding: "12px 0 4px" }}>
+      <button type="button" className="btn ghost" onClick={() => onReport(g)}>Replay report</button>
     </div>
-    <div className="rd-stat"><span className="muted">Time</span>{time(r.time_sec)}</div>
-    <div className="rd-stat"><span className="muted">Steps</span>{r.steps}</div>
-    <div>
-      <div className="rd-score" style={{ color: tone(r.score) }}>{num(r.score)} <small>pts</small></div>
-      <div className="rd-track"><i style={{ width: `${Math.min(100, r.score / 50)}%`, background: tone(r.score) }} /></div>
-    </div>
-  </div>)}</div>;
+    {g.rounds.map((r) => <div className="rd" key={r.round_number}>
+      <span className="rd-n">{r.round_number}</span>
+      <div className="rd-places">
+        <PlaceLine kind="real" p={{ country_code: r.country_code, country: r.country, state: r.state, subregion: r.subregion, city: r.city, area_type: r.area_type, lat: r.lat, lng: r.lng }} />
+        <PlaceLine kind="guess" p={{ has_guess: r.has_guess, country_code: r.guess_country_code, country: r.guess_country, state: r.guess_state, subregion: r.guess_subregion, city: r.guess_city, area_type: r.guess_area_type, lat: r.guess_lat, lng: r.guess_lng }} />
+      </div>
+      <div className="rd-stat"><span className="muted">Time</span>{time(r.time_sec)}</div>
+      <div className="rd-stat"><span className="muted">Steps</span>{r.steps}</div>
+      <div>
+        <div className="rd-score" style={{ color: tone(r.score) }}>{num(r.score)} <small>pts</small></div>
+        <div className="rd-track"><i style={{ width: `${Math.min(100, r.score / 50)}%`, background: tone(r.score) }} /></div>
+      </div>
+    </div>)}
+  </div>;
 }
 
 export default function History() {
@@ -130,6 +136,7 @@ export default function History() {
   const [open, setOpen] = useState(null);
   const [err, setErr] = useState("");
   const [refreshKey, setRefreshKey] = useState(0);
+  const [reportGame, setReportGame] = useState(null);
   const appliedKey = useRef(null);
 
   // The page resets to 1 whenever a filter, the sort or the page size changes.
@@ -170,6 +177,9 @@ export default function History() {
   const head = <div className="hist-head"><h2>History</h2><SyncButton /></div>;
   if (optError) return <>{head}<ErrorBox message={optError} onRetry={reloadOptions} /></>;
   if (!ready) return <>{head}<SkeletonRows n={6} /></>;
+
+  // The hooks above stay mounted, so filters, page and the expanded game survive coming back.
+  if (reportGame) return <ReplayReport g={reportGame} title={`${gameName(reportGame)} · ${fmtDate(reportGame.played_at)}`} onBack={() => setReportGame(null)} />;
 
   const items = data?.items ?? [];
   const total = data?.total ?? 0;
@@ -219,7 +229,7 @@ export default function History() {
               <td className="num">{num(g.total_steps)}</td>
               <td className="num">{time(g.total_time_sec)}</td>
             </tr>
-            {isOpen && <tr className="hist-detail"><td colSpan={colSpan}><Detail g={g} /></td></tr>}
+            {isOpen && <tr className="hist-detail"><td colSpan={colSpan}><Detail g={g} onReport={setReportGame} /></td></tr>}
           </Fragment>;
         })}</tbody>
       </table></div>}
