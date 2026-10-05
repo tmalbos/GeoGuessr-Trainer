@@ -39,11 +39,18 @@ async def process_game(
         geo_client.enrich_all([(r["guess_lat"], r["guess_lng"]) for r in normalized_rounds]),
     )
 
-    raw_replays = await asyncio.gather(
-        *[client.fetch_replay(user_id, game_id, r["round_number"]) for r in normalized_rounds],
-    )
-
     is_duel = match_type == "duel"
+    # Plain challenges (not the daily one) have no replays on GeoGuessr's side:
+    # don't fetch them and don't store empty round_replay rows.
+    has_replays = match_type != "challenge"
+
+    if has_replays:
+        raw_replays = await asyncio.gather(
+            *[client.fetch_replay(user_id, game_id, r["round_number"]) for r in normalized_rounds],
+        )
+    else:
+        raw_replays = [[] for _ in normalized_rounds]
+
     rounds_to_save = []
     compressed_replays = []
     total_score = 0
@@ -71,7 +78,7 @@ async def process_game(
             "distance_km": r["distance_km"],
             "steps": steps,
             "time_sec": time_sec,
-            "replay": compressed,
+            "replay": compressed if has_replays else None,
         }
         total_score += r["score"] or 0
         total_dist_km += r["distance_km"] or 0.0

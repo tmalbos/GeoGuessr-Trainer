@@ -8,6 +8,7 @@ import itertools
 import math
 from collections import Counter
 
+import shapely
 from shapely.geometry import box
 from shapely.ops import unary_union
 
@@ -28,10 +29,19 @@ START_RETURN_M = 3.0  # a pano this close to the first one = went back to start
 SCAN_MIN_ZOOM = 6  # map zoom at which panning counts as searching
 SCAN_MIN_SAMPLES = 5  # pan events needed to call it a search
 SCAN_MAX_LOOKUPS = 40  # admin lookups per search (downsampled)
+SCAN_MAX_BOXES = 400  # viewport boxes kept per search (downsampled) before clipping
 FULL_COUNTRY_REGIONS = 4  # this many regions visited = scanning the whole country
-# ASSUMPTION: replays don't store the minimap pixel size, so scanned areas are estimated
-# from a fixed viewport. Tune if rectangles look too big or too small.
-MAP_PX = (640, 420)
+
+# The minimap is a standard Web Mercator map (256 px tiles): the visible window is the viewport
+# in pixels converted back to degrees at the current zoom, so each zoom halves it.
+# MAP_PX was measured in-game: at every zoom from 3 to 9 the visible extent matches 1245x775 px.
+MAP_PX = (1245, 775)
+TILE_PX = 256
+MAX_LAT = 85.0511  # Web Mercator limit
+
+# A viewport box is clipped to the country that covers most of it, but only if that country
+# covers at least this share of the box; otherwise (sea, uncovered country) the plain box is kept.
+CLIP_MIN_SHARE = 0.25
 
 _PRIORITY = {
     "start": -1,
@@ -67,11 +77,28 @@ def _level(zoom: int) -> str:
     return "point"
 
 
-def _viewport_bbox(lat, lng, zoom):
-    deg_px = 360 / (256 * 2**zoom)
-    half_lng = MAP_PX[0] / 2 * deg_px
-    half_lat = MAP_PX[1] / 2 * deg_px * max(math.cos(math.radians(lat)), 0.1)
-    return (max(-85, lat - half_lat), lng - half_lng, min(85, lat + half_lat), lng + half_lng)
+def _merc_y(lat: float, world_px: float) -> float:
+    lat = max(-MAX_LAT, min(MAX_LAT, lat))
+    return (
+        0.5 - math.log(math.tan(math.pi / 4 + math.radians(lat) / 2)) / (2 * math.pi)
+    ) * world_px
+
+
+def _merc_lat(y: float, world_px: float) -> float:
+    return math.degrees(math.atan(math.sinh(math.pi * (1 - 2 * y / world_px))))
+
+
+def _viewport_bbox(lat, lng, zoom) -> tuple[float, float, float, float]:
+    """(west, south, east, north) in degrees of the map window centered on (lat, lng) at `zoom`."""
+    world_px = TILE_PX * 2**zoom
+    cx = (lng + 180) / 360 * world_px
+    cy = _merc_y(lat, world_px)
+    half_w, half_h = MAP_PX[0] / 2, MAP_PX[1] / 2
+    west = (cx - half_w) / world_px * 360 - 180
+    east = (cx + half_w) / world_px * 360 - 180
+    north = _merc_lat(max(0.0, cy - half_h), world_px)
+    south = _merc_lat(min(world_px, cy + half_h), world_px)
+    return (max(-180.0, west), south, min(180.0, east), north)
 
 
 def _label(admin) -> str:
@@ -162,9 +189,11 @@ def _zoom_runs(zooms):
 
 
 # ── Main entry ──────────────────────────────────────────────────────────────
-def analyze_round(events, real, result, locate) -> list[dict]:
+def analyze_round(events, real, result, locate, countries_in=None) -> list[dict]:
     """events: compressed replay. real: {lat,lng,country_code,country,state,city,place}.
     result: {score, distance_km}. locate(lat, lng) -> admin dict or None (offline lookup).
+    countries_in(west, south, east, north) -> [(code, shapely geometry)] of the countries that
+    touch that box (offline lookup); used to clip searched areas to land. Optional.
     """
     if not events:
         return []
@@ -254,7 +283,7 @@ def analyze_round(events, real, result, locate) -> list[dict]:
             and not any(a <= p[0] <= b for a, b in windows)
         ]
         if len(pans) >= SCAN_MIN_SAMPLES:
-            add(pans[0][0], "scan", **_scan(pans, real, where))
+            add(pans[0][0], "scan", **_scan(pans, real, where, countries_in))
 
     # 3. Aligning
     last = -(10**9)
@@ -337,7 +366,55 @@ def analyze_round(events, real, result, locate) -> list[dict]:
     return phases
 
 
-def _scan(pans, real, where) -> dict:
+def _safe_intersection(a, geom):
+    try:
+        return a.intersection(geom)
+    except Exception:  # noqa: BLE001
+        try:
+            return a.intersection(shapely.make_valid(geom))
+        except Exception:  # noqa: BLE001
+            return a
+
+
+def _overlap_area(geom, b) -> float:
+    try:
+        return float(shapely.clip_by_rect(geom, *b).area)
+    except Exception:  # noqa: BLE001
+        return 0.0
+
+
+def _clip_boxes(boxes, countries_in) -> list:
+    """Viewport boxes (west, south, east, north) -> shapes of where the user was probably looking.
+
+    Each box is assigned to the country covering most of it and clipped to that country's outline.
+    Boxes with no clear country (sea, country without local data) stay as plain rectangles.
+    """
+    if countries_in is None:
+        return list(itertools.starmap(box, boxes))
+    by_country: dict = {}
+    loose: list = []
+    for b in boxes:
+        rect = box(*b)
+        best_code, best_geom, best_area = None, None, 0.0
+        try:
+            candidates = countries_in(*b)
+        except Exception:  # noqa: BLE001
+            candidates = []
+        for code, geom in candidates:
+            area = _overlap_area(geom, b)
+            if area > best_area:
+                best_code, best_geom, best_area = code, geom, area
+        if best_code is not None and best_area >= CLIP_MIN_SHARE * rect.area:
+            by_country.setdefault(best_code, (best_geom, []))[1].append(rect)
+        else:
+            loose.append(rect)
+    out = list(loose)
+    for geom, rects in by_country.values():
+        out.append(_safe_intersection(unary_union(rects), geom))
+    return out
+
+
+def _scan(pans, real, where, countries_in=None) -> dict:
     regions: Counter = Counter()
     countries: Counter = Counter()
     for _, lat, lng, _ in _downsample(pans, SCAN_MAX_LOOKUPS):
@@ -345,10 +422,14 @@ def _scan(pans, real, where) -> dict:
         if a:
             countries[a.get("country_code"), a.get("country")] += 1
             regions[a.get("country_code"), a.get("state") or a.get("country")] += 1
-    boxes = [tuple(round(v, 4) for v in _viewport_bbox(lat, lng, z)) for _, lat, lng, z in pans]
+    boxes = list(
+        dict.fromkeys(
+            tuple(round(v, 4) for v in _viewport_bbox(lat, lng, z)) for _, lat, lng, z in pans
+        ),
+    )
     base = {
         "dur_ms": pans[-1][0] - pans[0][0],
-        "boxes": boxes,
+        "areas": _clip_boxes(_downsample(boxes, SCAN_MAX_BOXES), countries_in),
         "real_place": real["place"],
         "n_regions": len(regions),
         "place": "",
@@ -396,15 +477,25 @@ def build_path(events) -> dict:
     return {"segments": [seg for seg in segments if len(seg) > 1], "jumps": jumps}
 
 
+def _polygons(geom) -> list:
+    if geom is None or geom.is_empty:
+        return []
+    if geom.geom_type == "Polygon":
+        return [geom]
+    if hasattr(geom, "geoms"):
+        return [pg for g in geom.geoms for pg in _polygons(g)]
+    return []
+
+
 def searched_polygons(phases) -> list:
-    """Everything the user looked at on the map, merged into one shape.
+    """Everything the user looked at on the map, merged into one shape (clipped to land where known).
     Returns polygons as [[ring, ...], ...] with rings of [lat, lng] (Leaflet order).
     """
-    boxes = [box(w, s, e, n) for p in phases for (s, w, n, e) in p.get("boxes", [])]
-    if not boxes:
+    areas = [a for p in phases for a in p.get("areas", []) if a is not None and not a.is_empty]
+    if not areas:
         return []
-    merged = unary_union(boxes).simplify(0.002)
-    polys = [merged] if merged.geom_type == "Polygon" else list(merged.geoms)
+    merged = unary_union(areas).simplify(0.002)
     return [
-        [[[y, x] for x, y in ring.coords] for ring in (pg.exterior, *pg.interiors)] for pg in polys
+        [[[y, x] for x, y in ring.coords] for ring in (pg.exterior, *pg.interiors)]
+        for pg in _polygons(merged)
     ]

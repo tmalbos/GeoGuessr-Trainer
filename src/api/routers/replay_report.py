@@ -35,7 +35,7 @@ def _place(*parts) -> str:
     return ", ".join(dict.fromkeys(p for p in parts if p))
 
 
-def _round_payload(row: dict, locate) -> dict:
+def _round_payload(row: dict, locate, countries_in) -> dict:
     events = row["events"]
     if isinstance(events, str):
         events = json.loads(events)
@@ -50,7 +50,9 @@ def _round_payload(row: dict, locate) -> dict:
     }
     real["place"] = _place(real["city"], real["state"], real["country"])
     dist = float(row["distance_km"])
-    phases = analyze_round(events, real, {"score": row["score"], "distance_km": dist}, locate)
+    phases = analyze_round(
+        events, real, {"score": row["score"], "distance_km": dist}, locate, countries_in
+    )
     guess = None
     if row["guess_latitude"] is not None:
         guess = {
@@ -89,5 +91,13 @@ async def replay_report(challenge_token: str, game_id: str, request: Request):
         except Exception:  # noqa: BLE001
             return None
 
-    rounds = await run_in_threadpool(lambda: [_round_payload(r, locate) for r in rows])
+    def countries_in(west, south, east, north):
+        try:
+            return local.countries_in_bbox(west, south, east, north)
+        except Exception:  # noqa: BLE001
+            return []
+
+    rounds = await run_in_threadpool(
+        lambda: [_round_payload(r, locate, countries_in) for r in rows]
+    )
     return {"rounds": rounds}

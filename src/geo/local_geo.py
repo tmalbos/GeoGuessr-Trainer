@@ -12,7 +12,7 @@ from pathlib import Path
 
 import geopandas as gpd
 import numpy as np
-from shapely.geometry import Point
+from shapely.geometry import Point, box
 
 COUNTRY_TOL_DEG = 0.01  # ~1 km: absorbs simplification gaps without stealing neighbours' points
 ADMIN_TOL_DEG = 0.05  # ~5 km: coasts / gaps between admin polygons, already inside the country
@@ -116,6 +116,14 @@ class LocalGeo:
     def _area(self, point: Point) -> str:
         hit = self.urban.sindex.query(point, predicate="intersects")
         return "urban" if len(hit) else "rural"
+
+    def countries_in_bbox(self, west: float, south: float, east: float, north: float) -> list:
+        """[(country code, outline)] for the locally-known countries touching the box."""
+        if self.countries is None or self.countries.empty:
+            return []
+        idxs = self.countries.sindex.query(box(west, south, east, north), predicate="intersects")
+        geoms = self.countries.geometry
+        return [(self.countries["code"].iat[i], geoms.iat[i]) for i in idxs]
 
     def lookup(self, lat: float, lon: float) -> dict:
         """Admin is None when the point is not covered locally (caller falls back to Nominatim)."""
