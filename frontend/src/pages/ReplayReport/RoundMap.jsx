@@ -1,23 +1,36 @@
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 
-const pin = (color) => L.divIcon({
-  className: "rr-pin",
-  html: `<svg viewBox="0 0 24 32" width="28" height="38" aria-hidden="true"><path d="M12 31C12 31 2 19.5 2 11.5a10 10 0 0 1 20 0C22 19.5 12 31 12 31Z" fill="${color}" stroke="#fff" stroke-width="2"/><circle cx="12" cy="11.5" r="3.6" fill="#fff"/></svg>`,
-  iconSize: [28, 38], iconAnchor: [14, 38], tooltipAnchor: [0, -34],
+let seq = 0;
+
+// The player's pin: a round avatar with a white ring and a small tail (tip = the guessed spot).
+const guessIcon = () => {
+  const id = `rr-av-${++seq}`;
+  return L.divIcon({
+    className: "rr-pin",
+    html: `<svg viewBox="0 0 40 50" width="36" height="45" aria-hidden="true">
+      <defs><clipPath id="${id}"><circle cx="20" cy="20" r="16"/></clipPath></defs>
+      <path d="M20 49L12 35H28Z" fill="#fff"/>
+      <circle cx="20" cy="20" r="19" fill="#fff"/>
+      <circle cx="20" cy="20" r="16" fill="#f2b880"/>
+      <g clip-path="url(#${id})"><circle cx="20" cy="16" r="6.5" fill="#6f4a2f"/><ellipse cx="20" cy="36" rx="12" ry="9.5" fill="#6f4a2f"/></g>
+    </svg>`,
+    iconSize: [36, 45], iconAnchor: [18, 44],
+  });
+};
+
+// The real spot: GeoGuessr's own flag pin (frontend/public/pins/correct-location.webp), ringed in white by CSS.
+const realIcon = L.divIcon({
+  className: "rr-pin rr-real",
+  html: '<img src="/pins/correct-location.webp" alt="" width="32" height="32" />',
+  iconSize: [36, 36], iconAnchor: [18, 18],
 });
 
 const PATH = "#f2c14e";
 
-// "Result" frames your guess against the actual spot. "Path" frames where you walked in street view.
 export default function RoundMap({ real, guess, path, searched }) {
   const el = useRef(null);
-  const fitRef = useRef(null);
-  const [mode, setMode] = useState("result");
-  const modeRef = useRef(mode);
-  modeRef.current = mode;
-  const hasPath = path.segments.length > 0;
 
   useEffect(() => {
     const map = L.map(el.current, { worldCopyJump: true });
@@ -37,32 +50,19 @@ export default function RoundMap({ real, guess, path, searched }) {
         .bindTooltip("You jumped back to an earlier spot", { sticky: true }).addTo(map);
     }
     if (guess) {
-      L.polyline([[real.lat, real.lng], [guess.lat, guess.lng]], { color: "#8b98a8", weight: 2, dashArray: "6 6" }).addTo(map);
-      L.marker([guess.lat, guess.lng], { icon: pin("#ff7357") })
-        .bindTooltip("Your guess", { permanent: true, direction: "top" }).addTo(map);
+      // Dotted gray line between the pins, like GeoGuessr's result map.
+      L.polyline([[real.lat, real.lng], [guess.lat, guess.lng]], {
+        color: "#5f6368", weight: 3, opacity: 0.95, dashArray: "1 8", lineCap: "round",
+      }).addTo(map);
+      L.marker([guess.lat, guess.lng], { icon: guessIcon(), zIndexOffset: 400 }).addTo(map);
     }
-    L.marker([real.lat, real.lng], { icon: pin("#3fb97a"), zIndexOffset: 500 })
-      .bindTooltip("Actual", { permanent: true, direction: "top" }).addTo(map);
+    L.marker([real.lat, real.lng], { icon: realIcon, zIndexOffset: 500 }).addTo(map);
 
-    const result = L.latLngBounds([[real.lat, real.lng]]);
-    if (guess) result.extend([guess.lat, guess.lng]);
-    const walked = L.latLngBounds([[real.lat, real.lng]]);
-    for (const seg of path.segments) walked.extend(seg);
-
-    fitRef.current = (m) => map.fitBounds(m === "path" ? walked : result, {
-      padding: [56, 56], maxZoom: m === "path" ? 19 : 18, animate: false,
-    });
-    fitRef.current(modeRef.current);
+    const bounds = L.latLngBounds([[real.lat, real.lng]]);
+    if (guess) bounds.extend([guess.lat, guess.lng]);
+    map.fitBounds(bounds, { padding: [56, 56], maxZoom: 18, animate: false });
     return () => map.remove();
   }, [real, guess, path, searched]);
 
-  useEffect(() => { fitRef.current?.(mode); }, [mode]);
-
-  return <div className="rr-map-wrap">
-    <div ref={el} className="rr-map" role="img" aria-label="Map with the actual location, your guess and your path" />
-    {hasPath && <div className="rr-toggle" role="group" aria-label="Map view">
-      {[["result", "Result"], ["path", "Path"]].map(([k, l]) =>
-        <button key={k} type="button" className={mode === k ? "on" : ""} aria-pressed={mode === k} onClick={() => setMode(k)}>{l}</button>)}
-    </div>}
-  </div>;
+  return <div ref={el} className="rr-map" role="img" aria-label="Map with the actual location, your guess and your path" />;
 }

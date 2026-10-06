@@ -8,11 +8,8 @@
 .rr-ev.bad { border-left-color: var(--coral); }
 .rr-t { color: var(--mute); font-variant-numeric: tabular-nums; }
 .rr-side { position: sticky; top: 16px; }
-.rr-map-wrap { position: relative; }
 /* z-index: 0 keeps Leaflet's panes below the side rail. */
 .rr-map { position: relative; z-index: 0; height: 360px; border: 1px solid var(--line); border-radius: 8px; background: var(--raise); }
 .rr-pin { background: none; border: 0; }
-.rr-toggle { position: absolute; top: 10px; right: 10px; z-index: 1; display: flex; border-radius: 6px; overflow: hidden; border: 1px solid var(--line); box-shadow: 0 2px 8px rgba(0,0,0,.4); }
-.rr-toggle button { background: var(--card); border: 0; padding: 5px 12px; font-size: 13px; cursor: pointer; }
-.rr-toggle button + button { border-left: 1px solid var(--line); }
-.rr-toggle button.on { background: var(--sea); color: #fff; }
+.rr-pin svg, .rr-pin img { display: block; filter: drop-shadow(0 1px 3px rgba(0,0,0,.5)); }
+.rr-real img { box-sizing: content-box; width: 32px; height: 32px; border: 3px solid #fff; border-radius: 50%; }

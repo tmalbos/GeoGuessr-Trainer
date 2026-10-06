@@ -7,7 +7,12 @@ from src.db.repositories.game_repository import GameRepository
 from src.geo.enrichment_service import GeoEnrichClient
 from src.geoguessr.client import GeoguessrClient
 from src.geoguessr.normalize import infer_move_type_from_replays, move_type_from_challenge
-from src.geoguessr.replay import compress_replay, steps_from_replay, time_sec_from_replay
+from src.geoguessr.replay import (
+    clean_replay_start,
+    compress_replay,
+    steps_from_replay,
+    time_sec_from_replay,
+)
 from src.shared.events import Emit, Event, noop
 
 
@@ -57,7 +62,10 @@ async def process_game(
     total_dist_km = 0.0
 
     for i, r in enumerate(normalized_rounds):
-        compressed = compress_replay(raw_replays[i])
+        # Strip GeoGuessr's start-of-replay contamination before anything is derived or saved.
+        compressed = clean_replay_start(
+            compress_replay(raw_replays[i]), r["real_lat"], r["real_lng"]
+        )
         compressed_replays.append(compressed)
 
         # Duels expose no steps/time, so they come from the replay.
