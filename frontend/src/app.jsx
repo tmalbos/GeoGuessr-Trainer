@@ -4,6 +4,7 @@ import { useSync } from "./lib/sync.jsx";
 import Analysis from "./pages/Analysis/index.jsx";
 import Explore from "./pages/Explore/index.jsx";
 import History from "./pages/History.jsx";
+import Minigames from "./pages/Minigames/index.jsx";
 import Settings from "./pages/Settings.jsx";
 import Study from "./pages/Study/index.jsx";
 
@@ -13,6 +14,7 @@ const PAGES = [
   ["history", "History", History],
   ["analysis", "Analysis", Analysis],
   ["study", "Study", Study],
+  ["minigames", "Minigames", Minigames],
   ["settings", "Settings", Settings],
 ];
 
