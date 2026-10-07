@@ -1,42 +1,63 @@
-import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
-import { DEFAULTS, PRESETS, generate, randomParams } from "../../lib/streetgen.js";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { DEFAULTS, PRESETS, STYLES, generate, randomParams } from "../../lib/streetgen.js";
 import { num } from "../../lib/format.js";
 import "./minigames.css";
 
 const pct = (v) => `${Math.round(v * 100)}%`;
 const off = (v) => (v === 0 ? "Off" : v);
+const STYLE_LABELS = { grid: "Grid", organic: "Organic", suburb: "Suburban loops", radial: "Radial" };
+const STYLE_COLORS = { grid: "#6cc0e5", organic: "#3fb97a", suburb: "#cdbf93", radial: "#ff7357" };
 
 // [param, label, min, max, step, format, hint]
 const GROUPS = [
-  ["Shape and scale", [
-    ["sizeKm", "City diameter", 1, 8, 0.5, (v) => `${v} km`, "How big the city is."],
-    ["block", "Block size", 50, 250, 5, (v) => `${v} m`, "Distance between neighbouring streets."],
-    ["rotation", "Grid rotation", 0, 90, 1, (v) => `${v}°`, "Orientation of the street lattice."],
-    ["squareness", "Squareness", 0, 1, 0.05, pct, "0 = round city, 1 = square city."],
-    ["shape", "Outline irregularity", 0, 0.6, 0.05, pct, "How lumpy the city edge is."],
+  ["Scale", [
+    ["sizeKm", "Map size", 3, 16, 0.5, (v) => `${v} km`, "Width of the generated square."],
+    ["block", "Block size", 50, 250, 5, (v) => `${v} m`, "Typical distance between local streets."],
   ]],
-  ["Messiness", [
-    ["jitter", "Intersection jitter", 0, 1, 0.05, pct, "Random shift of every intersection."],
-    ["warp", "Warp", 0, 1, 0.05, pct, "Smooth large-scale bending of the whole grid."],
-    ["curve", "Street curvature", 0, 1, 0.05, pct, "How much individual streets bow."],
-    ["connectivity", "Connectivity", 0, 1, 0.05, pct, "100% = full grid. Low = tree-like with many dead ends."],
-    ["falloff", "Sparser at the edges", 0, 1, 0.05, pct, "How much the street network thins out away from the centre."],
-    ["diagRandom", "Random diagonals", 0, 0.6, 0.05, pct, "Shortcuts that cut across blocks."],
+  ["Neighbourhoods", [
+    ["districts", "Neighbourhoods", 1, 40, 1, String, "Each one gets its own style, orientation and block size."],
+    ["centreSize", "Centre size", 0.05, 1, 0.05, pct, "Size of the central neighbourhood relative to the city."],
+    ["wGrid", "Grid share", 0, 1, 0.05, pct, "How common planned grids are."],
+    ["wOrganic", "Organic share", 0, 1, 0.05, pct, "How common irregular, hand-grown streets are."],
+    ["wSuburb", "Suburban share", 0, 1, 0.05, pct, "How common curvy suburbs with cul-de-sacs are."],
+    ["wRadial", "Radial share", 0, 1, 0.05, pct, "How common star / roundabout layouts are."],
+    ["alignment", "Grid alignment", 0, 1, 0.05, pct, "High = neighbouring grids share the main orientation."],
+  ]],
+  ["Character", [
+    ["regularity", "Regularity", 0, 1, 0.05, pct, "Low = streets wander and cross at odd angles."],
+    ["curviness", "Curviness", 0, 1, 0.05, pct, "How strongly streets bend."],
+    ["aspect", "Block elongation", 1, 2.5, 0.1, (v) => `×${v.toFixed(1)}`, "Long thin blocks versus square ones."],
+    ["connectivity", "Connectivity", 0, 1, 0.05, pct, "Low = more dead ends and cul-de-sacs."],
+  ]],
+  ["Footprint", [
+    ["falloff", "Thinner towards edges", 0, 1, 0.05, pct, "Blocks grow and streets thin out away from the centre."],
+    ["patchiness", "Empty patches", 0, 1, 0.05, pct, "Parks, hills and wasteland with no local streets."],
+    ["stretch", "Stretch", 1, 3, 0.1, (v) => `×${v.toFixed(1)}`, "Elongates the city (coastal / valley cities)."],
+    ["stretchAngle", "Footprint angle", -90, 90, 5, (v) => `${v}°`, "Direction of the stretch, and of a squarish outline."],
+    ["squareness", "Squareness", 0, 1, 0.05, pct, "0 = round city, 1 = square city."],
+    ["gridAngle", "Main grid angle", 0, 90, 5, (v) => `${v}°`, "Orientation of the central grid."],
   ]],
   ["Main roads", [
-    ["avenueEvery", "Avenue every N blocks", 0, 12, 1, off, "Straight main roads on the grid. 0 = none."],
-    ["diagAves", "Diagonal avenues", 0, 5, 1, off, "Diagonal main roads crossing the centre, like La Plata."],
-    ["radials", "Radial roads", 0, 10, 1, off, "Main roads from the centre out to the edge of town."],
+    ["collectorEvery", "Collector every N blocks", 0, 12, 1, off, "Secondary roads that collect local traffic. 0 = none."],
+    ["hubs", "Sub-centres", 0, 14, 1, off, "Extra hubs linked to the centre by arterials."],
+    ["exits", "Roads to the edge", 0, 10, 1, off, "Arterials leaving the city."],
+    ["spokes", "Radial roads", 0, 10, 1, off, "Straight arterials from the centre (La Plata's diagonals)."],
+    ["spokeAngle", "Radial road angle", 0, 90, 5, (v) => `${v}°`, "Rotation of the radial roads relative to the main grid."],
+    ["ring", "Ring road", 0, 1, 0.05, (v) => (v === 0 ? "Off" : pct(v)), "Ring road radius relative to the city. 0 = none."],
   ]],
 ];
 
-const fitView = (map, w, h) => {
-  const b = map.bounds, ext = Math.max(b.maxx - b.minx, b.maxy - b.miny, 1);
-  const s = Math.min(w, h) / (ext * 1.08);
-  return { s, x: w / 2 - ((b.minx + b.maxx) / 2) * s, y: h / 2 - ((b.miny + b.maxy) / 2) * s };
+const fitView = (H, w, h) => {
+  const s = Math.min(w, h) / (H * 2 * 1.04);
+  return { s, x: w / 2, y: h / 2 };
 };
+const niceLen = (s) => [10, 20, 50, 100, 200, 500, 1000, 2000, 5000].find((l) => l * s >= 70) ?? 5000;
 
-const niceLen = (m) => [10, 20, 50, 100, 200, 500, 1000, 2000, 5000].find((l) => l * m.s >= 70) ?? 5000;
+const CLASSES = [
+  [0, "#6f7f93", 6, 1],
+  [1, "#b4bfcc", 10, 1.8],
+  [2, "#e0cf9a", 16, 2.8],
+];
 
 function MapCanvas({ map, show, fitKey }) {
   const wrap = useRef(null);
@@ -51,8 +72,7 @@ function MapCanvas({ map, show, fitKey }) {
     return () => ro.disconnect();
   }, []);
 
-  // Re-fit when the city size changes, on "Reset view", or when the panel resizes.
-  useEffect(() => { setView(fitView(map, size.w, size.h)); }, [fitKey, size.w, size.h]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { setView(fitView(map.H, size.w, size.h)); }, [fitKey, size.w, size.h]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     const el = cv.current;
@@ -77,20 +97,36 @@ function MapCanvas({ map, show, fitKey }) {
     g.setTransform(dpr * view.s, 0, 0, dpr * view.s, dpr * view.x, dpr * view.y);
     g.lineCap = "round"; g.lineJoin = "round";
     const { nodes, edges } = map;
-    const stroke = (main, color, widthM, minPx) => {
+
+    if (show.districts) {
+      g.lineWidth = 1.5 / view.s;
+      for (const d of map.districts) {
+        g.strokeStyle = STYLE_COLORS[d.style] + "aa"; g.fillStyle = STYLE_COLORS[d.style];
+        g.beginPath();
+        for (let i = 0; i <= 48; i++) {
+          const t = (i / 48) * Math.PI * 2, c0 = Math.cos(t), s0 = Math.sin(t);
+          const nrm = d.pw === 2 ? 1 : (Math.abs(c0) ** d.pw + Math.abs(s0) ** d.pw) ** (1 / d.pw);
+          const u = (c0 / nrm) * d.r * d.ex, v = (s0 / nrm) * d.r / d.ex;
+          const x = d.x + u * Math.cos(d.a) - v * Math.sin(d.a), y = d.y + u * Math.sin(d.a) + v * Math.cos(d.a);
+          if (i) g.lineTo(x, y); else g.moveTo(x, y);
+        }
+        g.stroke();
+        g.beginPath(); g.arc(d.x, d.y, 6 / view.s, 0, 6.2832); g.fill();
+      }
+    }
+
+    for (const [cls, color, widthM, minPx] of CLASSES) {
       g.beginPath();
       for (const e of edges) {
-        if (e.main !== main) continue;
-        const a = nodes[e.a], b = nodes[e.b];
-        g.moveTo(a.x, a.y);
-        if (e.curved) g.quadraticCurveTo(e.cx, e.cy, b.x, b.y); else g.lineTo(b.x, b.y);
+        if (e.cls !== cls) continue;
+        const p = e.pts;
+        g.moveTo(p[0], p[1]);
+        for (let i = 2; i < p.length; i += 2) g.lineTo(p[i], p[i + 1]);
       }
       g.lineWidth = Math.max(minPx, widthM * view.s) / view.s;
       g.strokeStyle = color;
       g.stroke();
-    };
-    stroke(false, "#7d8da0", 7, 1);
-    stroke(true, "#e0cf9a", 13, 2);
+    }
     const dots = (test, color, px) => {
       g.fillStyle = color;
       g.beginPath();
@@ -98,11 +134,10 @@ function MapCanvas({ map, show, fitKey }) {
       g.fill();
     };
     if (show.nodes) dots((n) => n.deg >= 3, "#6cc0e5", 2.2);
-    if (show.deadEnds) dots((n) => n.deg === 1, "#ff7357", 3);
+    if (show.deadEnds) dots((n) => n.deg === 1 && !n.border, "#ff7357", 3);
 
-    // scale bar (screen space)
     g.setTransform(dpr, 0, 0, dpr, 0, 0);
-    const len = niceLen(view), px = len * view.s, x0 = 16, y0 = size.h - 18;
+    const len = niceLen(view.s), px = len * view.s, x0 = 16, y0 = size.h - 18;
     g.strokeStyle = "#e6edf3"; g.lineWidth = 2; g.lineCap = "butt";
     g.beginPath(); g.moveTo(x0, y0 - 5); g.lineTo(x0, y0); g.lineTo(x0 + px, y0); g.lineTo(x0 + px, y0 - 5); g.stroke();
     g.fillStyle = "#e6edf3"; g.font = "12px 'Bricolage Grotesque', system-ui, sans-serif";
@@ -130,18 +165,20 @@ function MapCanvas({ map, show, fitKey }) {
 
 export default function StreetGenerator() {
   const [params, setParams] = useState({ ...DEFAULTS, ...PRESETS[0].params });
+  const [live, setLive] = useState(params);
   const [preset, setPreset] = useState(PRESETS[0].key);
-  const [show, setShow] = useState({ nodes: false, deadEnds: true });
+  const [show, setShow] = useState({ nodes: false, deadEnds: true, districts: false });
   const [resets, setResets] = useState(0);
 
-  const deferred = useDeferredValue(params);
-  const map = useMemo(() => generate(deferred), [deferred]);
-  const stale = deferred !== params;
+  // Generating takes a moment on big maps, so wait until the sliders stop moving.
+  useEffect(() => { const t = setTimeout(() => setLive(params), 250); return () => clearTimeout(t); }, [params]);
+  const map = useMemo(() => generate(live), [live]);
+  const stale = live !== params;
   const st = map.stats;
 
-  const set = (k) => (e) => { const v = Number(e.target.value); setParams((p) => ({ ...p, [k]: v })); setPreset("custom"); };
+  const setNum = (k) => (e) => { const v = Number(e.target.value); setParams((p) => ({ ...p, [k]: v })); setPreset("custom"); };
   const apply = (key, p) => { setParams({ ...DEFAULTS, ...p }); setPreset(key); };
-  const reroll = useCallback(() => setParams((p) => ({ ...p, seed: Math.floor(Math.random() * 99999) })), []);
+  const flag = (k) => (e) => setShow((s) => ({ ...s, [k]: e.target.checked }));
 
   return <div className="mg">
     <aside className="mg-panel">
@@ -153,35 +190,44 @@ export default function StreetGenerator() {
 
       <h3>Seed</h3>
       <div className="mg-seed">
-        <input type="number" aria-label="Seed" value={params.seed} onChange={set("seed")} />
-        <button type="button" className="btn ghost" onClick={reroll}>New seed</button>
+        <input type="number" aria-label="Seed" value={params.seed} onChange={setNum("seed")} />
+        <button type="button" className="btn ghost" onClick={() => { setParams((p) => ({ ...p, seed: Math.floor(Math.random() * 99999) })); setPreset("custom"); }}>New seed</button>
       </div>
 
       {GROUPS.map(([title, items]) => <section key={title}>
         <h3>{title}</h3>
+        {title === "Neighbourhoods" && <div className="mg-row">
+          <label htmlFor="mg-centreStyle">Centre style</label>
+          <select id="mg-centreStyle" value={params.centreStyle} onChange={(e) => { setParams((p) => ({ ...p, centreStyle: e.target.value })); setPreset("custom"); }}>
+            {STYLES.map((s) => <option key={s} value={s}>{STYLE_LABELS[s]}</option>)}
+          </select>
+        </div>}
         {items.map(([k, label, min, max, step, fmt, hint]) => <div className="mg-row" key={k} title={hint}>
           <label htmlFor={`mg-${k}`}>{label}<output>{fmt(params[k])}</output></label>
-          <input id={`mg-${k}`} type="range" min={min} max={max} step={step} value={params[k]} onChange={set(k)} />
+          <input id={`mg-${k}`} type="range" min={min} max={max} step={step} value={params[k]} onChange={setNum(k)} />
         </div>)}
       </section>)}
     </aside>
 
     <div className="mg-view">
       {st && <div className="mg-stats">
-        <div><b>{num(st.nodes)}</b><span>nodes</span></div>
-        <div><b>{num(Math.round(st.km))} km</b><span>of road ({num(Math.round(st.mainKm))} km main)</span></div>
+        <div><b>{num(Math.round(st.km))} km</b><span>of road ({num(Math.round(st.kmMain))} km main)</span></div>
+        <div><b>{num(st.nodes)}</b><span>junctions and ends</span></div>
         <div><b>{Math.round(st.avgEdge)} m</b><span>average segment</span></div>
         <div><b>{num(st.intersections)}</b><span>intersections</span></div>
-        <div><b>{num(st.deadEnds)}</b><span>dead ends</span></div>
+        <div><b>{num(st.deadEnds)}</b><span>local dead ends</span></div>
+        <div><b>{st.mainDeadEnds}</b><span>main-road dead ends</span></div>
         <div><b>{st.density.toFixed(1)}</b><span>km of road per km²</span></div>
+        <div><b>{st.ms} ms</b><span>to generate</span></div>
       </div>}
       <div className="mg-tools">
         <button type="button" className="btn ghost" onClick={() => setResets((n) => n + 1)}>Reset view</button>
-        <label className="mg-check"><input type="checkbox" checked={show.deadEnds} onChange={(e) => setShow((s) => ({ ...s, deadEnds: e.target.checked }))} />Show dead ends</label>
-        <label className="mg-check"><input type="checkbox" checked={show.nodes} onChange={(e) => setShow((s) => ({ ...s, nodes: e.target.checked }))} />Show intersections</label>
+        <label className="mg-check"><input type="checkbox" checked={show.deadEnds} onChange={flag("deadEnds")} />Show dead ends</label>
+        <label className="mg-check"><input type="checkbox" checked={show.nodes} onChange={flag("nodes")} />Show intersections</label>
+        <label className="mg-check"><input type="checkbox" checked={show.districts} onChange={flag("districts")} />Show neighbourhoods</label>
       </div>
       <div className={`mg-canvas-wrap ${stale ? "stale" : ""}`}>
-        <MapCanvas map={map} show={show} fitKey={`${deferred.sizeKm}-${resets}`} />
+        <MapCanvas map={map} show={show} fitKey={`${live.sizeKm}-${resets}`} />
       </div>
     </div>
   </div>;
