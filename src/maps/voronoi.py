@@ -14,24 +14,26 @@ Pipeline (see build_area_code_geometries, the single entry point):
        Voronoi computation.
      These two normally agree, but nothing here assumes they must.
 
-  2. Points are grouped by that spatial department (admin_idx into
-     fine_feats). For each department with 2+ points, a bounded Voronoi
-     diagram is computed with the seeds FIXED at the points' own
-     positions (every point claims the area closer to it than to any
-     other point, clipped to the department). A cell whose clipped shape
-     comes out in several disconnected pieces (a bay or channel let it
-     reach across) keeps only the piece its seed is in; the other pieces
-     are handed to the neighbouring cell they share the longest border
-     with. A department with exactly one point (or whose points all
-     share one AreaCode) needs no computation: the whole department goes
-     to that code.
+  2. Every fine-level polygon ends up in the result, mirroring land mode:
+     - a polygon claimed whole by a shallow CSV row (land_owner) goes
+       entirely to that row's group;
+     - otherwise, a polygon with matched points is split: with 2+ points
+       of different groups a bounded Voronoi diagram is computed with the
+       seeds FIXED at the points' own positions (every point claims the
+       area closer to it than to any other point, clipped to the
+       department). A cell whose clipped shape comes out in several
+       disconnected pieces (a bay or channel let it reach across) keeps
+       only the piece its seed is in; the other pieces are handed to the
+       neighbouring cell they share the longest border with. If all the
+       polygon's points share one group, the whole polygon goes to it;
+     - otherwise (no owner, no points) the polygon passes through under
+       its own Land id, exactly like land mode.
 
-  3. Every resulting cell is looked up by its owning point's AreaCode and
-     accumulated; AreaCodes that are shared by several localities (in the
-     same department or different ones) end up as the union of every cell
-     that carries that code. Unions are done on a fixed snap grid so that
-     the ~1e-14 floating-point seams between independently clipped cells
-     can't survive as hairline slits.
+  3. Every resulting cell is accumulated by group; groups that are shared
+     by several localities (in the same department or different ones) end
+     up as the union of every cell that carries that group. Unions are
+     done on a fixed snap grid so that the ~1e-14 floating-point seams
+     between independently clipped cells can't survive as hairline slits.
 
 Everything here works in already-projected SVG pixel space (the same
 project_point()/scale/off_x/off_y used by svg_render.py to draw the Land
@@ -50,7 +52,7 @@ from shapely.ops import transform, voronoi_diagram
 from shapely.strtree import STRtree
 from shapely.validation import make_valid
 from svg_render import project_point
-from topo_io import get_feature_name, group_depth, point_group_key
+from topo_io import get_feature_name, group_depth, hierarchical_name_id, point_group_key
 
 # Lloyd relaxation passes. 0 = seeds stay exactly where the points are
 # (pure "everyone claims what is closest to them", so a point boxed in by
@@ -273,7 +275,16 @@ def _bounded_voronoi(seeds, boundary):
 
 
 def build_area_code_geometries(
-    point_pairs, fine_feats, group_rows, lon0, cos_lat0, scale, off_x, off_y
+    point_pairs,
+    fine_feats,
+    group_rows,
+    name_chains,
+    land_owner,
+    lon0,
+    cos_lat0,
+    scale,
+    off_x,
+    off_y,
 ):
     """Entry point: turn matched points into {GroupName: shapely geometry},
     every geometry already in SVG pixel space and ready for
@@ -284,6 +295,12 @@ def build_area_code_geometries(
         None for a point that didn't spatially land in any polygon.
     fine_feats: the fine-level admin feature list matching that admin_idx.
     group_rows: the --group CSV rows, as loaded by topo_io.load_group_csv().
+    name_chains: per-fine-polygon name chains (same order as fine_feats),
+        used to give pass-through polygons their normal Land id.
+    land_owner: {admin_idx: GroupName} for polygons claimed whole by a
+        shallow CSV row. Every fine polygon ends up in the result: owned
+        -> its group; has matched points -> Voronoi split; otherwise ->
+        its own Land id, exactly like land mode.
     """
     n_levels = group_depth(group_rows)
     area_code_by_key = {
@@ -311,6 +328,15 @@ def build_area_code_geometries(
             print(f"  ⚠ Punto {label} no tiene grupo en --group; se omite.", file=sys.stderr)
             continue
 
+        owner_code = land_owner.get(admin_idx)
+        if owner_code is not None:
+            if owner_code != area_code:
+                sys.exit(
+                    f"Error: el punto {label} pertenece al grupo {area_code!r}, pero su polígono "
+                    f"ya fue asignado completo al grupo {owner_code!r} por una fila más corta."
+                )
+            continue  # whole polygon already goes to this group
+
         coords = list(flatten_point_coords(feat["geometry"]))
         if not coords:
             continue
@@ -326,24 +352,37 @@ def build_area_code_geometries(
         by_department.setdefault(admin_idx, []).append((seed, area_code))
 
     geoms_by_area_code = {}
-    for admin_idx, entries in by_department.items():
-        label = get_feature_name(fine_feats[admin_idx]) or f"#{admin_idx}"
+    for admin_idx, fine_feat in enumerate(fine_feats):
+        label = get_feature_name(fine_feat) or f"#{admin_idx}"
         boundary = _project_department_boundary(
-            fine_feats[admin_idx]["geometry"], lon0, cos_lat0, scale, off_x, off_y, label
+            fine_feat["geometry"], lon0, cos_lat0, scale, off_x, off_y, label
         )
         if boundary.is_empty:
+            continue
+
+        # 1. Claimed whole by a shallow CSV row.
+        owner_code = land_owner.get(admin_idx)
+        if owner_code is not None:
+            geoms_by_area_code.setdefault(owner_code, []).append(boundary)
+            continue
+
+        # 2. No owner and no points: passes through under its own Land id.
+        entries = by_department.get(admin_idx)
+        if not entries:
+            own_id = hierarchical_name_id(name_chains[admin_idx], str(admin_idx))
+            geoms_by_area_code.setdefault(own_id, []).append(boundary)
             continue
 
         seeds = [e[0] for e in entries]
         area_codes = [e[1] for e in entries]
 
-        unique_codes = set(area_codes)
-        if len(unique_codes) == 1:
-            # Every point in this polygon shares one group: nothing to
-            # partition, so the whole polygon goes to that group.
+        # 3. Every point in this polygon shares one group: nothing to
+        # partition, so the whole polygon goes to that group.
+        if len(set(area_codes)) == 1:
             geoms_by_area_code.setdefault(area_codes[0], []).append(boundary)
             continue
 
+        # 4. Mixed groups: bounded Voronoi split.
         cells = voronoi_cells_in_boundary(seeds, boundary)
 
         for cell, area_code in zip(cells, area_codes, strict=False):

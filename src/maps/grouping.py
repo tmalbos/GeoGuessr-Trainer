@@ -11,8 +11,8 @@ def _norm(value):
     return re.sub(r"[^a-z0-9]", "", unidecode(str(value)).lower())
 
 
-def build_land_group_geometries(rows, name_chains, fine_geoms, coarse_level):
-    """Rebuild the Land layer with the CSV groups applied.
+def assign_land_owners(rows, name_chains, coarse_level):
+    """{fine polygon index: GroupName} for every Land polygon covered by a row.
 
     CSV Level1 is ADM1, so when the loaded levels start at ADM0 the first
     slot of every name chain (the country itself) is dropped before
@@ -21,11 +21,6 @@ def build_land_group_geometries(rows, name_chains, fine_geoms, coarse_level):
     compared in normalized form (case, accents, spaces and underscores
     ignored). A row with k levels matches every Land polygon whose first
     k names equal it, so shallower rows cover all the polygons beneath them.
-
-    Every Land polygon is keyed by its group if the CSV lists it, or by its
-    own normal Land id if not. Polygons are then merged per key, so listed
-    polygons are unioned and unlisted ones pass through unchanged.
-    Returns {output id: geometry} in lon/lat.
     """
     offset = 1 if coarse_level == 0 else 0
     chains = [[n for n in chain[offset:] if n] for chain in name_chains]
@@ -60,9 +55,21 @@ def build_land_group_geometries(rows, name_chains, fine_geoms, coarse_level):
                     f"Error: {'.'.join(chains[i])} está asignado a dos grupos: "
                     f"{previous!r} y {row['GroupName']!r}."
                 )
+    return owner
+
+
+def build_land_group_geometries(rows, name_chains, fine_geoms, coarse_level):
+    """Rebuild the Land layer with the CSV groups applied.
+
+    Every Land polygon is keyed by its group if the CSV lists it, or by its
+    own normal Land id if not. Polygons are then merged per key, so listed
+    polygons are unioned and unlisted ones pass through unchanged.
+    Returns {output id: geometry} in lon/lat.
+    """
+    owner = assign_land_owners(rows, name_chains, coarse_level)
 
     members = {}
-    for i in range(len(chains)):
+    for i in range(len(name_chains)):
         output_id = owner.get(i, hierarchical_name_id(name_chains[i], str(i)))
         members.setdefault(output_id, []).append(i)
 

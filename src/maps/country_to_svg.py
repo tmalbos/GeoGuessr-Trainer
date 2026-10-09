@@ -58,7 +58,7 @@ from geometry import (
     point_geometry_bounds,
     prune_small_edge_parts,
 )
-from grouping import build_land_group_geometries
+from grouping import assign_land_owners, build_land_group_geometries
 from overlay_fill import fill_overlay_gaps
 from shapely.ops import unary_union
 from svg_render import (
@@ -243,7 +243,9 @@ def build_parser():
         metavar="PATH",
         help="Optional CSV (GroupName,Level1,...,LevelN) grouping features into named groups; the Land layer becomes one path per group. "
         "N <= Land depth: group Land polygons by the first N levels (warns if N < depth). "
-        "N > Land depth: requires --points, used as Voronoi seeds.",
+        "N > Land depth: requires --points, used as Voronoi seeds; rows shallower than N "
+        "(up to Land depth) assign whole Land polygons to their group, and polygons with "
+        "neither a row nor points pass through under their own Land id.",
     )
     ap.add_argument(
         "--roads",
@@ -315,6 +317,12 @@ def resolve_group_mode(args, levels):
             sys.exit(
                 f"Error: --group tiene {n_levels} niveles pero Land tiene {land_depth}. "
                 f"Pasá --points o usá un Land con {n_levels} niveles."
+            )
+        bad = sorted({len(r["levels"]) for r in rows if land_depth < len(r["levels"]) < n_levels})
+        if bad:
+            sys.exit(
+                f"Error: hay filas con {bad} niveles: no alcanzan a identificar un punto "
+                f"({n_levels}) ni coinciden con un polígono de Land (≤ {land_depth})."
             )
         return rows, "points"
 
@@ -572,12 +580,21 @@ def project_all(geoms_by_name, proj):
     return {name: project_geometry(geom, *proj.args) for name, geom in geoms_by_name.items()}
 
 
-def groups_from_points(admin, group_rows, overlays, proj):
+def groups_from_points(args, admin, group_rows, overlays, proj):
     print(
         "\n=== Calculando grupos (Voronoi centroidal acotado por polígono de Land) ===",
         file=sys.stderr,
     )
-    geoms = build_area_code_geometries(overlays.points, admin.fine_feats, group_rows, *proj.args)
+    # Rows shallower than the CSV's full depth can't identify a point, so
+    # they claim whole Land polygons instead (same rule as land mode).
+    n_levels = group_depth(group_rows)
+    shallow = [r for r in group_rows if len(r["levels"]) < n_levels]
+    land_owner = (
+        assign_land_owners(shallow, admin.name_chains, args.coarse_level) if shallow else {}
+    )
+    geoms = build_area_code_geometries(
+        overlays.points, admin.fine_feats, group_rows, admin.name_chains, land_owner, *proj.args
+    )
     print(f"  {len(geoms)} grupo(s) generados.", file=sys.stderr)
     return geoms
 
@@ -633,7 +650,7 @@ def groups_from_overlay(args, admin, proj):
 
 def build_group_geoms(args, admin, group_mode, group_rows, overlays, proj):
     if group_mode == "points":
-        return groups_from_points(admin, group_rows, overlays, proj)
+        return groups_from_points(args, admin, group_rows, overlays, proj)
     if group_mode == "land":
         return groups_from_land(args, admin, group_rows, proj)
     if args.overlay:
