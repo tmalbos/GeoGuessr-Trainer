@@ -6,7 +6,9 @@ from fastapi import APIRouter, HTTPException, Request
 from starlette.concurrency import run_in_threadpool
 
 from src.analysis.replay_behavior import analyze_round, build_path, searched_polygons
+from src.analysis.replay_grading import grade_phases, summarize_grades
 from src.analysis.replay_narrative import narrate
+from src.analysis.replay_stages import stage_breakdown, summarize_stages
 from src.api.deps import get_ctx
 
 router = APIRouter()
@@ -53,6 +55,7 @@ def _round_payload(row: dict, locate, countries_in) -> dict:
     phases = analyze_round(
         events, real, {"score": row["score"], "distance_km": dist}, locate, countries_in
     )
+    grade_phases(phases, events, real, locate)
     guess = None
     if row["guess_latitude"] is not None:
         guess = {
@@ -69,6 +72,7 @@ def _round_payload(row: dict, locate, countries_in) -> dict:
         "has_replay": bool(events),
         "real": {"lat": real["lat"], "lng": real["lng"], "place": real["place"]},
         "guess": guess,
+        "stages": stage_breakdown(events, real),
         "timeline": narrate(phases),
         "path": build_path(events),
         "searched": searched_polygons(phases),
@@ -100,4 +104,15 @@ async def replay_report(challenge_token: str, game_id: str, request: Request):
     rounds = await run_in_threadpool(
         lambda: [_round_payload(r, locate, countries_in) for r in rows]
     )
-    return {"rounds": rounds}
+    grades = [
+        it["grade"]
+        for r in rounds
+        for it in r["timeline"]
+        for _ in range(it["count"])
+        if it["grade"]
+    ]
+    summary = {
+        **summarize_stages([r["stages"] for r in rounds]),
+        "grades": summarize_grades(grades),
+    }
+    return {"summary": summary, "rounds": rounds}

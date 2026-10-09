@@ -267,12 +267,17 @@ def analyze_round(events, real, result, locate, countries_in=None) -> list[dict]
             level = _level(r["z1"])
             admin = where(c[1], c[2]) if c else None
             place = _level_place(level, admin, *(c[1:3] if c else (0, 0))) if c else "the map"
+            # The map window at the end of the zoom, so the event can be graded by what it showed.
+            view = (
+                {"view_boxes": [_viewport_bbox(c[1], c[2], r["z1"])], "zoom": r["z1"]} if c else {}
+            )
             add(
                 r["t0"],
                 "zoom",
                 "zoom_in" if r["z1"] > r["z0"] else "zoom_out",
                 place=place,
                 level=level,
+                **view,
             )
         windows = [(r["t0"], r["t1"]) for r in runs]
         pans = [
@@ -433,6 +438,9 @@ def _scan(pans, real, where, countries_in=None) -> dict:
         "real_place": real["place"],
         "n_regions": len(regions),
         "place": "",
+        # Every map window seen during the search (west, south, east, north), for grading.
+        "view_boxes": boxes,
+        "zoom": max(z for _, _, _, z in pans),
     }
     if len(countries) >= 2:
         base.update(

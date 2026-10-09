@@ -12,33 +12,35 @@ HIGH_CONFIDENCE_WINDOW = 100
 MIN_ZONE_ROUNDS = 10
 BOOTSTRAP_SAMPLES = 1000
 
+# Score cut-offs shared by the tier ladder and the replay event grades (replay_grading.py).
+SCORE_CUTOFFS = (3000, 4000, 4500, 4850)
+
 
 def dist_to_score(km: float) -> int:
     return int(5000 * math.exp(-0.000673 * km) + 0.5)
 
 
 def score_label(score: int) -> str:
-    if score <= 2500:
+    low, mid, high, top = SCORE_CUTOFFS
+    if score <= low:
         return translate("Terrible")
-    if score <= 3750:
+    if score <= mid:
         return translate("Decent")
-    if score <= 4375:
+    if score <= high:
         return translate("High")
-    if score <= 4713:
-        return translate("Exceptional")
-    if score <= 4857:
+    if score <= top:
         return translate("Elite")
     return translate("Inhuman")
 
 
 def score_tiers() -> list[dict]:
     """The tier ladder (same thresholds as score_label), lowest first. `max` is the upper bound."""
+    low, mid, high, top = SCORE_CUTOFFS
     return [
-        {"label": translate("Terrible"), "max": 2500},
-        {"label": translate("Decent"), "max": 3750},
-        {"label": translate("High"), "max": 4375},
-        {"label": translate("Exceptional"), "max": 4713},
-        {"label": translate("Elite"), "max": 4857},
+        {"label": translate("Terrible"), "max": low},
+        {"label": translate("Decent"), "max": mid},
+        {"label": translate("High"), "max": high},
+        {"label": translate("Elite"), "max": top},
         {"label": translate("Inhuman"), "max": 5000},
     ]
 

@@ -55,18 +55,25 @@ def _km(d: float) -> str:
 
 
 def narrate(phases: list[dict]) -> list[dict]:
-    """Phases -> [{t_ms, kind, tone, text, count, lat?, lng?}]. Identical neighbours are merged (count)."""
+    """Phases -> [{t_ms, kind, tone, grade, text, count, lat?, lng?}]. Identical neighbours are merged (count)."""
     out: list[dict] = []
     for p in phases:
         ctx = {**p, "dur": _dur(p.get("dur_ms", 0)), "km": _km(p.get("dist_km", 0))}
         text = TEXT[p["key"]].format(**ctx)
-        if out and out[-1]["kind"] == p["kind"] and out[-1]["text"] == text:
+        grade = p.get("grade") or ""
+        if (
+            out
+            and out[-1]["kind"] == p["kind"]
+            and out[-1]["text"] == text
+            and out[-1]["grade"] == grade
+        ):
             out[-1]["count"] += 1
             continue
         item = {
             "t_ms": p["t"],
             "kind": p["kind"],
             "tone": TONE.get(p["key"], ""),
+            "grade": grade,
             "text": text,
             "count": 1,
         }
