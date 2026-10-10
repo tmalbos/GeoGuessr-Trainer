@@ -69,6 +69,7 @@ COUNTRIES_COLORS = {
     "Russia": {"water_color": "#6ED1E5", "land_color": "#A6E5CA"},
     "Senegal": {"water_color": "#86D7EB", "land_color": "#F4EFE3"},
     "Serbia": {"water_color": "#85D7EB", "land_color": "#CEF5DF"},
+    "Singapore": {"water_color": "#90D9ED", "land_color": "#F7F7F6"},
     "Slovenia": {"water_color": "#8BD8ED", "land_color": "#C4F4D6"},
     "SouthAfrica": {"water_color": "#7ED5E9", "land_color": "#F4EFE3"},
     "SouthKorea": {"water_color": "#84D6EB", "land_color": "#BAEECF"},
