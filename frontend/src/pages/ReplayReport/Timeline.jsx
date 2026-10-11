@@ -1,7 +1,8 @@
+import GradeIcon from "./GradeIcon.jsx";
 import { GRADES, clock, stageOf } from "./stages.js";
 
 /** One bar for the whole round: colored by stage, with a dot for every event.
- *  Graded events are colored by their grade (the notable ones carry the chess symbol).
+ *  Graded events are colored by their grade (the notable ones carry the chess icon).
  *  It draws whatever events it is given, so trimming the report needs no change here. */
 export default function Timeline({ segments, events, duration }) {
   if (!duration) return null;
@@ -14,8 +15,8 @@ export default function Timeline({ segments, events, duration }) {
         const g = GRADES[e.grade];
         return <span key={i} className={`tl-ev ${g ? (g.big ? "gb" : "gs") : ""}`}
           style={{ left: `${pct(e.t_ms)}%`, "--h": g?.hue }}
-          title={`${clock(e.t_ms)} · ${g ? `${g.label}: ` : ""}${e.text}${e.count > 1 ? ` ×${e.count}` : ""}`}>
-          {g?.big && g.glyph}
+          title={`${clock(e.t_ms)} · ${g ? `${g.label}: ` : ""}${e.text}${e.count > 1 ? ` ×${e.count}` : ""}${e.note ? `\n${e.note}` : ""}`}>
+          {g?.big && <GradeIcon id={e.grade} size={20} />}
         </span>;
       })}
     </div>

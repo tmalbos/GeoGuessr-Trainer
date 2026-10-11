@@ -1,36 +1,64 @@
 """replay_behavior.py — Layer 1: turn one compressed round replay into labeled behavior phases.
 
 Pure logic, no wording. Each phase is a dict: {t, kind, key, ...facts}. `key` picks the sentence
-template in replay_narrative.py; `kind` is the coarse family (useful later to attach corrective actions).
+template in replay_narrative.py; `kind` is the coarse family. Grades are NOT decided here
+(see replay_grading.py), but the facts the grader needs (speed ratios, revisit counts, views) are.
 """
 
+import bisect
 import itertools
 import math
 from collections import Counter
 
 import shapely
-from shapely.geometry import box
+from shapely.geometry import Point, box
 from shapely.ops import unary_union
 
+from src.analysis.scoring import dist_to_score
+
 # ── Tunables ────────────────────────────────────────────────────────────────
-SPEED_GAP_MS = 2000  # pano changes closer than this belong to the same run
-SPEED_MIN_STEPS = 3  # a run this long counts as "speed moving"
+# Street view movement
+SPEED_GAP_MS = 900  # steps closer than this (every one of them) = "speed moving"
+SPEED_MIN_STEPS = 3  # a run this long can count as "speed moving"
+MOVE_RUN_GAP_MS = 6000  # steps closer than this (and nothing else in between) are one run
+STEP_EXPECTED_S = 0.9  # fast-moving pace: expected seconds per step (run time = first→last step)
+REVISITS = 3  # standing on the same pano this many times is wasteful, always
+REVISIT_SLOW_MS = 5000  # ...but ONE return already counts if the previous visit was this long ago
+BACK_ANGLE = 120  # a single step turning more than this from the last run is "moving back"
 PAUSE_MS = 8000  # no action for this long (map closed) = stopped to look for clues
-ZOOM_RUN_GAP_MS = 1500  # zoom events closer than this are one zoom gesture
-ALIGN_MERGE_MS = 3000  # repeated align presses closer than this are one
-PIN_MERGE_MS = 3000  # pins placed closer than this are one
-MAP_OPEN_MIN_MS = 2000  # shorter map sessions (just confirming the guess) are not reported
-VERIFY_MIN_MS = 1000  # street view time after the last pin to count as verifying
-EXACT_PIN_KM = 2.0  # pin this close to the real spot = "exact"
 JUMP_M = (
     300  # pano-to-pano distance above this is a teleport (back to start / checkpoint), not a step
 )
 START_RETURN_M = 3.0  # a pano this close to the first one = went back to start
+
+# Map
+ZOOM_RUN_GAP_MS = 1500  # zoom events closer than this are one zoom gesture
+ZOOM_STEP_S = 0.275  # expected seconds per zoom level when zooming in properly
+ZOOM_SLOW_RATIO = 1.5  # a zoom taking this many times the expected time is "slow"
+OPEN_ZOOM_MS = 1500  # a zoom starting this soon after opening the map belongs to the opening
+STARE_EXPECTED_S = 10.0  # staring at the same zoom level for less than this is fine
+STARE_IDLE_GAP_MS = 2000  # a silence this long inside a map session counts as idle
+STARE_IDLE_SHARE = 0.5  # a stretch is a "stare" when at least this share of it was idle
+QUICK_MAP_MS = 3000  # open+close faster than this, with no pin and a ≤1 level zoom = wasted
+CLOSE_MERGE_MS = 6000  # "closed the map" folds into a step/align starting this soon after
+MAP_OPEN_MIN_MS = 2000  # a session doing nothing at all is only reported if it lasted this long
 SCAN_MIN_ZOOM = 6  # map zoom at which panning counts as searching
 SCAN_MIN_SAMPLES = 5  # pan events needed to call it a search
 SCAN_MAX_LOOKUPS = 40  # admin lookups per search (downsampled)
 SCAN_MAX_BOXES = 400  # viewport boxes kept per search (downsampled) before clipping
 FULL_COUNTRY_REGIONS = 4  # this many regions visited = scanning the whole country
+# How much of the country a map window covers (smaller side, vs the country's bounding box)
+FRAME_COUNTRY = 0.6  # at least this much = the view frames the whole country
+FRAME_REGION = 0.1  # at least this much = a region of it
+FRAME_CITY = 0.004  # at least this much = a city/close area, below that a point
+FRAME_WIDE = 2.5  # more than this = the view is much bigger than the country
+
+# Other
+ALIGN_MERGE_MS = 3000  # repeated align presses closer than this are one
+ALIGN_OPEN_MS = 4000  # the map opening this soon after an align belongs to that align
+PIN_MERGE_MS = 3000  # pins placed closer than this are one
+VERIFY_MIN_MS = 1000  # street view time after the last pin to count as verifying
+EXACT_PIN_KM = 0.025  # pin this close to the real spot = "exact" (25 m)
 
 # The minimap is a standard Web Mercator map (256 px tiles): the visible window is the viewport
 # in pixels converted back to degrees at the current zoom, so each zoom halves it.
@@ -51,10 +79,22 @@ _PRIORITY = {
     "align": 2,
     "pause": 2,
     "scan": 3,
+    "stare": 3,
     "pin": 4,
     "verify": 5,
     "guess": 6,
 }
+
+COMPASS = (
+    "north",
+    "northeast",
+    "east",
+    "southeast",
+    "south",
+    "southwest",
+    "west",
+    "northwest",
+)
 
 
 # ── Small helpers ───────────────────────────────────────────────────────────
@@ -65,9 +105,34 @@ def km_between(lat1, lng1, lat2, lng2) -> float:
     return 6371.0 * 2 * math.asin(min(1.0, math.sqrt(a)))
 
 
+def _bearing(lat1, lng1, lat2, lng2) -> float:
+    """Compass bearing in degrees (0 = north, 90 = east) from point 1 to point 2."""
+    p1, p2 = math.radians(lat1), math.radians(lat2)
+    dl = math.radians(lng2 - lng1)
+    y = math.sin(dl) * math.cos(p2)
+    x = math.cos(p1) * math.sin(p2) - math.sin(p1) * math.cos(p2) * math.cos(dl)
+    return (math.degrees(math.atan2(y, x)) + 360) % 360
+
+
+def _compass(deg: float) -> str:
+    return COMPASS[int((deg + 22.5) // 45) % 8]
+
+
+def _angle_diff(a: float, b: float) -> float:
+    d = abs(a - b) % 360
+    return 360 - d if d > 180 else d
+
+
+def _pano_key(p) -> tuple[float, float]:
+    return (round(p[1], 5), round(p[2], 5))
+
+
 def _level(zoom: int) -> str:
+    """Fallback level from the zoom number alone (used when the country's size is unknown)."""
     if zoom <= 3:
         return "world"
+    if zoom <= 4:
+        return "wide"
     if zoom <= 6:
         return "country"
     if zoom <= 9:
@@ -108,21 +173,37 @@ def _label(admin) -> str:
     return ", ".join(dict.fromkeys(p for p in parts if p))
 
 
+def _pin_place(admin, with_country: bool) -> str:
+    """City + state; the country only when the pin is in another one."""
+    if not admin:
+        return ""
+    parts = [admin.get("city"), admin.get("state")]
+    if with_country:
+        parts.append(admin.get("country"))
+    return ", ".join(dict.fromkeys(p for p in parts if p))
+
+
 def _short(admin, lat, lng) -> str:
     name = admin and (admin.get("city") or admin.get("state") or admin.get("country"))
     return name or f"{lat:.4f}, {lng:.4f}"
 
 
-def _level_place(level, admin, lat, lng) -> str:
+def _view_place(level, admin, lat, lng) -> str:
+    """Name of what a map window shows, at the level it frames."""
     if level == "world":
         return "the world view"
+    if level == "wide":
+        country = admin and admin.get("country")
+        return f"a wide area around {country}" if country else "a wide area"
     if level == "point":
         return f"the point {lat:.3f}, {lng:.3f}"
     if admin:
-        if level == "country" and admin.get("country"):
-            return admin["country"]
-        name = admin.get("state") if level == "region" else admin.get("city") or admin.get("state")
-        name = name or admin.get("country")
+        if level == "country":
+            name = admin.get("country")
+        elif level == "region":
+            name = admin.get("state") or admin.get("country")
+        else:
+            name = admin.get("city") or admin.get("state") or admin.get("country")
         if name:
             return name
     return f"the area around {lat:.2f}, {lng:.2f}"
@@ -142,6 +223,50 @@ def _last_before(samples, t):
     return None
 
 
+def _country_extent(countries_in, lat, lng):
+    """(code, width°, height°) of the bounding box of the country piece under the point, or None."""
+    if countries_in is None:
+        return None
+    try:
+        candidates = countries_in(lng - 0.02, lat - 0.02, lng + 0.02, lat + 0.02)
+    except Exception:  # noqa: BLE001
+        return None
+    pt = Point(lng, lat)
+    for code, geom in candidates:
+        try:
+            parts = list(geom.geoms) if hasattr(geom, "geoms") else [geom]
+            part = next((g for g in parts if g.intersects(pt)), None)
+        except Exception:  # noqa: BLE001
+            continue
+        if part is not None:
+            w, s, e, n = part.bounds
+            return code, max(e - w, 1e-6), max(n - s, 1e-6)
+    return None
+
+
+def _view_level(bbox, zoom, extent) -> str:
+    """What a map window frames: world / wide / country / region / city / point.
+
+    With the country's size known, it is decided by how much of the country the window covers
+    (a small country is framed at a higher zoom than a big one). Otherwise by zoom alone.
+    """
+    if zoom <= 3:
+        return "world"
+    if not extent:
+        return _level(zoom)
+    _, cw, ch = extent
+    share = min((bbox[2] - bbox[0]) / cw, (bbox[3] - bbox[1]) / ch)
+    if share > FRAME_WIDE:
+        return _level(zoom) if zoom > 4 else "wide"
+    if share >= FRAME_COUNTRY:
+        return "country"
+    if share >= FRAME_REGION:
+        return "region"
+    if share >= FRAME_CITY:
+        return "city"
+    return "point"
+
+
 # ── Event stream → raw structures ───────────────────────────────────────────
 def _parse(events):
     panos, aligns, pins, sessions, guess = [], [], [], [], None
@@ -159,9 +284,17 @@ def _parse(events):
             vp["zoom"] = p["zoom"]
         elif typ == "MapDisplay":
             if p.get("isActive") and cur is None:
-                cur = {"start": t, "end": None, "samples": [], "zooms": []}
+                cur = {
+                    "start": t,
+                    "end": None,
+                    "closed": False,
+                    "samples": [],
+                    "zooms": [],
+                    "open_view": dict(vp),  # where the map was when it was opened
+                }
             elif not p.get("isActive") and cur is not None:
                 cur["end"] = t
+                cur["closed"] = True
                 sessions.append(cur)
                 cur = None
         elif typ == "PanoPosition" and p.get("lat") is not None:
@@ -188,16 +321,22 @@ def _zoom_runs(zooms):
     return runs
 
 
+def _is_5k(km: float) -> bool:
+    return dist_to_score(km) >= 5000
+
+
 # ── Main entry ──────────────────────────────────────────────────────────────
 def analyze_round(events, real, result, locate, countries_in=None) -> list[dict]:
     """events: compressed replay. real: {lat,lng,country_code,country,state,city,place}.
     result: {score, distance_km}. locate(lat, lng) -> admin dict or None (offline lookup).
     countries_in(west, south, east, north) -> [(code, shapely geometry)] of the countries that
-    touch that box (offline lookup); used to clip searched areas to land. Optional.
+    touch that box (offline lookup); used to clip searched areas to land and to tell when a map
+    window frames a whole country. Optional.
     """
     if not events:
         return []
     cache: dict = {}
+    ext_cache: dict = {}
 
     def where(lat, lng):
         key = (round(lat, 3), round(lng, 3))
@@ -205,14 +344,29 @@ def analyze_round(events, real, result, locate, countries_in=None) -> list[dict]
             cache[key] = locate(lat, lng)
         return cache[key]
 
+    def extent(lat, lng):
+        key = (round(lat, 2), round(lng, 2))
+        if key not in ext_cache:
+            ext_cache[key] = _country_extent(countries_in, lat, lng)
+        return ext_cache[key]
+
     s = _parse(events)
     phases: list[dict] = []
 
     def add(t, kind, key, **data) -> None:
         phases.append({"t": t, "kind": kind, "key": key, **data})
 
-    # 1. Street view movement
-    panos = s["panos"]
+    panos, sessions, guess = s["panos"], s["sessions"], s["guess"]
+
+    # Pins closer together than PIN_MERGE_MS are one
+    pins: list = []
+    for t, lat, lng in s["pins"]:
+        if pins and t - pins[-1][0] <= PIN_MERGE_MS:
+            pins[-1] = (t, lat, lng)
+        else:
+            pins.append((t, lat, lng))
+
+    # 1. Street view movement ─────────────────────────────────────────────────
     if panos:
         first = panos[0]
         add(
@@ -221,121 +375,65 @@ def analyze_round(events, real, result, locate, countries_in=None) -> list[dict]
             "start",
             place=real["place"] or f"{real['lat']:.4f}, {real['lng']:.4f}",
         )
-        run: list = []
+        _movement(panos, s, guess, add)
 
-        def flush() -> None:
-            nonlocal run
-            if len(run) >= SPEED_MIN_STEPS:
-                t0, (t, lat, lng) = run[0][0], run[-1]
-                add(
-                    t0,
-                    "move",
-                    "speed_move",
-                    place=_short(where(lat, lng), lat, lng),
-                    steps=len(run),
-                    dur_ms=t - t0,
-                    lat=lat,
-                    lng=lng,
-                )
-            else:
-                for t, lat, lng in run:
-                    add(
-                        t, "move", "move", place=_short(where(lat, lng), lat, lng), lat=lat, lng=lng
-                    )
-            run = []
-
-        for pano in panos[1:]:
-            t, lat, lng = pano
-            if km_between(lat, lng, first[1], first[2]) * 1000 <= START_RETURN_M:
-                flush()
-                add(t, "move", "return_start")
-                continue
-            if run and t - run[-1][0] > SPEED_GAP_MS:
-                flush()
-            run.append(pano)
-        flush()
-
-    # 2. Map sessions: opening, zooming, searching
-    for sess in s["sessions"]:
-        if sess["end"] - sess["start"] >= MAP_OPEN_MIN_MS:
-            add(sess["start"], "map", "map_open", dur_ms=sess["end"] - sess["start"])
-        runs = _zoom_runs(sess["zooms"])
-        for r in runs:
-            if r["z1"] == r["z0"]:
-                continue
-            c = _last_before(sess["samples"], r["t1"])
-            level = _level(r["z1"])
-            admin = where(c[1], c[2]) if c else None
-            place = _level_place(level, admin, *(c[1:3] if c else (0, 0))) if c else "the map"
-            # The map window at the end of the zoom, so the event can be graded by what it showed.
-            view = (
-                {"view_boxes": [_viewport_bbox(c[1], c[2], r["z1"])], "zoom": r["z1"]} if c else {}
-            )
-            add(
-                r["t0"],
-                "zoom",
-                "zoom_in" if r["z1"] > r["z0"] else "zoom_out",
-                place=place,
-                level=level,
-                **view,
-            )
-        windows = [(r["t0"], r["t1"]) for r in runs]
-        pans = [
-            p
-            for p in sess["samples"]
-            if p[3] is not None
-            and p[3] >= SCAN_MIN_ZOOM
-            and not any(a <= p[0] <= b for a, b in windows)
-        ]
-        if len(pans) >= SCAN_MIN_SAMPLES:
-            add(pans[0][0], "scan", **_scan(pans, real, where, countries_in))
+    # 2. Map sessions: zooming, staring, searching ────────────────────────────
+    for sess in sessions:
+        _map_session(sess, s, pins, guess, real, add, where, extent, countries_in)
 
     # 3. Aligning
     last = -(10**9)
+    nth_at: Counter = Counter()
     for t, vp in s["aligns"]:
         merged = t - last <= ALIGN_MERGE_MS
         last = t
         if merged:
             continue
+        pano = _last_before(panos, t)
+        at_spawn = bool(
+            pano and km_between(pano[1], pano[2], panos[0][1], panos[0][2]) * 1000 <= START_RETURN_M
+        )
+        spot = "spawn" if at_spawn else (_pano_key(pano) if pano else None)
+        nth_at[spot] += 1
+        nth = nth_at[spot]
         key, place = "align", ""
         zoom = vp["zoom"] or 0
-        if vp["lat"] is not None and zoom >= 7:
+        if not at_spawn and nth == 1 and vp["lat"] is not None and zoom >= 7:
             a = where(vp["lat"], vp["lng"])
             if a and a.get("country_code") == real["country_code"]:
                 if zoom >= 10 and real["city"] and a.get("city") == real["city"]:
                     key, place = "align_city", real["city"]
                 elif real["state"] and a.get("state") == real["state"]:
                     key, place = "align_region", real["state"]
-        add(t, "align", key, place=place)
+        then_open = any(0 < x["start"] - t <= ALIGN_OPEN_MS for x in sessions)
+        add(t, "align", key, place=place, nth=nth, at_spawn=at_spawn, then_open=then_open)
 
     # 4. Pauses in street view
     acts = {t for t, _, _ in panos} | {t for t, _ in s["aligns"]} | {t for t, _, _ in s["pins"]}
-    acts |= {x["start"] for x in s["sessions"]} | {x["end"] for x in s["sessions"]}
-    if s["guess"]:
-        acts.add(s["guess"][0])
+    acts |= {x["start"] for x in sessions} | {x["end"] for x in sessions}
+    if guess:
+        acts.add(guess[0])
     ordered = sorted(acts)
     for a, b in itertools.pairwise(ordered):
-        if b - a >= PAUSE_MS and not any(x["start"] <= a < x["end"] for x in s["sessions"]):
+        if b - a >= PAUSE_MS and not any(x["start"] <= a < x["end"] for x in sessions):
             add(a, "pause", "pause", dur_ms=b - a)
 
-    # 5. Pins, verification, guess
-    pins: list = []
-    for t, lat, lng in s["pins"]:
-        if pins and t - pins[-1][0] <= PIN_MERGE_MS:
-            pins[-1] = (t, lat, lng)
-        else:
-            pins.append((t, lat, lng))
+    # 5. Pins
+    prev_d = None
     for t, lat, lng in pins:
         d = km_between(lat, lng, real["lat"], real["lng"])
         a = where(lat, lng)
-        if d <= EXACT_PIN_KM:
-            cls = "exact"
-        elif (
+        wrong_country = bool(
             a
             and a.get("country_code")
             and real["country_code"]
             and a["country_code"] != real["country_code"]
-        ):
+        )
+        if d <= EXACT_PIN_KM:
+            cls = "exact"
+        elif _is_5k(d):
+            cls = "5k"
+        elif wrong_country:
             cls = "wrong_country"
         elif a and real["state"] and a.get("state") and a["state"] != real["state"]:
             cls = "wrong_region"
@@ -343,32 +441,295 @@ def analyze_round(events, real, result, locate, countries_in=None) -> list[dict]
             cls = "right_region"
         else:
             cls = "off"
+        place = (_label(a) if cls == "exact" else _pin_place(a, wrong_country)) or (
+            f"{lat:.3f}, {lng:.3f}"
+        )
         add(
             t,
             "pin",
             f"pin_{cls}",
-            place=_label(a) or f"{lat:.3f}, {lng:.3f}",
+            place=place,
             dist_km=d,
+            prev_dist_km=prev_d,
             lat=lat,
             lng=lng,
         )
+        prev_d = d
 
-    g = s["guess"]
-    if pins and g:
+    # 6. Verification and guess
+    if pins and guess:
         pin_t = pins[-1][0]
-        back = [t for t, _, _ in panos if pin_t < t < g[0]] + [
-            t for t, _ in s["aligns"] if pin_t < t < g[0]
+        # Steps taken after the last pin are the player validating it.
+        for p in phases:
+            if p["kind"] == "move" and p["key"] in {"move", "run", "speed_move"}:
+                if pin_t < p["t"] < guess[0]:
+                    p["key"] = "verify_move"
+        has_verify_move = any(p["key"] == "verify_move" for p in phases)
+        back = [t for t, _, _ in panos if pin_t < t < guess[0]] + [
+            t for t, _ in s["aligns"] if pin_t < t < guess[0]
         ]
-        if back and g[0] - pin_t >= VERIFY_MIN_MS:
-            exact = phases and any(p["key"] == "pin_exact" and p["t"] == pin_t for p in phases)
-            add(pin_t, "verify", "verify_exact" if exact else "verify_other", dur_ms=g[0] - pin_t)
-    if g:
-        add(g[0], "guess", "guess", score=result["score"], dist_km=result["distance_km"])
+        if back and guess[0] - pin_t >= VERIFY_MIN_MS and not has_verify_move:
+            exact = any(p["key"] in {"pin_exact", "pin_5k"} and p["t"] == pin_t for p in phases)
+            add(
+                pin_t,
+                "verify",
+                "verify_exact" if exact else "verify_other",
+                dur_ms=guess[0] - pin_t,
+            )
+    if guess:
+        add(guess[0], "guess", "guess", score=result["score"], dist_km=result["distance_km"])
     else:
         add(events[-1]["time"], "guess", "no_guess")
 
     phases.sort(key=lambda p: (p["t"], _PRIORITY.get(p["kind"], 5)))
-    return phases
+    return _fold_map_close(phases)
+
+
+def _fold_map_close(phases: list[dict]) -> list[dict]:
+    """ "Closed the map" is folded into the single step / align that follows it right away.
+    Alone it is only kept for map sessions where nothing was pinned.
+    """
+    out = []
+    for i, p in enumerate(phases):
+        if p["key"] != "map_close":
+            out.append(p)
+            continue
+        nxt = phases[i + 1] if i + 1 < len(phases) else None
+        if (
+            nxt
+            and nxt["t"] - p["t"] <= CLOSE_MERGE_MS
+            and (nxt["key"] == "move" or nxt["kind"] == "align")
+        ):
+            nxt["after_close"] = True
+            continue
+        if p["show"]:
+            out.append(p)
+    return out
+
+
+# ── Street view movement ────────────────────────────────────────────────────
+def _movement(panos, s, guess, add) -> None:
+    """Group steps into runs and describe each: heading, speed, revisits, going back to spawn."""
+    first = panos[0]
+    cuts = sorted(
+        {x["start"] for x in s["sessions"]}
+        | {x["end"] for x in s["sessions"]}
+        | {t for t, _ in s["aligns"]}
+        | {t for t, _, _ in s["pins"]}
+        | ({guess[0]} if guess else set()),
+    )
+
+    def acted_between(a, b) -> bool:
+        i = bisect.bisect_right(cuts, a)
+        return i < len(cuts) and cuts[i] < b
+
+    visits: dict = {_pano_key(first): [first[0]]}
+    state = {"runs": 0, "bearing": None}
+    cur: dict | None = None
+    prev_pano = first
+    spawn_visits = 1
+
+    def flush() -> None:
+        nonlocal cur
+        if not cur:
+            return
+        items, prev = cur["items"], cur["prev"]
+        n, last = len(items), items[-1]
+        bearing = _bearing(prev[1], prev[2], last[1], last[2])
+        direction = _compass(bearing)
+        wasteful = sum(1 for it in items if it[3])
+        span = last[0] - items[0][0]
+        common = {
+            "steps": n,
+            "direction": direction,
+            "lat": last[1],
+            "lng": last[2],
+            "dur_ms": span,
+        }
+        t0 = items[0][0]
+        if wasteful >= 2:
+            loop = _pano_key(last) == _pano_key(prev)
+            add(t0, "move", "erratic", wasteful=wasteful, loop=loop, **common)
+        elif n == 1 and wasteful == 1:
+            add(t0, "move", "move_revisit", **common)
+        elif n == 1:
+            back = (
+                state["bearing"] is not None and _angle_diff(bearing, state["bearing"]) > BACK_ANGLE
+            )
+            add(t0, "move", "move", back=back, **common)
+        else:
+            expected = STEP_EXPECTED_S * 1000 * n
+            gaps = [b[0] - a[0] for a, b in itertools.pairwise(items)]
+            speed = n >= SPEED_MIN_STEPS and max(gaps) <= SPEED_GAP_MS
+            add(
+                t0,
+                "move",
+                "speed_move" if speed else "run",
+                started=state["runs"] == 0,
+                expected_ms=expected,
+                ratio=span / expected,
+                **common,
+            )
+        state["runs"] += 1
+        state["bearing"] = bearing
+        cur = None
+
+    for pano in panos[1:]:
+        t, lat, lng = pano
+        if km_between(lat, lng, first[1], first[2]) * 1000 <= START_RETURN_M:
+            flush()
+            spawn_visits += 1
+            add(t, "move", "return_start", visit=spawn_visits)
+            prev_pano = pano
+            continue
+        seen = visits.setdefault(_pano_key(pano), [])
+        k = len(seen) + 1
+        wasteful = k >= REVISITS or (k >= 2 and t - seen[-1] > REVISIT_SLOW_MS)
+        seen.append(t)
+        if cur and (
+            t - cur["items"][-1][0] > MOVE_RUN_GAP_MS or acted_between(cur["items"][-1][0], t)
+        ):
+            flush()
+        if cur is None:
+            cur = {"prev": prev_pano, "items": []}
+        cur["items"].append((t, lat, lng, wasteful))
+        prev_pano = pano
+    flush()
+
+
+# ── Map sessions ────────────────────────────────────────────────────────────
+def _map_session(sess, s, pins, guess, real, add, where, extent, countries_in) -> None:
+    start, end = sess["start"], sess["end"]
+    dur = end - start
+    runs = _zoom_runs(sess["zooms"])
+    pins_in = [p for p in s["pins"] if start <= p[0] <= end]
+    guess_in = bool(guess and start <= guess[0] <= end)
+    quiet = not pins_in and not guess_in
+
+    # Opened and closed in a blink without doing anything useful
+    if (
+        sess["closed"]
+        and quiet
+        and dur < QUICK_MAP_MS
+        and len(runs) <= 1
+        and all(abs(r["z1"] - r["z0"]) <= 1 for r in runs)
+    ):
+        zdir = ""
+        if runs and runs[0]["z1"] != runs[0]["z0"]:
+            zdir = "in" if runs[0]["z1"] > runs[0]["z0"] else "out"
+        add(start, "map", "quick_map", zoom_dir=zdir, dur_ms=dur)
+        return
+
+    open_view = sess["open_view"]
+    emitted = False
+
+    def view_at(c, zoom):
+        """(place, level, view dict) of the map window centered on sample c at `zoom`."""
+        bx = _viewport_bbox(c[1], c[2], zoom)
+        level = _view_level(bx, zoom, extent(c[1], c[2]))
+        place = _view_place(level, where(c[1], c[2]), c[1], c[2])
+        return (
+            place,
+            level,
+            {
+                "view_boxes": [bx],
+                "zoom": zoom,
+                "level": level,
+                "center": (c[1], c[2]),
+            },
+        )
+
+    # Zoom gestures
+    for i, r in enumerate(runs):
+        if r["z1"] == r["z0"]:
+            continue
+        c = _last_before(sess["samples"], r["t1"])
+        if c is None and open_view["lat"] is not None:
+            c = (start, open_view["lat"], open_view["lng"], open_view["zoom"])
+        zin = r["z1"] > r["z0"]
+        place, level, view = view_at(c, r["z1"]) if c else ("the map", "", {})
+        if zin:
+            expected = ZOOM_STEP_S * 1000 * (r["z1"] - r["z0"] + 1)
+            actual = r["t1"] - r["t0"]
+            ratio = actual / expected
+        else:
+            expected = actual = ratio = 0
+        if zin and ratio >= ZOOM_SLOW_RATIO and c:
+            add(
+                r["t0"],
+                "zoom",
+                "zoom_start",
+                place=place,
+                level=level,
+                ratio=ratio,
+                expected_ms=expected,
+                dur_ms=actual,
+                opened=i == 0 and r["t0"] - start <= OPEN_ZOOM_MS,
+            )
+            add(r["t1"], "zoom", "zoom_end", place=place, **view)
+        else:
+            add(r["t0"], "zoom", "zoom_in" if zin else "zoom_out", place=place, **view)
+        emitted = True
+
+    # Staring: long stretches at one zoom level where almost nothing happens
+    windows = [(r["t0"], r["t1"]) for r in runs]
+    bounds, prev_end = [], start
+    for a, b in windows:
+        bounds.append((prev_end, a))
+        prev_end = b
+    bounds.append((prev_end, end))
+    stare_spans = []
+    for a, b in bounds:
+        total = b - a
+        if total < STARE_EXPECTED_S * 1000:
+            continue
+        stamps = [a, *sorted(x[0] for x in sess["samples"] if a < x[0] < b), b]
+        idle = sum(y - x for x, y in itertools.pairwise(stamps) if y - x >= STARE_IDLE_GAP_MS)
+        if idle < STARE_IDLE_SHARE * total:
+            continue
+        zoom = next((r["z1"] for r in reversed(runs) if r["t1"] <= a), open_view["zoom"])
+        c = _last_before(sess["samples"], b)
+        if c is None and open_view["lat"] is not None:
+            c = (start, open_view["lat"], open_view["lng"], zoom)
+        if zoom is None or c is None:
+            continue
+        place, level, _ = view_at(c, zoom)
+        data = {"place": place, "level": level, "ratio": total / (STARE_EXPECTED_S * 1000)}
+        inside = [
+            x
+            for x in sess["samples"]
+            if a <= x[0] <= b and x[3] is not None and x[3] >= SCAN_MIN_ZOOM
+        ]
+        boxes = list(
+            dict.fromkeys(
+                tuple(round(v, 4) for v in _viewport_bbox(x[1], x[2], x[3])) for x in inside
+            ),
+        )
+        if boxes:
+            data["areas"] = _clip_boxes(_downsample(boxes, SCAN_MAX_BOXES), countries_in)
+        add(a, "stare", "stare", dur_ms=total, **data)
+        stare_spans.append((a, b))
+        emitted = True
+
+    # Searching: panning around at a useful zoom
+    pans = [
+        p
+        for p in sess["samples"]
+        if p[3] is not None
+        and p[3] >= SCAN_MIN_ZOOM
+        and not any(a <= p[0] <= b for a, b in windows)
+        and not any(a <= p[0] <= b for a, b in stare_spans)
+    ]
+    if len(pans) >= SCAN_MIN_SAMPLES:
+        add(pans[0][0], "scan", **_scan(pans, real, where, countries_in))
+        emitted = True
+
+    # A session that did nothing we can name
+    if not emitted and quiet and dur >= MAP_OPEN_MIN_MS:
+        add(start, "map", "map_open", dur_ms=dur)
+        return
+    if sess["closed"]:
+        add(end, "map", "map_close", show=quiet)
 
 
 def _safe_intersection(a, geom):
@@ -441,6 +802,7 @@ def _scan(pans, real, where, countries_in=None) -> dict:
         # Every map window seen during the search (west, south, east, north), for grading.
         "view_boxes": boxes,
         "zoom": max(z for _, _, _, z in pans),
+        "center": (pans[len(pans) // 2][1], pans[len(pans) // 2][2]),
     }
     if len(countries) >= 2:
         base.update(

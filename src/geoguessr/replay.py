@@ -29,11 +29,19 @@ async def fetch_replay(
     return r.json()
 
 
+def _is_align(payload: dict) -> bool:
+    """The align hotkey looks north (heading 0 OR 360, GeoGuessr sends both) and straight down."""
+    heading, pitch = payload.get("heading"), payload.get("pitch")
+    if not isinstance(heading, int | float) or not isinstance(pitch, int | float):
+        return False
+    return heading % 360 == 0 and pitch == -89
+
+
 def compress_replay(events: list[dict]) -> list[dict]:
     """Rewrite absolute (epoch ms) timestamps as milliseconds relative to
     this replay's own first event. Collapses consecutive PanoPov/PanoZoom
     into deduped 'Deliberating' markers (no payload), except a PanoPov at
-    heading=0, pitch=-89 (north + ground, the align hotkey), which is kept
+    heading=0 (or 360), pitch=-89 (north + ground, the align hotkey), which is kept
     as a single 'Aligning' event. Strips panoId from PanoPosition.
     Everything else (MapPosition, MapZoom, MapDisplay, PinPosition,
     GuessWithLatLng, ...) is kept verbatim aside from the relative timestamp.
@@ -50,7 +58,7 @@ def compress_replay(events: list[dict]) -> list[dict]:
 
         if etype == "PanoPov":
             payload = ev.get("payload") or {}
-            if payload.get("heading") == 0 and payload.get("pitch") == -89:
+            if _is_align(payload):
                 compressed.append({"time": rel_time_ms, "type": "Aligning"})
                 continue
 
