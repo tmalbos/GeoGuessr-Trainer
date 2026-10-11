@@ -3,23 +3,28 @@ import Flag from "../../components/Flag.jsx";
 import { api } from "../../lib/api.js";
 import CountryMap from "./CountryMap.jsx";
 import CountryStats from "./CountryStats.jsx";
+import DrivingSide from "./DrivingSide.jsx";
 import { loadWorld } from "./geo.js";
 import SECTIONS from "./sections.js";
 
 const Pencil = () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
   <path d="M12 20h9" /><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" /></svg>;
 
+const NO_INFO = { domain: "", side: null, currencies: [] };
+
 export default function Country({ id, section, onSection, onBack, backLabel = "World map" }) {
   const [name, setName] = useState("");
   const [editing, setEditing] = useState(false);
-  const [domain, setDomain] = useState("");
+  const [info, setInfo] = useState(NO_INFO);
 
   useEffect(() => {
     let off = false;
     setName("");
     setEditing(false);
-    setDomain("");
-    api(`/countries/${id}/domain`).then((d) => !off && setDomain(d.domain ?? "")).catch(() => {});
+    setInfo(NO_INFO);
+    api(`/countries/${id}/info`)
+      .then((d) => !off && setInfo({ domain: d.domain ?? "", side: d.driving_side, currencies: d.currencies ?? [] }))
+      .catch(() => {});
     loadWorld().then((w) => !off && setName(w.byId[id]?.name ?? id)).catch(() => !off && setName(id));
     return () => { off = true; };
   }, [id]);
@@ -46,7 +51,9 @@ export default function Country({ id, section, onSection, onBack, backLabel = "W
       <div className="cp-top">
         <div className="cp-id">
           <Flag code={id} width={56} />
-          {domain && <span className="cp-tld" title="Internet domain">{domain}</span>}
+          {info.domain && <span className="cp-tld" title="Internet domain">{info.domain}</span>}
+          <DrivingSide side={info.side} />
+          {info.currencies.length > 0 && <span className="cp-cur">{info.currencies.join(" · ")}</span>}
         </div>
         <button type="button" className={`btn ghost cp-edit ${editing ? "on" : ""}`} aria-pressed={editing}
           aria-label={editing ? "Exit edit mode" : `Edit ${title} clues`} title={editing ? "Exit edit mode" : "Edit clues"}

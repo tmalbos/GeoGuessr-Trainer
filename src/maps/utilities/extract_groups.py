@@ -71,7 +71,7 @@ def load(path):
 
 divisions, groups = load(sys.argv[1]), load(sys.argv[2])
 
-THRESHOLD = 0.8
+THRESHOLD = 0.69
 rows = []
 for name, shape in divisions.items():
     group = max(groups, key=lambda g: shape.intersection(groups[g]).area)

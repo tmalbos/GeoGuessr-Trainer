@@ -27,9 +27,12 @@ main.bleed { padding: 0; height: 100vh; overflow: hidden; }
 .cp-side { min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 16px;
   padding: 24px 20px 24px; background: #090c11; border-left: 1px solid var(--line); }
 .cp-back { align-self: flex-start; padding: 6px 12px; }
-.cp-id { display: flex; align-items: center; gap: 14px; }
+/* Flag, domain, driving side and currency. Wraps to a second line when the sidebar is narrow. */
+.cp-id { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; min-width: 0; }
 .cp-id h2 { margin: 0; font-size: 26px; line-height: 1.15; }
 .cp-id .flag { border-radius: 3px; flex-shrink: 0; }
+.cp-road { display: block; flex-shrink: 0; filter: drop-shadow(0 2px 6px rgba(0,0,0,.5)); }
+.cp-cur { font-size: 22px; font-weight: 800; letter-spacing: -.02em; }
 .cp-tabs { margin: 0; }
 
 .cm { margin-top: 4px; }

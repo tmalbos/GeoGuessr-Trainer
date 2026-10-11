@@ -37,13 +37,14 @@ CREATE TYPE plate_shape AS ENUM ('wide', 'short', 'tall', 'standard');
 
 -- 1. STRONG ENTITIES (No dependencies)
 CREATE TABLE country (
-    code         CHAR(2)     PRIMARY KEY,
-    continent    continents  NOT NULL,
-    name         VARCHAR(60) UNIQUE NOT NULL,
-    flag_url     CHAR(31)    UNIQUE NOT NULL,
-    web_domain   CHAR(3)     UNIQUE NOT NULL,
-    capital      VARCHAR(30),
-    driving_side CHAR(1)     NOT NULL CHECK (driving_side IN ('L', 'R'))
+    code           CHAR(2)     PRIMARY KEY,
+    continent      continents  NOT NULL,
+    name           VARCHAR(60) UNIQUE NOT NULL,
+    flag_url       CHAR(31)    UNIQUE NOT NULL,
+    web_domain     CHAR(3)     UNIQUE NOT NULL,
+    capital        VARCHAR(30),
+    driving_side   CHAR(1)     NOT NULL CHECK (driving_side IN ('L', 'R')),
+    currency_symbols TEXT[]    -- e.g. {'$'}, filled by scripts/fill_currencies.py
 );
 
 CREATE TABLE biome (
