@@ -54,6 +54,7 @@ class LocalGeo:
         self.urban = None
         self.countries = None
         self._admin: dict[str, gpd.GeoDataFrame | None] = {}
+        self._bounds: dict[tuple[str, str], tuple | None] = {}
         self._lock = threading.Lock()
 
     def _read(self, name: str, required: bool = True):
@@ -107,6 +108,31 @@ class LocalGeo:
             "subregion": sub,
             "city": _s(layer["city"].iat[ai]) or "",
         }
+
+    def admin_at(self, lat: float, lon: float) -> dict | None:
+        """Admin lookup only (no biome / urban work). None when the point isn't covered locally."""
+        return self._locate_admin(Point(lon, lat))
+
+    def region_bounds(self, code: str, state: str) -> tuple | None:
+        """(west, south, east, north) of a country's first-level division, or None if unknown.
+
+        Built from the bounding box of the admin rows with that state name; cached per region,
+        so the expensive part runs once per region for the life of the server.
+        """
+        if not code or not state:
+            return None
+        key = (code, state)
+        if key in self._bounds:
+            return self._bounds[key]
+        layer = self._admin_layer(code)
+        result = None
+        if layer is not None and "state" in layer.columns:
+            sub = layer[layer["state"] == state]
+            if not sub.empty:
+                west, south, east, north = (float(v) for v in sub.total_bounds)
+                result = (west, south, east, north)
+        self._bounds[key] = result
+        return result
 
     def _biome(self, point: Point) -> str:
         idxs = self.biomes.sindex.query(point, predicate="intersects")

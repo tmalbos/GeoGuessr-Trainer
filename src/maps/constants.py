@@ -50,6 +50,7 @@ COUNTRIES_COLORS = {
     "Latvia": {"water_color": "#86D7EB", "land_color": "#B0EFCA"},
     "Lithuania": {"water_color": "#86D7EB", "land_color": "#CEF5DF"},
     "Luxembourg": {"water_color": "#91D1E3", "land_color": "#CAEDD8"},
+    "Macedonia": {"water_color": "#8BD8ED", "land_color": "#D0F7E1"},
     "Malaysia": {"water_color": "#81D5E9", "land_color": "#A3E9C6"},
     "Mexico": {"water_color": "#77D3E7", "land_color": "#BAEBD6"},
     "Montenegro": {"water_color": "#8BD8ED", "land_color": "#D0F7E1"},

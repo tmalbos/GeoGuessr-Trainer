@@ -10,7 +10,7 @@ Three families of events are graded:
      actual time / expected time, and the same ladder is used everywhere:
          < 1.25 best · < 1.5 excellent · < 1.75 good · < 2 inaccuracy · < 3 mistake · else blunder
      Applies to step runs (expected = STEP_EXPECTED_S per step) and slow zooms
-     (expected = ZOOM_STEP_S per zoom level). Staring at one zoom level is the same ladder turned
+     (expected = ZOOM_STEP_S per zoom level, graded on its own "zoom_speed" event). Staring at one zoom level is the same ladder turned
      around (more time = worse, and only from 1.5x the expected 10 s). Also graded here:
      pointless open/close of the map, erratic revisits, going back to spawn for the 3rd time.
 
@@ -24,6 +24,8 @@ Three families of events are graded:
      distance. "Miss" = the player had the real spot in view (or a close pin) and moved away.
      To avoid noise, a good/excellent/best mark is not repeated while the player keeps being
      "as good as before": it only shows again if the grade changes or the view/pin got more precise.
+     A HESITATION (the map's focus moves to another country) is graded by where the new focus
+     sits: moving to the real country is not graded, moving to another one is an error grade.
 
   3. THE GUESS ITSELF, graded by its score.
 """
@@ -98,7 +100,7 @@ def _error_grade(score: int) -> str:
 def _grade_efficiency(phases: list[dict]) -> None:
     for p in phases:
         key = p["key"]
-        if key in {"run", "speed_move", "zoom_start"}:
+        if key in {"run", "speed_move", "zoom_speed"}:
             p["grade"] = ratio_grade(p["ratio"])
         elif key == "stare":
             p["grade"] = _stare_grade(p["ratio"])
@@ -199,6 +201,16 @@ def _grade_map(phases: list[dict], panos: list, t0: float, real: dict, locate) -
             p["grade"] = grade
             prev_pin = {"km": km, "score": s}
             last_pin_pt = point
+        elif kind == "hesitate":
+            # The map's focus moved to another country. Back to the real one is fine;
+            # anywhere else is graded by how far the new focus is from the real spot.
+            if p.get("to_real"):
+                grade = ""
+            else:
+                km = km_between(p["lat"], p["lng"], real["lat"], real["lng"])
+                grade = _error_grade(score_at(km, (p["lat"], p["lng"])))
+            p["grade"] = grade
+            prev_view_hit = False
         elif kind in {"zoom", "scan"} and p.get("view_boxes"):
             near, far = _view_extent(p["view_boxes"], real)
             near_km = near[0]

@@ -11,11 +11,22 @@ import "./replay-report.css";
 const Grade = ({ id, count }) => <span className="rr-grade" style={{ "--h": GRADES[id].hue }}>
   <GradeIcon id={id} size={16} /> {GRADES[id].label}{count > 1 && ` ×${count}`}</span>;
 
+// "12.4s" under a minute, "1m 05s" above.
+const saved = (ms) => {
+  if (ms < 60000) return `${(ms / 1000).toFixed(1)}s`;
+  const s = Math.round(ms / 1000);
+  return `${Math.floor(s / 60)}m ${String(s % 60).padStart(2, "0")}s`;
+};
+const SAVE_HINT = "Time you lose by moving or zooming slower than an efficient player would";
+const SAVE_STYLE = { color: "var(--sand)", fontWeight: 600 };
+
 function Summary({ s }) {
   if (!s.rounds_with_replay) return null;
   return <section className="card rr-sum">
     <StageBars steps={s.steps} timeMs={s.time_ms} size="lg" />
     {s.grades.length > 0 && <div className="rr-grades">{s.grades.map((g) => <Grade key={g.grade} id={g.grade} count={g.count} />)}</div>}
+    {s.time_saved_ms > 0 && <p style={{ margin: 0 }} title={SAVE_HINT}>
+      <span style={SAVE_STYLE}>⏱ {saved(s.time_saved_ms)}</span> <span className="muted">could have been saved with efficient movement and zooming</span></p>}
     {s.rounds_with_replay < s.rounds_total && <p className="muted" style={{ margin: 0 }}>
       Steps and time cover {s.rounds_with_replay} of {s.rounds_total} rounds (the rest have no replay).</p>}
   </section>;
@@ -29,6 +40,7 @@ function Round({ r }) {
       <b>Round {r.round_number}</b>
       <span className="rr-score" style={{ color: tone(r.score) }}>{num(r.score)} pts</span>
       <span className="muted">{num(r.distance_km)} km · {time(r.time_sec)} · {r.steps} steps</span>
+      {st && r.time_saved_ms > 0 && <span style={SAVE_STYLE} title={SAVE_HINT}>⏱ {saved(r.time_saved_ms)} could have been saved</span>}
     </div>
     <div className="rr-body">
       <div className="rr-main">

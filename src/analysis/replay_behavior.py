@@ -14,18 +14,20 @@ import shapely
 from shapely.geometry import Point, box
 from shapely.ops import unary_union
 
+from src.analysis.region_position import parts_text, position_in_box
 from src.analysis.scoring import dist_to_score
+from src.geo.admin_terms import UNKNOWN_PLACE, admin_term, with_term
 
 # ── Tunables ────────────────────────────────────────────────────────────────
 # Street view movement
 SPEED_GAP_MS = 900  # steps closer than this (every one of them) = "speed moving"
 SPEED_MIN_STEPS = 3  # a run this long can count as "speed moving"
-MOVE_RUN_GAP_MS = 6000  # steps closer than this (and nothing else in between) are one run
+MOVE_RUN_GAP_MS = 5000  # steps closer than this (and nothing else in between) are one run
 STEP_EXPECTED_S = 0.9  # fast-moving pace: expected seconds per step (run time = first→last step)
 REVISITS = 3  # standing on the same pano this many times is wasteful, always
 REVISIT_SLOW_MS = 5000  # ...but ONE return already counts if the previous visit was this long ago
 BACK_ANGLE = 120  # a single step turning more than this from the last run is "moving back"
-PAUSE_MS = 8000  # no action for this long (map closed) = stopped to look for clues
+PAUSE_MS = 5000  # no action for this long (map closed) = stopped to look for clues
 JUMP_M = (
     300  # pano-to-pano distance above this is a teleport (back to start / checkpoint), not a step
 )
@@ -36,6 +38,7 @@ ZOOM_RUN_GAP_MS = 1500  # zoom events closer than this are one zoom gesture
 ZOOM_STEP_S = 0.275  # expected seconds per zoom level when zooming in properly
 ZOOM_SLOW_RATIO = 1.5  # a zoom taking this many times the expected time is "slow"
 OPEN_ZOOM_MS = 1500  # a zoom starting this soon after opening the map belongs to the opening
+OPEN_STEP_MS = 1500  # a single step this soon after the map opened is "while opening the map"
 STARE_EXPECTED_S = 10.0  # staring at the same zoom level for less than this is fine
 STARE_IDLE_GAP_MS = 2000  # a silence this long inside a map session counts as idle
 STARE_IDLE_SHARE = 0.5  # a stretch is a "stare" when at least this share of it was idle
@@ -43,10 +46,17 @@ QUICK_MAP_MS = 3000  # open+close faster than this, with no pin and a ≤1 level
 CLOSE_MERGE_MS = 6000  # "closed the map" folds into a step/align starting this soon after
 MAP_OPEN_MIN_MS = 2000  # a session doing nothing at all is only reported if it lasted this long
 SCAN_MIN_ZOOM = 6  # map zoom at which panning counts as searching
+FOCUS_MIN_ZOOM = 8  # map zoom at which the view is about one country: only then it has a "focus"
 SCAN_MIN_SAMPLES = 5  # pan events needed to call it a search
 SCAN_MAX_LOOKUPS = 40  # admin lookups per search (downsampled)
 SCAN_MAX_BOXES = 400  # viewport boxes kept per search (downsampled) before clipping
 FULL_COUNTRY_REGIONS = 4  # this many regions visited = scanning the whole country
+# Focus: which country the map is centered on. A change of country is a "hesitation".
+FOCUS_MIN_MS = 1200  # a country must hold the map this long (unless it is the last) to count
+FOCUS_MAX_LOOKUPS = 120  # country lookups per map session (downsampled)
+HESITATE_MERGE_MS = (
+    1500  # a zoom out this close before a change of focus counts as part of the hesitation
+)
 # How much of the country a map window covers (smaller side, vs the country's bounding box)
 FRAME_COUNTRY = 0.6  # at least this much = the view frames the whole country
 FRAME_REGION = 0.1  # at least this much = a region of it
@@ -59,11 +69,16 @@ ALIGN_OPEN_MS = 4000  # the map opening this soon after an align belongs to that
 PIN_MERGE_MS = 3000  # pins placed closer than this are one
 VERIFY_MIN_MS = 1000  # street view time after the last pin to count as verifying
 EXACT_PIN_KM = 0.025  # pin this close to the real spot = "exact" (25 m)
+RIGHT_REGION_KM = 20.0  # a pin this close to the real spot is "the right region" (by distance only)
+TIMEOUT_GRACE_MS = 750  # a guess this close to (or past) the time limit means time ran out
 
 # The minimap is a standard Web Mercator map (256 px tiles): the visible window is the viewport
 # in pixels converted back to degrees at the current zoom, so each zoom halves it.
 # MAP_PX was measured in-game: at every zoom from 3 to 9 the visible extent matches 1245x775 px.
-MAP_PX = (1245, 775)
+MAP_VIEW_SCALE = (
+    0.6  # only the middle of the minimap really counts: shrink the "seen" window by 40%
+)
+MAP_PX = (1245 * MAP_VIEW_SCALE, 775 * MAP_VIEW_SCALE)
 TILE_PX = 256
 MAX_LAT = 85.0511  # Web Mercator limit
 
@@ -78,6 +93,7 @@ _PRIORITY = {
     "move": 1,
     "align": 2,
     "pause": 2,
+    "hesitate": 2,
     "scan": 3,
     "stare": 3,
     "pin": 4,
@@ -183,20 +199,13 @@ def _pin_place(admin, with_country: bool) -> str:
     return ", ".join(dict.fromkeys(p for p in parts if p))
 
 
-def _short(admin, lat, lng) -> str:
-    name = admin and (admin.get("city") or admin.get("state") or admin.get("country"))
-    return name or f"{lat:.4f}, {lng:.4f}"
-
-
 def _view_place(level, admin, lat, lng) -> str:
-    """Name of what a map window shows, at the level it frames."""
+    """Name of what a map window shows, at the level it frames. Never coordinates."""
     if level == "world":
         return "the world view"
     if level == "wide":
         country = admin and admin.get("country")
         return f"a wide area around {country}" if country else "a wide area"
-    if level == "point":
-        return f"the point {lat:.3f}, {lng:.3f}"
     if admin:
         if level == "country":
             name = admin.get("country")
@@ -206,7 +215,7 @@ def _view_place(level, admin, lat, lng) -> str:
             name = admin.get("city") or admin.get("state") or admin.get("country")
         if name:
             return name
-    return f"the area around {lat:.2f}, {lng:.2f}"
+    return UNKNOWN_PLACE
 
 
 def _downsample(items, n):
@@ -224,7 +233,7 @@ def _last_before(samples, t):
 
 
 def _country_extent(countries_in, lat, lng):
-    """(code, width°, height°) of the bounding box of the country piece under the point, or None."""
+    """(code, width°, height°, bounds) of the country piece under the point, or None."""
     if countries_in is None:
         return None
     try:
@@ -240,7 +249,7 @@ def _country_extent(countries_in, lat, lng):
             continue
         if part is not None:
             w, s, e, n = part.bounds
-            return code, max(e - w, 1e-6), max(n - s, 1e-6)
+            return code, max(e - w, 1e-6), max(n - s, 1e-6), (w, s, e, n)
     return None
 
 
@@ -254,7 +263,7 @@ def _view_level(bbox, zoom, extent) -> str:
         return "world"
     if not extent:
         return _level(zoom)
-    _, cw, ch = extent
+    cw, ch = extent[1], extent[2]
     share = min((bbox[2] - bbox[0]) / cw, (bbox[3] - bbox[1]) / ch)
     if share > FRAME_WIDE:
         return _level(zoom) if zoom > 4 else "wide"
@@ -325,13 +334,45 @@ def _is_5k(km: float) -> bool:
     return dist_to_score(km) >= 5000
 
 
+def _start_info(real, region_bounds) -> dict:
+    """Facts for the opening line: urban/rural, the country and where inside it.
+
+    urban: city, subregion and first-level division (with its local name: "district", "state"...)
+    rural: only the first-level division, plus which fifth of it the spot is in (central, western...)
+    """
+    area = (real.get("area_type") or "").lower()
+    code, state, country = real["country_code"], real.get("state") or "", real["country"]
+    named_state = state if state and state != country else ""
+    state_text = with_term(named_state, code)
+    info = {"area": area, "country": country or UNKNOWN_PLACE, "admin": "", "around": ""}
+    if area == "urban":
+        parts = [real.get("city"), real.get("subregion"), state_text]
+        info["admin"] = ", ".join(dict.fromkeys(p for p in parts if p and p != country))
+    elif area == "rural" and state_text:
+        bounds = None
+        if region_bounds is not None:
+            try:
+                bounds = region_bounds(code, state)
+            except Exception:  # noqa: BLE001
+                bounds = None
+        pos = position_in_box(real["lat"], real["lng"], bounds) if bounds else ""
+        info["around"] = f"{pos} {state_text}".strip()
+    return info
+
+
 # ── Main entry ──────────────────────────────────────────────────────────────
-def analyze_round(events, real, result, locate, countries_in=None) -> list[dict]:
-    """events: compressed replay. real: {lat,lng,country_code,country,state,city,place}.
-    result: {score, distance_km}. locate(lat, lng) -> admin dict or None (offline lookup).
+def analyze_round(
+    events, real, result, locate, countries_in=None, region_bounds=None
+) -> list[dict]:
+    """events: compressed replay.
+    real: {lat,lng,country_code,country,state,subregion,city,area_type,place}.
+    result: {score, distance_km, time_limit_ms (or None)}.
+    locate(lat, lng) -> admin dict or None (offline lookup).
     countries_in(west, south, east, north) -> [(code, shapely geometry)] of the countries that
     touch that box (offline lookup); used to clip searched areas to land and to tell when a map
     window frames a whole country. Optional.
+    region_bounds(country_code, state) -> (west, south, east, north) or None. Optional; used to say
+    which part (central, western...) of a region a rural round is in.
     """
     if not events:
         return []
@@ -357,6 +398,8 @@ def analyze_round(events, real, result, locate, countries_in=None) -> list[dict]
         phases.append({"t": t, "kind": kind, "key": key, **data})
 
     panos, sessions, guess = s["panos"], s["sessions"], s["guess"]
+    # Shared across the round's map sessions: countries looked at, hesitations so far, places zoomed.
+    memory = {"seen": [], "hesitations": 0, "zoomed": set(), "zid": 0}
 
     # Pins closer together than PIN_MERGE_MS are one
     pins: list = []
@@ -373,13 +416,16 @@ def analyze_round(events, real, result, locate, countries_in=None) -> list[dict]
             first[0],
             "start",
             "start",
-            place=real["place"] or f"{real['lat']:.4f}, {real['lng']:.4f}",
+            place=real["place"] or UNKNOWN_PLACE,
+            **_start_info(real, region_bounds),
         )
         _movement(panos, s, guess, add)
 
-    # 2. Map sessions: zooming, staring, searching ────────────────────────────
+    # 2. Map sessions: zooming, staring, hesitating, searching ────────────────
     for sess in sessions:
-        _map_session(sess, s, pins, guess, real, add, where, extent, countries_in)
+        _map_session(
+            sess, s, pins, guess, real, add, where, extent, countries_in, region_bounds, memory
+        )
 
     # 3. Aligning
     last = -(10**9)
@@ -429,21 +475,25 @@ def analyze_round(events, real, result, locate, countries_in=None) -> list[dict]
             and real["country_code"]
             and a["country_code"] != real["country_code"]
         )
+        # "Region" is decided by distance only, never by administrative boundaries.
+        diff = ""
         if d <= EXACT_PIN_KM:
             cls = "exact"
         elif _is_5k(d):
             cls = "5k"
+        elif d <= RIGHT_REGION_KM:
+            cls = "right_region"
+            if wrong_country:
+                diff = "country"
+            elif a and real["state"] and a.get("state") and a["state"] != real["state"]:
+                diff = "admin"
         elif wrong_country:
             cls = "wrong_country"
-        elif a and real["state"] and a.get("state") and a["state"] != real["state"]:
-            cls = "wrong_region"
         elif a:
-            cls = "right_region"
+            cls = "wrong_region"
         else:
             cls = "off"
-        place = (_label(a) if cls == "exact" else _pin_place(a, wrong_country)) or (
-            f"{lat:.3f}, {lng:.3f}"
-        )
+        place = (_label(a) if cls == "exact" else _pin_place(a, wrong_country)) or UNKNOWN_PLACE
         add(
             t,
             "pin",
@@ -453,6 +503,8 @@ def analyze_round(events, real, result, locate, countries_in=None) -> list[dict]
             prev_dist_km=prev_d,
             lat=lat,
             lng=lng,
+            diff=diff,
+            term=admin_term(real["country_code"]),
         )
         prev_d = d
 
@@ -477,12 +529,23 @@ def analyze_round(events, real, result, locate, countries_in=None) -> list[dict]
                 dur_ms=guess[0] - pin_t,
             )
     if guess:
-        add(guess[0], "guess", "guess", score=result["score"], dist_km=result["distance_km"])
+        limit = result.get("time_limit_ms")
+        timed_out = bool(limit and guess[0] >= limit - TIMEOUT_GRACE_MS)
+        add(
+            guess[0],
+            "guess",
+            "guess",
+            score=result["score"],
+            dist_km=result["distance_km"],
+            timed_out=timed_out,
+        )
     else:
         add(events[-1]["time"], "guess", "no_guess")
 
     phases.sort(key=lambda p: (p["t"], _PRIORITY.get(p["kind"], 5)))
-    return _fold_map_close(phases)
+    phases = _fold_map_close(phases)
+    _fold_map_open(phases, sessions)
+    return phases
 
 
 def _fold_map_close(phases: list[dict]) -> list[dict]:
@@ -505,6 +568,30 @@ def _fold_map_close(phases: list[dict]) -> list[dict]:
         if p["show"]:
             out.append(p)
     return out
+
+
+def _fold_map_open(phases: list[dict], sessions: list[dict]) -> None:
+    """A single step taken right as the map opens: "...one step north while opening the map".
+    The zoom that starts at the same moment then stops saying "You opened the map and...".
+    """
+    for sess in sessions:
+        st = sess["start"]
+        step = next(
+            (
+                p
+                for p in phases
+                if p["key"] == "move"
+                and not p.get("after_close")
+                and 0 <= p["t"] - st <= OPEN_STEP_MS
+            ),
+            None,
+        )
+        if step is None:
+            continue
+        step["while_open"] = True
+        for p in phases:
+            if p["key"] == "zoom_in" and 0 <= p["t"] - st <= OPEN_ZOOM_MS:
+                p["opened"] = False
 
 
 # ── Street view movement ────────────────────────────────────────────────────
@@ -587,7 +674,7 @@ def _movement(panos, s, guess, add) -> None:
         wasteful = k >= REVISITS or (k >= 2 and t - seen[-1] > REVISIT_SLOW_MS)
         seen.append(t)
         if cur and (
-            t - cur["items"][-1][0] > MOVE_RUN_GAP_MS or acted_between(cur["items"][-1][0], t)
+            t - cur["items"][-1][0] >= MOVE_RUN_GAP_MS or acted_between(cur["items"][-1][0], t)
         ):
             flush()
         if cur is None:
@@ -598,7 +685,50 @@ def _movement(panos, s, guess, add) -> None:
 
 
 # ── Map sessions ────────────────────────────────────────────────────────────
-def _map_session(sess, s, pins, guess, real, add, where, extent, countries_in) -> None:
+def _country_of(where, sample) -> str:
+    a = where(sample[1], sample[2])
+    return (a.get("country_code") or "") if a else ""
+
+
+def _focus_segments(sess, where, end) -> list[dict]:
+    """Which country the center of the map is on over time (zoomed in enough to mean something).
+
+    [{key, code, name, t0, t1, lat, lng}]. A country that only flashes by (panning past it)
+    is dropped; the last one is always kept, since closing the map right after it matters.
+    """
+    pts = [p for p in sess["samples"] if p[3] is not None and p[3] >= FOCUS_MIN_ZOOM]
+    if not pts:
+        return []
+    look = _downsample(pts, FOCUS_MAX_LOOKUPS)
+    if look[-1] is not pts[-1]:
+        look = [*look, pts[-1]]
+    raw: list[dict] = []
+    for t, lat, lng, _ in look:
+        a = where(lat, lng)
+        key = ((a.get("country_code") or ""), (a.get("country") or "")) if a else ("", "")
+        if raw and raw[-1]["key"] == key:
+            continue
+        raw.append({"key": key, "t0": t, "lat": lat, "lng": lng})
+    for i, sg in enumerate(raw):
+        sg["t1"] = raw[i + 1]["t0"] if i + 1 < len(raw) else end + 1
+    kept = [
+        sg for i, sg in enumerate(raw) if i == len(raw) - 1 or sg["t1"] - sg["t0"] >= FOCUS_MIN_MS
+    ]
+    segs: list[dict] = []
+    for sg in kept:
+        if segs and segs[-1]["key"] == sg["key"]:
+            continue
+        segs.append(dict(sg))
+    for i, sg in enumerate(segs):
+        sg["t1"] = segs[i + 1]["t0"] if i + 1 < len(segs) else end + 1
+        sg["code"], name = sg["key"]
+        sg["name"] = name or UNKNOWN_PLACE
+    return segs
+
+
+def _map_session(
+    sess, s, pins, guess, real, add, where, extent, countries_in, region_bounds, memory
+) -> None:
     start, end = sess["start"], sess["end"]
     dur = end - start
     runs = _zoom_runs(sess["zooms"])
@@ -639,7 +769,36 @@ def _map_session(sess, s, pins, guess, real, add, where, extent, countries_in) -
             },
         )
 
-    # Zoom gestures
+    # Hesitation: the country under the map's center changes
+    segs = _focus_segments(sess, where, end)
+    hes_times: list = []
+    prev_seg = None
+    for sg in segs:
+        name = sg["name"]
+        if prev_seg is not None:
+            seen = memory["seen"]
+            add(
+                sg["t0"],
+                "hesitate",
+                "hesitate",
+                prev=prev_seg["name"],
+                name=name,
+                first=memory["hesitations"] == 0,
+                back=name in seen,
+                others=[*seen, *([name] if name not in seen else [])],
+                to_real=bool(sg["code"] and sg["code"] == real["country_code"]),
+                lat=sg["lat"],
+                lng=sg["lng"],
+            )
+            memory["hesitations"] += 1
+            hes_times.append(sg["t0"])
+            emitted = True
+        if name not in memory["seen"]:
+            memory["seen"].append(name)
+        prev_seg = sg
+
+    # Zoom gestures. A zoom in is two events: WHERE it went (zoom_in, graded by the view it ended on)
+    # and HOW FAST (zoom_speed, graded by time). A zoom out is only reported when it matters.
     for i, r in enumerate(runs):
         if r["z1"] == r["z0"]:
             continue
@@ -651,24 +810,46 @@ def _map_session(sess, s, pins, guess, real, add, where, extent, countries_in) -
         if zin:
             expected = ZOOM_STEP_S * 1000 * (r["z1"] - r["z0"] + 1)
             actual = r["t1"] - r["t0"]
-            ratio = actual / expected
-        else:
-            expected = actual = ratio = 0
-        if zin and ratio >= ZOOM_SLOW_RATIO and c:
+            memory["zid"] += 1
+            zid = memory["zid"]
             add(
                 r["t0"],
                 "zoom",
-                "zoom_start",
+                "zoom_in",
                 place=place,
-                level=level,
-                ratio=ratio,
+                revisit=place in memory["zoomed"],
+                opened=i == 0 and r["t0"] - start <= OPEN_ZOOM_MS,
+                zid=zid,
+                **view,
+            )
+            add(
+                r["t1"],
+                "zoom",
+                "zoom_speed",
+                place=place,
+                zid=zid,
+                ratio=actual / expected,
                 expected_ms=expected,
                 dur_ms=actual,
-                opened=i == 0 and r["t0"] - start <= OPEN_ZOOM_MS,
             )
-            add(r["t1"], "zoom", "zoom_end", place=place, **view)
+            if c:
+                memory["zoomed"].add(place)
         else:
-            add(r["t0"], "zoom", "zoom_in" if zin else "zoom_out", place=place, **view)
+            a_here = where(c[1], c[2]) if c else None
+            # "Another country" includes land we have no map for (Unknown_Country).
+            other_country = bool(c) and not (
+                a_here and a_here.get("country_code") == real["country_code"]
+            )
+            hesitating = any(r["t0"] <= h <= r["t1"] + HESITATE_MERGE_MS for h in hes_times)
+            add(
+                r["t0"],
+                "zoom",
+                "zoom_out",
+                place=place,
+                other_country=other_country,
+                hesitating=hesitating,
+                **view,
+            )
         emitted = True
 
     # Staring: long stretches at one zoom level where almost nothing happens
@@ -711,7 +892,7 @@ def _map_session(sess, s, pins, guess, real, add, where, extent, countries_in) -
         stare_spans.append((a, b))
         emitted = True
 
-    # Searching: panning around at a useful zoom
+    # Searching: panning around at a useful zoom, one search per country the map was focused on
     pans = [
         p
         for p in sess["samples"]
@@ -720,9 +901,17 @@ def _map_session(sess, s, pins, guess, real, add, where, extent, countries_in) -
         and not any(a <= p[0] <= b for a, b in windows)
         and not any(a <= p[0] <= b for a, b in stare_spans)
     ]
-    if len(pans) >= SCAN_MIN_SAMPLES:
-        add(pans[0][0], "scan", **_scan(pans, real, where, countries_in))
-        emitted = True
+    for sg in segs:
+        seg_pans = [
+            p for p in pans if sg["t0"] <= p[0] < sg["t1"] and _country_of(where, p) == sg["code"]
+        ]
+        if len(seg_pans) >= SCAN_MIN_SAMPLES:
+            add(
+                seg_pans[0][0],
+                "scan",
+                **_scan(seg_pans, sg, real, where, countries_in),
+            )
+            emitted = True
 
     # A session that did nothing we can name
     if not emitted and quiet and dur >= MAP_OPEN_MIN_MS:
@@ -780,51 +969,45 @@ def _clip_boxes(boxes, countries_in) -> list:
     return out
 
 
-def _scan(pans, real, where, countries_in=None) -> dict:
+def _scan(pans, sg, real, where, countries_in=None) -> dict:
+    """One search inside the country the map was focused on (`sg`, from _focus_segments)."""
+    sample = _downsample(pans, SCAN_MAX_LOOKUPS)
     regions: Counter = Counter()
-    countries: Counter = Counter()
-    for _, lat, lng, _ in _downsample(pans, SCAN_MAX_LOOKUPS):
+    for _, lat, lng, _ in sample:
         a = where(lat, lng)
         if a:
-            countries[a.get("country_code"), a.get("country")] += 1
-            regions[a.get("country_code"), a.get("state") or a.get("country")] += 1
+            regions[a.get("state") or a.get("country")] += 1
     boxes = list(
         dict.fromkeys(
             tuple(round(v, 4) for v in _viewport_bbox(lat, lng, z)) for _, lat, lng, z in pans
         ),
     )
+    mid = pans[len(pans) // 2]
     base = {
-        "dur_ms": pans[-1][0] - pans[0][0],
+        "dur_ms": sg["t1"] - pans[0][0],
         "areas": _clip_boxes(_downsample(boxes, SCAN_MAX_BOXES), countries_in),
         "real_place": real["place"],
+        "real_country": real["country"],
         "n_regions": len(regions),
-        "place": "",
+        "place": sg["name"],
+        "parts": "",
         # Every map window seen during the search (west, south, east, north), for grading.
         "view_boxes": boxes,
         "zoom": max(z for _, _, _, z in pans),
-        "center": (pans[len(pans) // 2][1], pans[len(pans) // 2][2]),
+        "center": (mid[1], mid[2]),
     }
-    if len(countries) >= 2:
-        base.update(
-            key="scan_multi_country",
-            place=", ".join(n for (_, n), _ in countries.most_common(3) if n),
-        )
+    if not sg["code"] or not regions:
+        base["key"] = "scan_area"
     elif len(regions) >= FULL_COUNTRY_REGIONS:
-        (code, name), _ = countries.most_common(1)[0]
-        base.update(
-            key="scan_country" if code == real["country_code"] else "scan_country_wrong", place=name
-        )
-    elif regions:
+        ext = _country_extent(countries_in, mid[1], mid[2])
+        base["parts"] = parts_text([(la, ln) for _, la, ln, _ in sample], ext[3]) if ext else ""
+        base["key"] = "scan_country" if sg["code"] == real["country_code"] else "scan_country_wrong"
+    else:
         top = [k for k, _ in regions.most_common(3)]
         want = real["state"] or real["country"]
-        hit = any(c == real["country_code"] and n == want for c, n in top)
-        base.update(
-            key="scan_regions_hit" if hit else "scan_regions_miss",
-            place=", ".join(n for _, n in top),
-        )
-    else:
-        mid = pans[len(pans) // 2]
-        base.update(key="scan_area", place=f"{mid[1]:.2f}, {mid[2]:.2f}")
+        hit = sg["code"] == real["country_code"] and want in top
+        base["key"] = "scan_regions_hit" if hit else "scan_regions_miss"
+        base["place"] = ", ".join(top)
     return base
 
 
