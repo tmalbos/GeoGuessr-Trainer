@@ -9,10 +9,15 @@ Three families of events are graded:
   1. EFFICIENCY (how long something took against what it should take). The ratio is
      actual time / expected time, and the same ladder is used everywhere:
          < 1.25 best · < 1.5 excellent · < 1.75 good · < 2 inaccuracy · < 3 mistake · else blunder
-     Applies to step runs (expected = STEP_EXPECTED_S per step) and slow zooms
-     (expected = ZOOM_STEP_S per zoom level, graded on its own "zoom_speed" event). Staring at one zoom level is the same ladder turned
-     around (more time = worse, and only from 1.5x the expected 10 s). Also graded here:
-     pointless open/close of the map, erratic revisits, going back to spawn for the 3rd time.
+     That raw ladder result is kept in phase["speed_grade"] and only drives the ADVERB in the
+     sentence ("slowly", "painfully slowly"...). The BADGE (phase["grade"]) is softer:
+         step runs: good or better -> no badge · inaccuracy/mistake -> inaccuracy · blunder -> mistake
+         slow zooms: good or better -> no badge · anything slower -> inaccuracy (never worse)
+     Applies to step runs of 3+ steps (expected = STEP_EXPECTED_S per step) and slow zooms
+     (expected = ZOOM_STEP_S per zoom level, graded on its own "zoom_speed" event). Staring at one
+     zoom level is the same ladder turned around (more time = worse, and only from 1.5x the
+     expected 10 s) and keeps the full ladder. Also graded here: pointless open/close of the map,
+     erratic revisits, going back to spawn for the 3rd time.
 
   2. WHERE THE PLAYER LOOKS OR PINS (map views and pins). A map view is judged by EVERYTHING it
      shows, not by its center:
@@ -56,6 +61,8 @@ RATIO_LADDER = (
     (3.0, "mistake"),
 )
 POSITIVE = {"best", "excellent", "good"}
+# Badge shown for a slow step run, by its raw ladder grade. Good or better gets no badge.
+MOVE_BADGE = {"inaccuracy": "inaccuracy", "mistake": "inaccuracy", "blunder": "mistake"}
 # How precise what the player is looking at is (used to decide if a repeated mark is new info)
 RANK = {"world": 0, "wide": 1, "country": 2, "region": 3, "city": 4, "point": 5}
 PIN_RANK = 6
@@ -100,8 +107,12 @@ def _error_grade(score: int) -> str:
 def _grade_efficiency(phases: list[dict]) -> None:
     for p in phases:
         key = p["key"]
-        if key in {"run", "speed_move", "zoom_speed"}:
-            p["grade"] = ratio_grade(p["ratio"])
+        if key in {"run", "speed_move"}:
+            p["speed_grade"] = ratio_grade(p["ratio"])  # drives the adverb
+            p["grade"] = MOVE_BADGE.get(p["speed_grade"], "")  # drives the badge
+        elif key == "zoom_speed":
+            p["speed_grade"] = ratio_grade(p["ratio"])
+            p["grade"] = "" if p["speed_grade"] in POSITIVE else "inaccuracy"
         elif key == "stare":
             p["grade"] = _stare_grade(p["ratio"])
         elif key in {"quick_map", "erratic", "move_revisit"} or (

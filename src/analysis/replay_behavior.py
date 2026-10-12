@@ -21,7 +21,7 @@ from src.geo.admin_terms import UNKNOWN_PLACE, admin_term, with_term
 # ── Tunables ────────────────────────────────────────────────────────────────
 # Street view movement
 SPEED_GAP_MS = 900  # steps closer than this (every one of them) = "speed moving"
-SPEED_MIN_STEPS = 3  # a run this long can count as "speed moving"
+SPEED_MIN_STEPS = 3  # runs shorter than this (1-2 steps) are told plainly: no speed is measured
 MOVE_RUN_GAP_MS = 5000  # steps closer than this (and nothing else in between) are one run
 STEP_EXPECTED_S = 0.9  # fast-moving pace: expected seconds per step (run time = first→last step)
 REVISITS = 3  # standing on the same pano this many times is wasteful, always
@@ -49,7 +49,7 @@ SCAN_MIN_ZOOM = 6  # map zoom at which panning counts as searching
 FOCUS_MIN_ZOOM = 8  # map zoom at which the view is about one country: only then it has a "focus"
 SCAN_MIN_SAMPLES = 5  # pan events needed to call it a search
 SCAN_MAX_LOOKUPS = 40  # admin lookups per search (downsampled)
-SCAN_MAX_BOXES = 400  # viewport boxes kept per search (downsampled) before clipping
+SCAN_MAX_BOXES = 120  # viewport boxes kept per search (downsampled) before clipping
 FULL_COUNTRY_REGIONS = 4  # this many regions visited = scanning the whole country
 # Focus: which country the map is centered on. A change of country is a "hesitation".
 FOCUS_MIN_MS = 1200  # a country must hold the map this long (unless it is the last) to count
@@ -513,7 +513,7 @@ def analyze_round(
         pin_t = pins[-1][0]
         # Steps taken after the last pin are the player validating it.
         for p in phases:
-            if p["kind"] == "move" and p["key"] in {"move", "run", "speed_move"}:
+            if p["kind"] == "move" and p["key"] in {"move", "run", "short_run", "speed_move"}:
                 if pin_t < p["t"] < guess[0]:
                     p["key"] = "verify_move"
         has_verify_move = any(p["key"] == "verify_move" for p in phases)
@@ -644,10 +644,13 @@ def _movement(panos, s, guess, add) -> None:
                 state["bearing"] is not None and _angle_diff(bearing, state["bearing"]) > BACK_ANGLE
             )
             add(t0, "move", "move", back=back, **common)
+        elif n < SPEED_MIN_STEPS:
+            # 2 steps: too short to measure speed. Told plainly, no ratio, no adverb, no badge.
+            add(t0, "move", "short_run", started=state["runs"] == 0, **common)
         else:
             expected = STEP_EXPECTED_S * 1000 * n
             gaps = [b[0] - a[0] for a, b in itertools.pairwise(items)]
-            speed = n >= SPEED_MIN_STEPS and max(gaps) <= SPEED_GAP_MS
+            speed = max(gaps) <= SPEED_GAP_MS
             add(
                 t0,
                 "move",
@@ -922,6 +925,15 @@ def _map_session(
 
 
 def _safe_intersection(a, geom):
+    """A ∩ geom, where `a` is small and `geom` can be a whole country outline.
+
+    Cutting the outline down to a's bounding box first gives the same result and is far cheaper
+    than intersecting against every vertex of the country.
+    """
+    try:
+        geom = shapely.clip_by_rect(geom, *a.bounds)
+    except Exception:  # noqa: BLE001
+        pass
     try:
         return a.intersection(geom)
     except Exception:  # noqa: BLE001

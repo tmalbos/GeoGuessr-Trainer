@@ -7,7 +7,8 @@ list of templates and pick one (seed the choice by game + round so a report does
 
 from src.geo.admin_terms import UNKNOWN_PLACE
 
-# Adverbs by grade. Efficiency grades come from replay_grading.ratio_grade.
+# Adverbs by speed grade (phase["speed_grade"], the raw efficiency ladder from
+# replay_grading.ratio_grade). The badge shown next to the sentence is softer and lives in phase["grade"].
 MOVE_ADVERB = {
     "best": "efficiently",
     "excellent": "",
@@ -28,13 +29,10 @@ ZOOM_ADVERB = {
 # ("very slowly", "painfully slowly"...) goes right after the verb ("moved painfully slowly").
 PRE_ADVERBS = {"slowly", "efficiently", "hesitantly", "sluggishly"}
 POSITIVE = {"best", "excellent", "good"}
-# Walking runs only show a grade badge when they were bad; a good run just carries its adverb.
-UNBADGED_WHEN_GOOD = {"run", "speed_move"}
 # Slow enough to count as time that could have been saved.
 SAVING_GRADES = {"good", "inaccuracy", "mistake", "blunder"}
-# Zoom: the place it went to is "bad" with these grades; the speed is "good" with these.
+# Zoom: the place it went to is "bad" with these grades.
 BAD_ZOOM_GRADES = {"inaccuracy", "miss", "mistake", "blunder"}
-GOOD_SPEED_GRADES = {"best", "excellent"}
 
 
 def _dur(ms: float) -> str:
@@ -91,8 +89,10 @@ def _move(c) -> str:
 
 
 def _run(c) -> str:
+    # Short runs (1-2 steps, key "short_run") have no speed grade, so no adverb.
     verb, after = _verb(
-        "started heading" if c.get("started") else "moved", MOVE_ADVERB.get(c["grade"], "")
+        "started heading" if c.get("started") else "moved",
+        MOVE_ADVERB.get(c.get("speed_grade"), ""),
     )
     return f"You {verb}{after} {c['direction']} for {c['steps']} steps"
 
@@ -122,7 +122,7 @@ def _zoom_in(c) -> str:
 
 
 def _zoom_in_core(c) -> str:
-    """WHERE the zoom went. A bad zoom also carries the speed adverb, but only when the speed was bad too."""
+    """WHERE the zoom went. The speed adverb is merged in here unless the speed has its own line."""
     place, level = c["place"], c.get("level")
     verb, after = _verb("zoomed back" if c.get("revisit") else "zoomed", c.get("speed_adverb", ""))
     head = "You opened the map and" if c.get("opened") else "You"
@@ -148,11 +148,8 @@ def _zoom_in_core(c) -> str:
 
 
 def _zoom_speed(c) -> str:
-    """HOW FAST the zoom was, on its own line with its own grade."""
-    g = c["grade"]
-    if g in GOOD_SPEED_GRADES:
-        return f"And you did it {'efficiently' if g == 'best' else 'quickly'}"
-    return f"Although you did it {ZOOM_ADVERB.get(g) or 'slowly'}"
+    """HOW FAST the zoom was. Only told (on its own line, badge = inaccuracy) when it was slow."""
+    return f"Although you did it {ZOOM_ADVERB.get(c['speed_grade']) or 'slowly'}"
 
 
 def _zoom_out(c) -> str:
@@ -289,6 +286,7 @@ TEXT = {
     "start": _start,
     "move": _move,
     "run": _run,
+    "short_run": _run,
     "speed_move": "You speed-moved {steps} steps {direction}",
     "verify_move": lambda c: (
         f"You moved {_steps(c['steps'])} {c['direction']} in order to validate your guess"
@@ -328,9 +326,9 @@ TEXT = {
 
 def saved_ms(p: dict) -> float:
     """Time that efficient movement / zooming would have saved on this event (0 if it was fine)."""
-    if p["key"] in {"run", "speed_move", "zoom_speed"} and p["grade"] in SAVING_GRADES:
+    if p["key"] in {"run", "speed_move", "zoom_speed"} and p.get("speed_grade") in SAVING_GRADES:
         return max(0.0, p["dur_ms"] - p["expected_ms"])
-    return p.get("extra_saved", 0.0)  # a bad zoom that carries its own (slow) speed in the sentence
+    return p.get("extra_saved", 0.0)  # a zoom that carries its own speed in the sentence
 
 
 def _note(p: dict) -> str:
@@ -356,14 +354,16 @@ def _text(p: dict, ctx: dict) -> str:
 def _pair_zooms(phases: list[dict]) -> None:
     """Decide which zoom events are told and how, from the grade of WHERE it went and HOW FAST.
 
-    Told:
-      good zoom + any speed  -> the zoom line; a speed line only if the speed was bad, or if it is
-                                the zoom that opens the map ("And you did it efficiently").
-                                A good zoom into a place already zoomed into earlier is skipped
-                                (unless it opens the map).
-      bad zoom + bad speed   -> one line with the speed adverb inside the sentence.
-      bad zoom + good speed  -> one line, unless a hesitation / search line already tells it.
-      no grade + good speed  -> nothing.
+    A zoom's speed is "slow" when its zoom_speed event got a badge (raw ladder worse than "good").
+
+      slow speed, zoom place not bad -> two lines: the zoom, then "Although you did it X" (own badge).
+      slow speed, bad zoom place     -> one line, speed adverb inside the sentence.
+      fine speed (any)               -> one line, the adverb (if any) merged into the zoom sentence;
+                                        no separate speed line, ever.
+    Zoom lines themselves are told only when they say something:
+      good zoom                      -> told, unless it revisits a place (and does not open the map).
+      bad zoom                       -> told, unless a hesitation / search line already tells it.
+      no grade + fine speed          -> nothing.
     An unknown-country search that follows the zoom is folded into the zoom line.
     """
     speed = {p["zid"]: p for p in phases if p["key"] == "zoom_speed"}
@@ -376,7 +376,7 @@ def _pair_zooms(phases: list[dict]) -> None:
         grade = p.get("grade") or ""
         loc_pos = grade in POSITIVE
         loc_bad = grade in BAD_ZOOM_GRADES
-        speed_bad = bool(sp) and sp["grade"] not in GOOD_SPEED_GRADES
+        speed_bad = bool(sp) and bool(sp["grade"])
         covered = any(
             q["t"] - 1500 <= end_t and q["t"] + q.get("dur_ms", 0) >= p["t"] for q in told
         )
@@ -391,10 +391,10 @@ def _pair_zooms(phases: list[dict]) -> None:
             if sp:
                 sp["hide"] = True
             continue
-        if sp and (loc_bad or (not speed_bad and not p.get("opened"))):
+        if sp and (loc_bad or not speed_bad):
+            # The speed has no line of its own: fold its adverb (and saved time) into the zoom.
             sp["hide"] = True
-        if sp and loc_bad and speed_bad:
-            p["speed_adverb"] = ZOOM_ADVERB.get(sp["grade"], "")
+            p["speed_adverb"] = ZOOM_ADVERB.get(sp["speed_grade"], "")
             p["extra_saved"] = saved_ms(sp)
     # "...zoomed into Unknown_Country, and ended up searching inside of it for 8s"
     for q in phases:
@@ -443,8 +443,6 @@ def narrate(phases: list[dict]) -> list[dict]:
         ctx = {**p, "dur": _dur(p.get("dur_ms", 0)), "km": _km(p.get("dist_km", 0))}
         text = _text(p, ctx)
         grade = p.get("grade") or ""
-        if p["key"] in UNBADGED_WHEN_GOOD and grade in POSITIVE:
-            grade = ""  # the adverb already says it; no badge for fine movement
         saved = saved_ms(p)
         if (
             out

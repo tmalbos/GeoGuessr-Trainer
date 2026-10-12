@@ -13,6 +13,11 @@ from src.api.deps import get_ctx
 
 router = APIRouter()
 
+# Finished reports, kept in memory for the life of the server (replays never change once saved),
+# so reopening a game is instant. Oldest entry is dropped first. Restarting the server clears it.
+_CACHE: dict[tuple[str, str], dict] = {}
+_CACHE_MAX = 50
+
 _QUERY = """
     SELECT r.round_number, r.score, r.distance_km, r.steps, r.time_sec,
            r.real_latitude, r.real_longitude, r.real_country_code, rc.name AS real_country,
@@ -94,6 +99,11 @@ async def replay_report(challenge_token: str, game_id: str, request: Request):
     local = ctx.local_geo
     if local is None:
         raise HTTPException(503, "Geo layers are not loaded yet. Check the Dashboard.")
+
+    cache_key = (challenge_token, game_id)
+    if cache_key in _CACHE:
+        return _CACHE[cache_key]
+
     rows = await ctx.db_adapter.fetch_rows(_QUERY, challenge_token, game_id)
     if not rows:
         raise HTTPException(404, "Game not found")
@@ -131,4 +141,8 @@ async def replay_report(challenge_token: str, game_id: str, request: Request):
         "grades": summarize_grades(grades),
         "time_saved_ms": sum(r["time_saved_ms"] for r in rounds),
     }
-    return {"summary": summary, "rounds": rounds}
+    report = {"summary": summary, "rounds": rounds}
+    if len(_CACHE) >= _CACHE_MAX:
+        _CACHE.pop(next(iter(_CACHE)))
+    _CACHE[cache_key] = report
+    return report
