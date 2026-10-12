@@ -76,7 +76,7 @@ TIMEOUT_GRACE_MS = 750  # a guess this close to (or past) the time limit means t
 # in pixels converted back to degrees at the current zoom, so each zoom halves it.
 # MAP_PX was measured in-game: at every zoom from 3 to 9 the visible extent matches 1245x775 px.
 MAP_VIEW_SCALE = (
-    0.6  # only the middle of the minimap really counts: shrink the "seen" window by 40%
+    0.6  # only the middle of the minimap really counts: shrink the "seen" window by 15%
 )
 MAP_PX = (1245 * MAP_VIEW_SCALE, 775 * MAP_VIEW_SCALE)
 TILE_PX = 256
