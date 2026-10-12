@@ -55,7 +55,10 @@ class GameRepository:
         move_type: str,
         time_limit_sec: int | None,
     ) -> list[dict]:
-        """Return all rounds for one exact (match_type, move_type, time_limit_sec) combo."""
+        """Return all rounds for one exact (match_type, move_type, time_limit_sec) combo.
+
+        distance_km is None for rounds where no guess was made.
+        """
         async with self._pool.acquire() as conn:
             rows = await conn.fetch(
                 """
@@ -113,7 +116,9 @@ class GameRepository:
                 "game_id": row["game_id"],
                 "round_number": row["round_number"],
                 "score": row["score"],
-                "distance_km": float(row["distance_km"]),
+                "distance_km": (
+                    float(row["distance_km"]) if row["distance_km"] is not None else None
+                ),
                 "steps": row["steps"],
                 "time_sec": row["time_sec"],
                 "played_at": row["played_at"],

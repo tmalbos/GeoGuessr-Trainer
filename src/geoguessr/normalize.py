@@ -34,6 +34,11 @@ def infer_move_type_from_replays(round_replays: list[list[dict]]) -> str:
     return "nmpz"
 
 
+def _km(dist_m: float | None) -> float | None:
+    """Meters -> km. None means "no guess"; 0 m is a real (perfect) distance."""
+    return None if dist_m is None else round(dist_m / 1000, 1)
+
+
 def normalize_challenge_rounds(game_data: dict) -> list[dict]:
     rounds_raw = game_data.get("rounds", [])
     guesses = game_data.get("player", {}).get("guesses", [])
@@ -41,7 +46,6 @@ def normalize_challenge_rounds(game_data: dict) -> list[dict]:
     normalized = []
     for i, guess in enumerate(guesses[: len(rounds_raw)], start=1):
         raw = rounds_raw[i - 1]
-        dist_m = guess.get("distanceInMeters")
         normalized.append(
             {
                 "round_number": i,
@@ -51,7 +55,7 @@ def normalize_challenge_rounds(game_data: dict) -> list[dict]:
                 "guess_lat": guess.get("lat"),
                 "guess_lng": guess.get("lng"),
                 "score": guess.get("roundScoreInPoints", 0),
-                "distance_km": round(dist_m / 1000, 1) if dist_m else None,
+                "distance_km": _km(guess.get("distanceInMeters")),
                 "steps": guess.get("stepsCount"),
                 "time_sec": guess.get("time"),
             },
@@ -63,7 +67,6 @@ def normalize_duel_rounds(duel: dict, user_id: str) -> list[dict]:
     normalized = []
     for r in duel.get("rounds", []):
         guess = next((g for g in r.get("guesses", []) if g.get("playerId") == user_id), None)
-        dist_m = guess.get("distance") if guess else None
         normalized.append(
             {
                 "round_number": r["roundNumber"],
@@ -73,7 +76,7 @@ def normalize_duel_rounds(duel: dict, user_id: str) -> list[dict]:
                 "guess_lat": guess.get("lat") if guess else None,
                 "guess_lng": guess.get("lng") if guess else None,
                 "score": guess.get("score", 0) if guess else 0,
-                "distance_km": round(dist_m / 1000, 1) if dist_m else None,
+                "distance_km": _km(guess.get("distance")) if guess else None,
             },
         )
     return normalized

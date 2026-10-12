@@ -15,6 +15,10 @@ BOOTSTRAP_SAMPLES = 1000
 # Score cut-offs shared by the tier ladder and the replay event grades (replay_grading.py).
 SCORE_CUTOFFS = (3000, 4000, 4500, 4850)
 
+# Distance used for a round with no guess: about half the Earth's circumference (the farthest
+# two points can be), so dist_to_score() gives 0 and the round counts as a 0-point round.
+NO_GUESS_KM = 20_000.0
+
 
 def dist_to_score(km: float) -> int:
     return int(5000 * math.exp(-0.000673 * km) + 0.5)

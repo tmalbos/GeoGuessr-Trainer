@@ -16,10 +16,9 @@ router = APIRouter()
 _QUERY = """
     SELECT r.round_number, r.score, r.distance_km, r.steps, r.time_sec,
            r.real_latitude, r.real_longitude, r.real_country_code, rc.name AS real_country,
-           r.real_state, r.real_subregion, r.real_city, r.real_area_type::text AS real_area_type,
+           r.real_state, r.real_city,
            r.guess_latitude, r.guess_longitude, r.guess_country_code, gc.name AS guess_country,
            r.guess_state, r.guess_city,
-           g.time_limit_sec,
            rp.events
     FROM round r
     JOIN game g ON g.challenge_token = r.challenge_token AND g.game_id = r.game_id
@@ -38,7 +37,7 @@ def _place(*parts) -> str:
     return ", ".join(dict.fromkeys(p for p in parts if p))
 
 
-def _round_payload(row: dict, locate, countries_in, region_bounds) -> dict:
+def _round_payload(row: dict, locate, countries_in) -> dict:
     events = row["events"]
     if isinstance(events, str):
         events = json.loads(events)
@@ -49,19 +48,14 @@ def _round_payload(row: dict, locate, countries_in, region_bounds) -> dict:
         "country_code": (row["real_country_code"] or "").strip(),
         "country": row["real_country"] or "",
         "state": row["real_state"] or "",
-        "subregion": row["real_subregion"] or "",
         "city": row["real_city"] or "",
-        "area_type": row["real_area_type"] or "",
     }
     real["place"] = _place(real["city"], real["state"], real["country"])
-    dist = float(row["distance_km"])
-    limit_s = row["time_limit_sec"]
-    result = {
-        "score": row["score"],
-        "distance_km": dist,
-        "time_limit_ms": limit_s * 1000 if limit_s else None,
-    }
-    phases = analyze_round(events, real, result, locate, countries_in, region_bounds)
+    # NULL distance = the round had no guess.
+    dist = float(row["distance_km"]) if row["distance_km"] is not None else None
+    phases = analyze_round(
+        events, real, {"score": row["score"], "distance_km": dist or 0.0}, locate, countries_in
+    )
     grade_phases(phases, events, real, locate)
     guess = None
     if row["guess_latitude"] is not None:
@@ -70,7 +64,6 @@ def _round_payload(row: dict, locate, countries_in, region_bounds) -> dict:
             "lng": float(row["guess_longitude"]),
             "place": _place(row["guess_city"], row["guess_state"], row["guess_country"]),
         }
-    timeline = narrate(phases)
     return {
         "round_number": row["round_number"],
         "score": row["score"],
@@ -81,8 +74,7 @@ def _round_payload(row: dict, locate, countries_in, region_bounds) -> dict:
         "real": {"lat": real["lat"], "lng": real["lng"], "place": real["place"]},
         "guess": guess,
         "stages": stage_breakdown(events, real),
-        "timeline": timeline,
-        "time_saved_ms": round(sum(it.get("saved_ms", 0) for it in timeline)),
+        "timeline": narrate(phases),
         "path": build_path(events),
         "searched": searched_polygons(phases),
     }
@@ -100,7 +92,7 @@ async def replay_report(challenge_token: str, game_id: str, request: Request):
 
     def locate(lat, lng):
         try:
-            return local.admin_at(lat, lng)
+            return local.lookup(lat, lng)["admin"]
         except Exception:  # noqa: BLE001
             return None
 
@@ -110,14 +102,8 @@ async def replay_report(challenge_token: str, game_id: str, request: Request):
         except Exception:  # noqa: BLE001
             return []
 
-    def region_bounds(code, state):
-        try:
-            return local.region_bounds(code, state)
-        except Exception:  # noqa: BLE001
-            return None
-
     rounds = await run_in_threadpool(
-        lambda: [_round_payload(r, locate, countries_in, region_bounds) for r in rows]
+        lambda: [_round_payload(r, locate, countries_in) for r in rows]
     )
     grades = [
         it["grade"]
@@ -129,6 +115,5 @@ async def replay_report(challenge_token: str, game_id: str, request: Request):
     summary = {
         **summarize_stages([r["stages"] for r in rounds]),
         "grades": summarize_grades(grades),
-        "time_saved_ms": sum(r["time_saved_ms"] for r in rounds),
     }
     return {"summary": summary, "rounds": rounds}

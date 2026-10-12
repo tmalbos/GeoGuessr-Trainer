@@ -3,6 +3,7 @@
 from collections import defaultdict
 
 from src.analysis.geo_levels import GEO_LEVELS
+from src.analysis.scoring import NO_GUESS_KM
 from src.db.repositories.game_repository import GameRepository
 
 
@@ -12,8 +13,16 @@ async def load_rounds(
     move_type: str,
     time_limit_sec: int | None,
 ) -> list[dict]:
-    """Load rounds for one exact (match_type, move_type, time_limit) combo."""
-    return await db.fetch_all_rounds(match_type, move_type, time_limit_sec)
+    """Load rounds for one exact (match_type, move_type, time_limit) combo.
+
+    Rounds without a guess are stored with distance_km = NULL. For analysis they count
+    as a 0-point round: they get NO_GUESS_KM, which maps to a score of 0.
+    """
+    rounds = await db.fetch_all_rounds(match_type, move_type, time_limit_sec)
+    for r in rounds:
+        if r["distance_km"] is None:
+            r["distance_km"] = NO_GUESS_KM
+    return rounds
 
 
 async def available_levels(
