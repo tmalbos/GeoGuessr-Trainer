@@ -1,70 +1,28 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { DEFAULTS, PRESETS, STYLES, generate, randomParams } from "../../lib/streetgen.js";
+import ErrorBox from "../../components/ErrorBox.jsx";
 import { num } from "../../lib/format.js";
+import { DEMOS, RULE_TEXT, buildDemo, summarize } from "../../lib/streetgen/index.js";
 import "./minigames.css";
 
-const pct = (v) => `${Math.round(v * 100)}%`;
-const off = (v) => (v === 0 ? "Off" : v);
-const STYLE_LABELS = { grid: "Grid", organic: "Organic", suburb: "Suburban loops", radial: "Radial" };
-const STYLE_COLORS = { grid: "#6cc0e5", organic: "#3fb97a", suburb: "#cdbf93", radial: "#ff7357" };
+// Phase 1: the core of the new city generator. This page shows hand-built demo cities and the validator's verdict.
+// World coordinates are metres, +y north; the canvas flips y.
 
-// [param, label, min, max, step, format, hint]
-const GROUPS = [
-  ["Scale", [
-    ["sizeKm", "Map size", 3, 16, 0.5, (v) => `${v} km`, "Width of the generated square."],
-    ["block", "Block size", 50, 250, 5, (v) => `${v} m`, "Typical distance between local streets."],
-  ]],
-  ["Neighbourhoods", [
-    ["districts", "Neighbourhoods", 1, 40, 1, String, "Each one gets its own style, orientation and block size."],
-    ["centreSize", "Centre size", 0.05, 1, 0.05, pct, "Size of the central neighbourhood relative to the city."],
-    ["wGrid", "Grid share", 0, 1, 0.05, pct, "How common planned grids are."],
-    ["wOrganic", "Organic share", 0, 1, 0.05, pct, "How common irregular, hand-grown streets are."],
-    ["wSuburb", "Suburban share", 0, 1, 0.05, pct, "How common curvy suburbs with cul-de-sacs are."],
-    ["wRadial", "Radial share", 0, 1, 0.05, pct, "How common star / roundabout layouts are."],
-    ["alignment", "Grid alignment", 0, 1, 0.05, pct, "High = neighbouring grids share the main orientation."],
-  ]],
-  ["Character", [
-    ["regularity", "Regularity", 0, 1, 0.05, pct, "Low = streets wander and cross at odd angles."],
-    ["curviness", "Curviness", 0, 1, 0.05, pct, "How strongly streets bend."],
-    ["aspect", "Block elongation", 1, 2.5, 0.1, (v) => `×${v.toFixed(1)}`, "Long thin blocks versus square ones."],
-    ["connectivity", "Connectivity", 0, 1, 0.05, pct, "Low = more dead ends and cul-de-sacs."],
-  ]],
-  ["Footprint", [
-    ["falloff", "Thinner towards edges", 0, 1, 0.05, pct, "Blocks grow and streets thin out away from the centre."],
-    ["patchiness", "Empty patches", 0, 1, 0.05, pct, "Parks, hills and wasteland with no local streets."],
-    ["stretch", "Stretch", 1, 3, 0.1, (v) => `×${v.toFixed(1)}`, "Elongates the city (coastal / valley cities)."],
-    ["stretchAngle", "Footprint angle", -90, 90, 5, (v) => `${v}°`, "Direction of the stretch, and of a squarish outline."],
-    ["squareness", "Squareness", 0, 1, 0.05, pct, "0 = round city, 1 = square city."],
-    ["gridAngle", "Main grid angle", 0, 90, 5, (v) => `${v}°`, "Orientation of the central grid."],
-  ]],
-  ["Main roads", [
-    ["collectorEvery", "Collector every N blocks", 0, 12, 1, off, "Secondary roads that collect local traffic. 0 = none."],
-    ["hubs", "Sub-centres", 0, 14, 1, off, "Extra hubs linked to the centre by arterials."],
-    ["exits", "Roads to the edge", 0, 10, 1, off, "Arterials leaving the city."],
-    ["spokes", "Radial roads", 0, 10, 1, off, "Straight arterials from the centre (La Plata's diagonals)."],
-    ["spokeAngle", "Radial road angle", 0, 90, 5, (v) => `${v}°`, "Rotation of the radial roads relative to the main grid."],
-    ["ring", "Ring road", 0, 1, 0.05, (v) => (v === 0 ? "Off" : pct(v)), "Ring road radius relative to the city. 0 = none."],
-  ]],
-];
+const COLORS = { tertiary: "#6f7f93", secondary: "#b4bfcc", primary: "#e0cf9a", highway: "#ff7357", ramp: "#ff9d86" };
+const MIN_PX = { tertiary: 1, secondary: 1.8, primary: 2.8, highway: 3.4, ramp: 1.8 };
+const ORDER = ["tertiary", "secondary", "primary", "highway"];
+const kindOf = (e) => (e.highway ? "highway" : e.ramp ? "ramp" : e.cls);
+const roadColor = (id) => `hsl(${(id * 137.5) % 360} 65% 62%)`;
 
-const fitView = (H, w, h) => {
-  const s = Math.min(w, h) / (H * 2 * 1.04);
-  return { s, x: w / 2, y: h / 2 };
-};
+const fitView = (H, w, h) => ({ s: Math.min(w, h) / (H * 2 * 1.04), x: w / 2, y: h / 2 });
 const niceLen = (s) => [10, 20, 50, 100, 200, 500, 1000, 2000, 5000].find((l) => l * s >= 70) ?? 5000;
 
-const CLASSES = [
-  [0, "#6f7f93", 6, 1],
-  [1, "#b4bfcc", 10, 1.8],
-  [2, "#e0cf9a", 16, 2.8],
-];
-
-function MapCanvas({ map, show, fitKey }) {
+function MapCanvas({ city, show, fitKey, focus }) {
   const wrap = useRef(null);
   const cv = useRef(null);
   const drag = useRef(null);
   const [size, setSize] = useState({ w: 800, h: 600 });
   const [view, setView] = useState({ s: 1, x: 0, y: 0 });
+  const H = (city.bounds.maxx - city.bounds.minx) / 2;
 
   useEffect(() => {
     const ro = new ResizeObserver(([e]) => setSize({ w: Math.round(e.contentRect.width), h: Math.round(e.contentRect.height) }));
@@ -72,7 +30,12 @@ function MapCanvas({ map, show, fitKey }) {
     return () => ro.disconnect();
   }, []);
 
-  useEffect(() => { setView(fitView(map.H, size.w, size.h)); }, [fitKey, size.w, size.h]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { setView(fitView(H, size.w, size.h)); }, [fitKey, size.w, size.h]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (!focus) return;
+    setView((v) => { const s = Math.max(v.s, 0.5); return { s, x: size.w / 2 - focus.x * s, y: size.h / 2 + focus.y * s }; });
+  }, [focus]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     const el = cv.current;
@@ -80,7 +43,7 @@ function MapCanvas({ map, show, fitKey }) {
       e.preventDefault();
       const r = el.getBoundingClientRect(), mx = e.clientX - r.left, my = e.clientY - r.top;
       setView((v) => {
-        const s = Math.min(Math.max(v.s * Math.exp(-e.deltaY * 0.0015), 0.01), 30), f = s / v.s;
+        const s = Math.min(Math.max(v.s * Math.exp(-e.deltaY * 0.0015), 0.02), 40), f = s / v.s;
         return { s, x: mx - (mx - v.x) * f, y: my - (my - v.y) * f };
       });
     };
@@ -92,57 +55,80 @@ function MapCanvas({ map, show, fitKey }) {
     const c = cv.current, dpr = window.devicePixelRatio || 1;
     c.width = size.w * dpr; c.height = size.h * dpr;
     const g = c.getContext("2d");
-    g.fillStyle = "#0d1117";
+    g.fillStyle = "#0a0e13";
     g.fillRect(0, 0, c.width, c.height);
-    g.setTransform(dpr * view.s, 0, 0, dpr * view.s, dpr * view.x, dpr * view.y);
+    const sx = (x) => x * view.s + view.x, sy = (y) => -y * view.s + view.y;
+
+    // world space (metres, y up)
+    g.setTransform(dpr * view.s, 0, 0, -dpr * view.s, dpr * view.x, dpr * view.y);
     g.lineCap = "round"; g.lineJoin = "round";
-    const { nodes, edges } = map;
-
-    if (show.districts) {
-      g.lineWidth = 1.5 / view.s;
-      for (const d of map.districts) {
-        g.strokeStyle = STYLE_COLORS[d.style] + "aa"; g.fillStyle = STYLE_COLORS[d.style];
-        g.beginPath();
-        for (let i = 0; i <= 48; i++) {
-          const t = (i / 48) * Math.PI * 2, c0 = Math.cos(t), s0 = Math.sin(t);
-          const nrm = d.pw === 2 ? 1 : (Math.abs(c0) ** d.pw + Math.abs(s0) ** d.pw) ** (1 / d.pw);
-          const u = (c0 / nrm) * d.r * d.ex, v = (s0 / nrm) * d.r / d.ex;
-          const x = d.x + u * Math.cos(d.a) - v * Math.sin(d.a), y = d.y + u * Math.sin(d.a) + v * Math.cos(d.a);
-          if (i) g.lineTo(x, y); else g.moveTo(x, y);
-        }
+    const b = city.bounds;
+    g.fillStyle = "#0d1117";
+    g.fillRect(b.minx, b.miny, b.maxx - b.minx, b.maxy - b.miny);
+    for (const w of city.water) {
+      g.fillStyle = "#1a4562";
+      g.beginPath();
+      w.polygon.forEach(([x, y], i) => (i ? g.lineTo(x, y) : g.moveTo(x, y)));
+      g.closePath(); g.fill();
+    }
+    for (const r of city.rails) {
+      const path = () => { g.beginPath(); for (let i = 0; i < r.pts.length; i += 2) (i ? g.lineTo(r.pts[i], r.pts[i + 1]) : g.moveTo(r.pts[i], r.pts[i + 1])); };
+      g.lineCap = "butt";
+      path(); g.strokeStyle = "#8b98a8"; g.lineWidth = Math.max(2.2, r.width * view.s) / view.s; g.setLineDash([]); g.stroke();
+      path(); g.strokeStyle = "#0d1117"; g.lineWidth = Math.max(1, r.width * view.s * 0.45) / view.s; g.setLineDash([9 / view.s, 9 / view.s]); g.stroke();
+      g.setLineDash([]); g.lineCap = "round";
+    }
+    const byRoad = show.roads && city.roads.length > 0;
+    const stroke = (list, color, wm, minPx) => {
+      g.strokeStyle = color; g.lineWidth = Math.max(minPx, wm * view.s) / view.s;
+      for (const e of list) {
+        g.beginPath(); g.moveTo(e.pts[0], e.pts[1]);
+        for (let i = 2; i < e.pts.length; i += 2) g.lineTo(e.pts[i], e.pts[i + 1]);
         g.stroke();
-        g.beginPath(); g.arc(d.x, d.y, 6 / view.s, 0, 6.2832); g.fill();
       }
-    }
-
-    for (const [cls, color, widthM, minPx] of CLASSES) {
-      g.beginPath();
-      for (const e of edges) {
-        if (e.cls !== cls) continue;
-        const p = e.pts;
-        g.moveTo(p[0], p[1]);
-        for (let i = 2; i < p.length; i += 2) g.lineTo(p[i], p[i + 1]);
-      }
-      g.lineWidth = Math.max(minPx, widthM * view.s) / view.s;
-      g.strokeStyle = color;
-      g.stroke();
-    }
-    const dots = (test, color, px) => {
-      g.fillStyle = color;
-      g.beginPath();
-      for (const n of nodes) if (test(n)) { g.moveTo(n.x + px / view.s, n.y); g.arc(n.x, n.y, px / view.s, 0, 6.2832); }
-      g.fill();
     };
-    if (show.nodes) dots((n) => n.deg >= 3, "#6cc0e5", 2.2);
-    if (show.deadEnds) dots((n) => n.deg === 1 && !n.border, "#ff7357", 3);
+    for (const k of ["tertiary", "secondary", "ramp", "primary", "highway"]) {
+      const list = city.edges.filter((e) => kindOf(e) === k);
+      if (!list.length) continue;
+      if (byRoad) {
+        for (const e of list) stroke([e], e.roadId == null ? "#444" : roadColor(e.roadId), e.width, MIN_PX[k]);
+        continue;
+      }
+      const deck = list.filter((e) => e.bridge);
+      if (deck.length) stroke(deck, "#05080c", 0, Math.max(MIN_PX[k] + 3, deck[0].width * view.s + 4));
+      stroke(list, COLORS[k], list[0].width, MIN_PX[k]);
+    }
 
+    // screen space (pixels)
     g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const dot = (x, y, r, color) => { g.fillStyle = color; g.beginPath(); g.arc(sx(x), sy(y), r, 0, 6.2832); g.fill(); };
+    const deg = new Map();
+    for (const e of city.edges) { deg.set(e.a, (deg.get(e.a) || 0) + 1); deg.set(e.b, (deg.get(e.b) || 0) + 1); }
+    for (const n of city.nodes) {
+      if (n.type === "roundabout") {
+        g.strokeStyle = "#e6edf3"; g.lineWidth = 2;
+        g.beginPath(); g.arc(sx(n.x), sy(n.y), Math.max(5, (n.radius || 25) * view.s), 0, 6.2832); g.stroke();
+      } else if (n.type === "signal") dot(n.x, n.y, 4, "#e6b84a");
+      else if (n.type === "ramp") dot(n.x, n.y, 4, "#ff9d86");
+      else if (show.nodes && deg.get(n.id) >= 3) dot(n.x, n.y, 2.4, "#6cc0e5");
+      if (show.deadEnds && n.type === "end") dot(n.x, n.y, 3.2, "#ff7357");
+    }
+    for (const x of city.crossings) if (x.kind === "overpass") dot(x.x, x.y, 2.5, "#ffffffaa");
+    if (show.violations) {
+      g.font = "600 12px 'Bricolage Grotesque', system-ui, sans-serif";
+      for (const v of city.violations) {
+        const col = v.severity === "warn" ? "#e6b84a" : "#ff4d4d";
+        g.strokeStyle = col; g.lineWidth = 2;
+        g.beginPath(); g.arc(sx(v.x), sy(v.y), 13, 0, 6.2832); g.stroke();
+        g.fillStyle = col; g.fillText(v.rule, sx(v.x) + 16, sy(v.y) + 4);
+      }
+    }
     const len = niceLen(view.s), px = len * view.s, x0 = 16, y0 = size.h - 18;
     g.strokeStyle = "#e6edf3"; g.lineWidth = 2; g.lineCap = "butt";
     g.beginPath(); g.moveTo(x0, y0 - 5); g.lineTo(x0, y0); g.lineTo(x0 + px, y0); g.lineTo(x0 + px, y0 - 5); g.stroke();
     g.fillStyle = "#e6edf3"; g.font = "12px 'Bricolage Grotesque', system-ui, sans-serif";
     g.fillText(len >= 1000 ? `${len / 1000} km` : `${len} m`, x0, y0 - 9);
-  }, [map, view, size, show]);
+  }, [city, view, size, show]);
 
   const down = (e) => { e.currentTarget.setPointerCapture(e.pointerId); drag.current = { x: e.clientX, y: e.clientY }; };
   const move = (e) => {
@@ -157,77 +143,84 @@ function MapCanvas({ map, show, fitKey }) {
   return <>
     <div ref={wrap} style={{ position: "absolute", inset: 0 }}>
       <canvas ref={cv} onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={up}
-        role="img" aria-label="Generated street network" />
+        role="img" aria-label="Road network" />
     </div>
     <span className="mg-hint">Drag to pan · scroll to zoom</span>
   </>;
 }
 
+const km = (v) => `${v.toFixed(1)} km`;
+
 export default function StreetGenerator() {
-  const [params, setParams] = useState({ ...DEFAULTS, ...PRESETS[0].params });
-  const [live, setLive] = useState(params);
-  const [preset, setPreset] = useState(PRESETS[0].key);
-  const [show, setShow] = useState({ nodes: false, deadEnds: true, districts: false });
+  const [demo, setDemo] = useState(DEMOS[0].key);
+  const [show, setShow] = useState({ violations: true, deadEnds: true, nodes: false, roads: false });
   const [resets, setResets] = useState(0);
+  const [focus, setFocus] = useState(null);
 
-  // Generating takes a moment on big maps, so wait until the sliders stop moving.
-  useEffect(() => { const t = setTimeout(() => setLive(params), 250); return () => clearTimeout(t); }, [params]);
-  const map = useMemo(() => generate(live), [live]);
-  const stale = live !== params;
-  const st = map.stats;
-
-  const setNum = (k) => (e) => { const v = Number(e.target.value); setParams((p) => ({ ...p, [k]: v })); setPreset("custom"); };
-  const apply = (key, p) => { setParams({ ...DEFAULTS, ...p }); setPreset(key); };
+  const built = useMemo(() => {
+    try { return { city: buildDemo(demo) }; } catch (e) { return { error: e.message }; }
+  }, [demo]);
   const flag = (k) => (e) => setShow((s) => ({ ...s, [k]: e.target.checked }));
+  const pick = (k) => { setDemo(k); setFocus(null); setResets((n) => n + 1); };
+
+  if (built.error) return <ErrorBox message="A demo city could not be built." detail={built.error} />;
+  const { city } = built;
+  const st = city.stats;
+  const errors = city.violations.filter((v) => v.severity === "error");
+  const warns = city.violations.length - errors.length;
+  const byRule = summarize(city.violations);
+  const note = DEMOS.find((d) => d.key === demo)?.note;
 
   return <div className="mg">
     <aside className="mg-panel">
-      <h3>Style</h3>
+      <h3>Demo city</h3>
       <div className="mg-presets">
-        {PRESETS.map((p) => <button key={p.key} type="button" className={preset === p.key ? "on" : ""} onClick={() => apply(p.key, p.params)}>{p.label}</button>)}
-        <button type="button" className={preset === "random" ? "on" : ""} onClick={() => apply("random", randomParams())}>Surprise me</button>
+        {DEMOS.map((d) => <button key={d.key} type="button" className={demo === d.key ? "on" : ""} onClick={() => pick(d.key)}>{d.label}</button>)}
       </div>
+      <p className="muted mg-note">{note} The generator itself arrives in the next phase; this page tests the road graph and its validator.</p>
 
-      <h3>Seed</h3>
-      <div className="mg-seed">
-        <input type="number" aria-label="Seed" value={params.seed} onChange={setNum("seed")} />
-        <button type="button" className="btn ghost" onClick={() => { setParams((p) => ({ ...p, seed: Math.floor(Math.random() * 99999) })); setPreset("custom"); }}>New seed</button>
-      </div>
+      <h3>Debug overlay</h3>
+      <label className="mg-check"><input type="checkbox" checked={show.violations} onChange={flag("violations")} />Rule violations</label>
+      <label className="mg-check"><input type="checkbox" checked={show.deadEnds} onChange={flag("deadEnds")} />Dead ends</label>
+      <label className="mg-check"><input type="checkbox" checked={show.nodes} onChange={flag("nodes")} />Intersections</label>
+      <label className="mg-check"><input type="checkbox" checked={show.roads} disabled={!city.roads.length} onChange={flag("roads")} />Colour by road{!city.roads.length && <span className="muted"> (no roads yet)</span>}</label>
 
-      {GROUPS.map(([title, items]) => <section key={title}>
-        <h3>{title}</h3>
-        {title === "Neighbourhoods" && <div className="mg-row">
-          <label htmlFor="mg-centreStyle">Centre style</label>
-          <select id="mg-centreStyle" value={params.centreStyle} onChange={(e) => { setParams((p) => ({ ...p, centreStyle: e.target.value })); setPreset("custom"); }}>
-            {STYLES.map((s) => <option key={s} value={s}>{STYLE_LABELS[s]}</option>)}
-          </select>
-        </div>}
-        {items.map(([k, label, min, max, step, fmt, hint]) => <div className="mg-row" key={k} title={hint}>
-          <label htmlFor={`mg-${k}`}>{label}<output>{fmt(params[k])}</output></label>
-          <input id={`mg-${k}`} type="range" min={min} max={max} step={step} value={params[k]} onChange={setNum(k)} />
-        </div>)}
-      </section>)}
+      <h3>Validator</h3>
+      <p className="mg-verdict">
+        <span className={`badge ${errors.length ? "bad" : "on"}`}>{errors.length ? `${errors.length} violation${errors.length === 1 ? "" : "s"}` : "No violations"}</span>
+        {warns > 0 && <span className="badge warn">{warns} warning{warns === 1 ? "" : "s"}</span>}
+      </p>
+      {Object.keys(byRule).length > 0 && <ul className="mg-viol">
+        {city.violations.slice(0, 60).map((v, i) => <li key={i}>
+          <button type="button" className={v.severity} title={RULE_TEXT[v.rule]} onClick={() => setFocus({ x: v.x, y: v.y, n: i + Math.random() })}>
+            <b>{v.rule}</b> {v.message}
+          </button>
+        </li>)}
+        {city.violations.length > 60 && <li className="muted">…and {city.violations.length - 60} more</li>}
+      </ul>}
     </aside>
 
     <div className="mg-view">
-      {st && <div className="mg-stats">
-        <div><b>{num(Math.round(st.km))} km</b><span>of road ({num(Math.round(st.kmMain))} km main)</span></div>
-        <div><b>{num(st.nodes)}</b><span>junctions and ends</span></div>
-        <div><b>{Math.round(st.avgEdge)} m</b><span>average segment</span></div>
-        <div><b>{num(st.intersections)}</b><span>intersections</span></div>
-        <div><b>{num(st.deadEnds)}</b><span>local dead ends</span></div>
-        <div><b>{st.mainDeadEnds}</b><span>main-road dead ends</span></div>
-        <div><b>{st.density.toFixed(1)}</b><span>km of road per km²</span></div>
-        <div><b>{st.ms} ms</b><span>to generate</span></div>
-      </div>}
+      <div className="mg-stats">
+        <div><b>{km(st.km.highway + st.km.primary + st.km.secondary + st.km.tertiary)}</b><span>of road</span></div>
+        <div><b>{km(st.km.highway)}</b><span>highway</span></div>
+        <div><b>{km(st.km.primary)}</b><span>primary</span></div>
+        <div><b>{km(st.km.secondary)}</b><span>secondary</span></div>
+        <div><b>{km(st.km.tertiary)}</b><span>tertiary</span></div>
+        <div><b>{num(st.edges)}</b><span>edges</span></div>
+        <div><b>{num(st.nodes.junctions)}</b><span>junctions</span></div>
+        <div><b>{num(st.nodes.deadEnds)}</b><span>dead ends</span></div>
+        <div><b>{st.counts.roundabouts}</b><span>roundabouts</span></div>
+        <div><b>{st.counts.signals}</b><span>signals</span></div>
+        <div><b>{st.counts.ramps}</b><span>ramps</span></div>
+        <div><b>{st.counts.bridges}</b><span>bridges</span></div>
+        <div><b>{st.counts.railHighwayCrossings}</b><span>rail × highway</span></div>
+      </div>
       <div className="mg-tools">
         <button type="button" className="btn ghost" onClick={() => setResets((n) => n + 1)}>Reset view</button>
-        <label className="mg-check"><input type="checkbox" checked={show.deadEnds} onChange={flag("deadEnds")} />Show dead ends</label>
-        <label className="mg-check"><input type="checkbox" checked={show.nodes} onChange={flag("nodes")} />Show intersections</label>
-        <label className="mg-check"><input type="checkbox" checked={show.districts} onChange={flag("districts")} />Show neighbourhoods</label>
       </div>
-      <div className={`mg-canvas-wrap ${stale ? "stale" : ""}`}>
-        <MapCanvas map={map} show={show} fitKey={`${live.sizeKm}-${resets}`} />
+      <div className="mg-canvas-wrap">
+        <MapCanvas city={city} show={show} fitKey={`${demo}-${resets}`} focus={focus} />
       </div>
     </div>
   </div>;
