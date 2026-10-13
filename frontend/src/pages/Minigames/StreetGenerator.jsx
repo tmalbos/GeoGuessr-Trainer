@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import ErrorBox from "../../components/ErrorBox.jsx";
-import { num } from "../../lib/format.js";
-import { DEMOS, RULE_TEXT, buildDemo, summarize } from "../../lib/streetgen/index.js";
+import { num as num2 } from "../../lib/format.js";
+import { DEFAULT_PARAMS, DEMOS, RULE_TEXT, buildDemo, generateCity, summarize } from "../../lib/streetgen/index.js";
 import "./minigames.css";
 
-// Phase 1: the core of the new city generator. This page shows hand-built demo cities and the validator's verdict.
-// World coordinates are metres, +y north; the canvas flips y.
+// Viewer for the new city generator (organic style so far) and its validator. The hand-built demo cities of
+// phase 1 live in the collapsed "Debug" section. World coordinates are metres, +y north; the canvas flips y.
 
 const COLORS = { tertiary: "#6f7f93", secondary: "#b4bfcc", primary: "#e0cf9a", highway: "#ff7357", ramp: "#ff9d86" };
 const MIN_PX = { tertiary: 1, secondary: 1.8, primary: 2.8, highway: 3.4, ramp: 1.8 };
@@ -65,6 +65,11 @@ function MapCanvas({ city, show, fitKey, focus }) {
     const b = city.bounds;
     g.fillStyle = "#0d1117";
     g.fillRect(b.minx, b.miny, b.maxx - b.minx, b.maxy - b.miny);
+    if (show.footprint && city.footprint) {
+      g.strokeStyle = "#3a4656"; g.lineWidth = 1.5 / view.s; g.setLineDash([8 / view.s, 6 / view.s]);
+      g.beginPath(); city.footprint.forEach(([x, y], i) => (i ? g.lineTo(x, y) : g.moveTo(x, y))); g.closePath(); g.stroke();
+      g.setLineDash([]);
+    }
     for (const w of city.water) {
       g.fillStyle = "#1a4562";
       g.beginPath();
@@ -150,54 +155,95 @@ function MapCanvas({ city, show, fitKey, focus }) {
 }
 
 const km = (v) => `${v.toFixed(1)} km`;
+const STYLE_LABELS = { organic: "Organic", planned: "Planned (phase 3)" };
 
 export default function StreetGenerator() {
-  const [demo, setDemo] = useState(DEMOS[0].key);
-  const [show, setShow] = useState({ violations: true, deadEnds: true, nodes: false, roads: false });
+  const [params, setParams] = useState({ ...DEFAULT_PARAMS, style: "organic" });
+  const [live, setLive] = useState(params);
+  const [demo, setDemo] = useState(null);
+  const [show, setShow] = useState({ violations: true, deadEnds: false, nodes: false, roads: false, footprint: false });
   const [resets, setResets] = useState(0);
   const [focus, setFocus] = useState(null);
 
+  // Generating takes a moment on big maps, so wait until the controls stop moving.
+  useEffect(() => { const t = setTimeout(() => setLive(params), 250); return () => clearTimeout(t); }, [params]);
   const built = useMemo(() => {
-    try { return { city: buildDemo(demo) }; } catch (e) { return { error: e.message }; }
-  }, [demo]);
-  const flag = (k) => (e) => setShow((s) => ({ ...s, [k]: e.target.checked }));
-  const pick = (k) => { setDemo(k); setFocus(null); setResets((n) => n + 1); };
+    try { return { city: demo ? buildDemo(demo) : generateCity(live) }; } catch (e) { return { error: e.stack || e.message }; }
+  }, [live, demo]);
+  const stale = !demo && live !== params;
 
-  if (built.error) return <ErrorBox message="A demo city could not be built." detail={built.error} />;
+  const set = (k, v) => setParams((p) => ({ ...p, [k]: v }));
+  const num = (k) => (e) => set(k, Number(e.target.value));
+  const flag = (k) => (e) => setShow((s) => ({ ...s, [k]: e.target.checked }));
+  const pickDemo = (k) => { setDemo(k); setFocus(null); setResets((n) => n + 1); };
+
+  if (built.error) return <ErrorBox message="The city could not be generated." detail={built.error} onRetry={() => setLive({ ...params })} />;
   const { city } = built;
   const st = city.stats;
   const errors = city.violations.filter((v) => v.severity === "error");
   const warns = city.violations.length - errors.length;
   const byRule = summarize(city.violations);
-  const note = DEMOS.find((d) => d.key === demo)?.note;
+  const info = city.meta.info;
 
   return <div className="mg">
     <aside className="mg-panel">
-      <h3>Demo city</h3>
-      <div className="mg-presets">
-        {DEMOS.map((d) => <button key={d.key} type="button" className={demo === d.key ? "on" : ""} onClick={() => pick(d.key)}>{d.label}</button>)}
+      {demo && <p className="muted">Showing a hand-built test city. <button type="button" className="link-btn" onClick={() => pickDemo(null)}>Back to the generator</button></p>}
+      <h3>City</h3>
+      <div className="mg-row">
+        <label htmlFor="mg-style">Style</label>
+        <select id="mg-style" value={params.style} onChange={(e) => set("style", e.target.value)}>
+          {Object.entries(STYLE_LABELS).map(([k, l]) => <option key={k} value={k}>{l}</option>)}
+        </select>
       </div>
-      <p className="muted mg-note">{note} The generator itself arrives in the next phase; this page tests the road graph and its validator.</p>
-
-      <h3>Debug overlay</h3>
-      <label className="mg-check"><input type="checkbox" checked={show.violations} onChange={flag("violations")} />Rule violations</label>
-      <label className="mg-check"><input type="checkbox" checked={show.deadEnds} onChange={flag("deadEnds")} />Dead ends</label>
-      <label className="mg-check"><input type="checkbox" checked={show.nodes} onChange={flag("nodes")} />Intersections</label>
-      <label className="mg-check"><input type="checkbox" checked={show.roads} disabled={!city.roads.length} onChange={flag("roads")} />Colour by road{!city.roads.length && <span className="muted"> (no roads yet)</span>}</label>
+      <div className="mg-row">
+        <label htmlFor="mg-size">Map size<output>{params.sizeKm} km</output></label>
+        <input id="mg-size" type="range" min="3" max="16" step="0.5" value={params.sizeKm} onChange={num("sizeKm")} />
+      </div>
+      <div className="mg-row">
+        <label htmlFor="mg-irr">Irregularity<output>{Math.round(params.irregularity * 100)}%</output></label>
+        <input id="mg-irr" type="range" min="0" max="1" step="0.05" value={params.irregularity} onChange={num("irregularity")} />
+      </div>
+      <div className="mg-row">
+        <label htmlFor="mg-seed">Seed</label>
+        <div className="mg-seed">
+          <input id="mg-seed" type="number" value={params.seed} onChange={num("seed")} />
+          <button type="button" className="btn ghost" onClick={() => set("seed", Math.floor(Math.random() * 99999))}>New seed</button>
+        </div>
+      </div>
+      <p className="muted mg-note">Water, highway and rail switches arrive with phases 4 to 6.</p>
 
       <h3>Validator</h3>
       <p className="mg-verdict">
         <span className={`badge ${errors.length ? "bad" : "on"}`}>{errors.length ? `${errors.length} violation${errors.length === 1 ? "" : "s"}` : "No violations"}</span>
         {warns > 0 && <span className="badge warn">{warns} warning{warns === 1 ? "" : "s"}</span>}
+        {city.meta.attempts > 1 && <span className="badge">{city.meta.attempts} attempts</span>}
       </p>
       {Object.keys(byRule).length > 0 && <ul className="mg-viol">
         {city.violations.slice(0, 60).map((v, i) => <li key={i}>
-          <button type="button" className={v.severity} title={RULE_TEXT[v.rule]} onClick={() => setFocus({ x: v.x, y: v.y, n: i + Math.random() })}>
+          <button type="button" className={v.severity} title={RULE_TEXT[v.rule]} onClick={() => setFocus({ x: v.x, y: v.y, n: Math.random() })}>
             <b>{v.rule}</b> {v.message}
           </button>
         </li>)}
         {city.violations.length > 60 && <li className="muted">…and {city.violations.length - 60} more</li>}
       </ul>}
+
+      <details className="mg-debug">
+        <summary>Debug</summary>
+        <label className="mg-check"><input type="checkbox" checked={show.violations} onChange={flag("violations")} />Rule violations</label>
+        <label className="mg-check"><input type="checkbox" checked={show.deadEnds} onChange={flag("deadEnds")} />Dead ends</label>
+        <label className="mg-check"><input type="checkbox" checked={show.nodes} onChange={flag("nodes")} />Intersections</label>
+        <label className="mg-check"><input type="checkbox" checked={show.footprint} onChange={flag("footprint")} />City footprint</label>
+        <label className="mg-check"><input type="checkbox" checked={show.roads} disabled={!city.roads.length} onChange={flag("roads")} />Colour by road{!city.roads.length && <span className="muted"> (no roads yet)</span>}</label>
+        <div className="mg-row">
+          <label htmlFor="mg-block">Block size<output>{params.blockSize == null ? "auto" : `${params.blockSize} m`}</output></label>
+          <input id="mg-block" type="range" min="40" max="250" step="5" value={params.blockSize ?? 70} onChange={num("blockSize")} />
+          <button type="button" className="link-btn" onClick={() => set("blockSize", null)}>Use the default</button>
+        </div>
+        <h3>Hand-built test cities</h3>
+        <div className="mg-presets">
+          {DEMOS.map((d) => <button key={d.key} type="button" className={demo === d.key ? "on" : ""} title={d.note} onClick={() => pickDemo(d.key)}>{d.label}</button>)}
+        </div>
+      </details>
     </aside>
 
     <div className="mg-view">
@@ -207,20 +253,21 @@ export default function StreetGenerator() {
         <div><b>{km(st.km.primary)}</b><span>primary</span></div>
         <div><b>{km(st.km.secondary)}</b><span>secondary</span></div>
         <div><b>{km(st.km.tertiary)}</b><span>tertiary</span></div>
-        <div><b>{num(st.edges)}</b><span>edges</span></div>
-        <div><b>{num(st.nodes.junctions)}</b><span>junctions</span></div>
-        <div><b>{num(st.nodes.deadEnds)}</b><span>dead ends</span></div>
+        <div><b>{num2(st.edges)}</b><span>edges</span></div>
+        <div><b>{num2(st.nodes.junctions)}</b><span>junctions</span></div>
+        <div><b>{num2(st.nodes.deadEnds)}</b><span>dead ends</span></div>
         <div><b>{st.counts.roundabouts}</b><span>roundabouts</span></div>
         <div><b>{st.counts.signals}</b><span>signals</span></div>
-        <div><b>{st.counts.ramps}</b><span>ramps</span></div>
         <div><b>{st.counts.bridges}</b><span>bridges</span></div>
         <div><b>{st.counts.railHighwayCrossings}</b><span>rail × highway</span></div>
+        <div><b>{st.ms} ms</b><span>to generate</span></div>
+        {info && <div><b>{info.primaries} / {info.secondaries}</b><span>primary / secondary roads</span></div>}
       </div>
       <div className="mg-tools">
         <button type="button" className="btn ghost" onClick={() => setResets((n) => n + 1)}>Reset view</button>
       </div>
-      <div className="mg-canvas-wrap">
-        <MapCanvas city={city} show={show} fitKey={`${demo}-${resets}`} focus={focus} />
+      <div className={`mg-canvas-wrap ${stale ? "stale" : ""}`}>
+        <MapCanvas city={city} show={show} fitKey={`${demo}-${city.meta.sizeKm}-${resets}`} focus={focus} />
       </div>
     </div>
   </div>;

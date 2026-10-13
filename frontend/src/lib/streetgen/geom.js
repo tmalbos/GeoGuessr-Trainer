@@ -144,3 +144,41 @@ export function clipPolylineToRect(pts, minx, miny, maxx, maxy) {
   if (cur) runs.push(cur);
   return runs;
 }
+
+/** Chaikin corner cutting: rounds a polyline, keeping both end points where they are. */
+export function chaikin(pts, iterations = 1) {
+  let p = pts;
+  for (let k = 0; k < iterations; k++) {
+    const n = p.length / 2;
+    if (n < 3) return p;
+    const out = [p[0], p[1]];
+    for (let i = 0; i < n - 1; i++) {
+      const ax = p[2 * i], ay = p[2 * i + 1], bx = p[2 * i + 2], by = p[2 * i + 3];
+      out.push(0.75 * ax + 0.25 * bx, 0.75 * ay + 0.25 * by, 0.25 * ax + 0.75 * bx, 0.25 * ay + 0.75 * by);
+    }
+    out.push(p[2 * n - 2], p[2 * n - 1]);
+    p = out;
+  }
+  return p;
+}
+
+/** Douglas-Peucker: drop points that are within tol metres of the straight line between their neighbours. */
+export function simplifyDP(pts, tol) {
+  const n = pts.length / 2;
+  if (n < 3) return pts;
+  const keep = new Uint8Array(n);
+  keep[0] = keep[n - 1] = 1;
+  const stack = [[0, n - 1]];
+  while (stack.length) {
+    const [a, b] = stack.pop();
+    let best = -1, bd = tol;
+    for (let i = a + 1; i < b; i++) {
+      const d = closestOnSeg(pts[2 * i], pts[2 * i + 1], pts[2 * a], pts[2 * a + 1], pts[2 * b], pts[2 * b + 1]).d;
+      if (d > bd) { bd = d; best = i; }
+    }
+    if (best >= 0) { keep[best] = 1; stack.push([a, best], [best, b]); }
+  }
+  const out = [];
+  for (let i = 0; i < n; i++) if (keep[i]) out.push(pts[2 * i], pts[2 * i + 1]);
+  return out;
+}

@@ -60,3 +60,6 @@ export const boundsFor = (sizeKm) => {
   const h = sizeKm * 500;
   return { minx: -h, miny: -h, maxx: h, maxy: h };
 };
+
+/** Typical tertiary block size when the user doesn't pick one. */
+export const defaultBlock = (style) => (style === "organic" ? 70 : 100);

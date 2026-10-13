@@ -8,7 +8,7 @@
 
 import { CLS_RANK, LIMITS, midWidth } from "./params.js";
 import {
-  angleDeg, closestOnPolyline, cumLengths, pointAt, polylineSelfIntersection, segIntersect, tangentAt,
+  angleDeg, closestOnPolyline, cumLengths, pointAt, pointInPolygon, polylineSelfIntersection, segIntersect, tangentAt,
 } from "./geom.js";
 import { createGraph } from "./graph.js";
 import { resolveEnds } from "./ends.js";
@@ -41,7 +41,7 @@ function makeRoad(cls, opts) {
 
 // ── planning ─────────────────────────────────────────────────────────────────
 
-function plan(g, road, rawPts, opts, rails) {
+function plan(g, road, rawPts, opts, rails, streets) {
   if (!rawPts || rawPts.length < 4 || rawPts.some((v) => !Number.isFinite(v))) return fail("a road needs at least two valid points");
   const b = g.bounds;
   let pts = cleanPts(rawPts);
@@ -64,6 +64,13 @@ function plan(g, road, rawPts, opts, rails) {
     const h = segIntersect(P[2 * i], P[2 * i + 1], P[2 * i + 2], P[2 * i + 3], rail.pts[2 * j], rail.pts[2 * j + 1], rail.pts[2 * j + 2], rail.pts[2 * j + 3]);
     if (h) return fail("the road would cross the railway at ground level", h.x, h.y);
   }
+
+  if (opts.within) {
+    for (let i = 0; i < P.length; i += 2) if (!pointInPolygon(P[i], P[i + 1], opts.within)) return fail("the road would leave the allowed area", P[i], P[i + 1]);
+  }
+  // A road must join the network (R6). Highways are exempt (ramps join them later) and so is the very first road.
+  const joins = ends.some((e) => e.kind === "node" || e.kind === "edge") || events.some((e) => e.kind === "node" || e.kind === "split");
+  if (!joins && !road.highway && streets > 0 && !opts.allowIsland) return fail("the road would be cut off from the rest of the network", P[0], P[1]);
 
   const cum = cumLengths(P), L = cum[cum.length - 1];
   const pMarks = [], eMarks = new Map(), crossSpecs = [];
@@ -257,14 +264,17 @@ function planRail(g, rawPts, width, rails) {
 export function createNetwork(bounds) {
   const g = createGraph(bounds);
   const rails = [];
+  let streets = 0; // non-highway roads committed so far
   return {
     graph: g,
     rails,
     tryAddRoad(pts, cls, opts = {}) {
       const road = makeRoad(cls, opts);
       if (road.error) return fail(road.error);
-      const p = plan(g, road, pts, opts, rails);
-      return p.ok ? commit(g, p) : p;
+      const p = plan(g, road, pts, opts, rails, streets);
+      if (!p.ok) return p;
+      if (!road.highway) streets++;
+      return commit(g, p);
     },
     addRail(pts, width = midWidth("rail")) {
       const p = planRail(g, pts, width, rails);

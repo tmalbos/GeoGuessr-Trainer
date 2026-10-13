@@ -47,8 +47,8 @@ function highway() {
   const add = (label, pts, cls, opts) => must(net, net.tryAddRoad(pts, cls, opts), label);
   add("highway", [-2000, -1100, -1000, -1250, 0, -1300, 1000, -1250, 2000, -1100], "primary", { highway: true });
   add("north-south W", [-600, -2000, -600, 2000], "primary");
-  add("north-south E", [600, -2000, 600, 2000], "primary");
   add("east-west", [-2000, 0, 2000, 0], "primary");
+  add("north-south E", [600, -2000, 600, 2000], "primary");
   add("ramp W", [-900, -1260, -800, -1150, -700, -1000, -600, -900], "secondary", { ramp: true, highwayEnd: 0 });
   add("ramp E", [900, -1260, 800, -1150, 700, -1000, 600, -900], "secondary", { ramp: true, highwayEnd: 0 });
   add("ring road", [-600, 700, -300, 850, 300, 850, 600, 700], "secondary");
