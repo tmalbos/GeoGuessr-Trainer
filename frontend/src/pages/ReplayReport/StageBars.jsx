@@ -22,12 +22,14 @@ function Row({ title, values, fmt, size }) {
   </div>;
 }
 
-/** Where the steps and the time went, split into the four stages. Steps first: they measure efficiency. */
+/** Where the steps and the time went, split into the four stages. Steps first: they measure efficiency.
+ *  The legend only lists the stages that actually appear in this round / game. */
 export default function StageBars({ steps, timeMs, size = "md" }) {
+  const used = STAGES.filter((s) => steps[s.id] > 0 || timeMs[s.id] > 0);
   return <div className="sb">
     <Row title="Steps" values={steps} fmt={String} size={size} />
     <Row title="Time" values={timeMs} fmt={clock} size={size} />
-    <div className="sb-legend">{STAGES.map((s) => <span key={s.id} style={{ "--h": s.hue }}>
+    <div className="sb-legend">{used.map((s) => <span key={s.id} style={{ "--h": s.hue }}>
       <span aria-hidden="true">{s.emoji}</span> {s.label}</span>)}</div>
   </div>;
 }

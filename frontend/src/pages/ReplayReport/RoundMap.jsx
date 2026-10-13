@@ -28,12 +28,21 @@ const realIcon = L.divIcon({
 });
 
 const PATH = "#f2c14e";
-const HILITE = "#ff7357";
+const HILITE = "#3fb97a"; // selection green (same as --ok)
 const SINGLE_POINT_ZOOM = 15;
+
+const arrowIcon = (angle) => L.divIcon({
+  className: "rr-arrow",
+  html: `<svg viewBox="0 0 24 24" width="28" height="28" style="transform:rotate(${angle}deg)" aria-hidden="true">
+    <path d="M3 4L22 12L3 20L8 12Z" fill="${HILITE}" stroke="#fff" stroke-width="1.5" stroke-linejoin="round"/></svg>`,
+  iconSize: [28, 28], iconAnchor: [14, 14],
+});
 
 /** `focus` (from the clicked event) is one of:
  *    { bbox: [west, south, east, north] }  exactly that area (what the player's minimap showed)
- *    { points: [[lat, lng], ...], path? }  fit those points and highlight them (path = the steps of a run)
+ *    { points: [[lat, lng], ...], path? }  highlight those points. A path (the steps of a run) is drawn as an
+ *                                          arrow from where it started to where it ended, and the view fits the
+ *                                          whole path walked in the round so the arrow is seen in context.
  *  null = the default view (real spot + guess). The map has the same aspect ratio as the minimap
  *  window used for the "seen" calculations (MAP_PX in replay_behavior.py), so a bbox fits it exactly. */
 export default function RoundMap({ real, guess, path, searched, focus }) {
@@ -53,14 +62,14 @@ export default function RoundMap({ real, guess, path, searched, focus }) {
 
     if (searched.length) {
       L.polygon(searched, { color: "#6cc0e5", weight: 1, fillColor: "#2d7ea3", fillOpacity: 0.2 })
-        .bindTooltip("Area you searched on the map", { sticky: true }).addTo(map);
+        .addTo(map);
     }
     for (const seg of path.segments) {
-      L.polyline(seg, { color: PATH, weight: 3, opacity: 0.9 }).bindTooltip("Your path", { sticky: true }).addTo(map);
+      L.polyline(seg, { color: PATH, weight: 3, opacity: 0.9 }).addTo(map);
     }
     for (const j of path.jumps) {
       L.polyline(j, { color: PATH, weight: 2, opacity: 0.6, dashArray: "4 6" })
-        .bindTooltip("You jumped back to an earlier spot", { sticky: true }).addTo(map);
+        .addTo(map);
     }
     if (guess) {
       // Dotted gray line between the pins, like GeoGuessr's result map.
@@ -85,30 +94,51 @@ export default function RoundMap({ real, guess, path, searched, focus }) {
   useEffect(() => {
     const map = mapRef.current;
     const hl = hlRef.current;
+    const walked = [...path.segments.flat(), ...path.jumps.flat()]; // everything walked in the round
+
+    // The highlight. Redrawn after every zoom so the arrowhead keeps pointing the right way on screen.
+    const draw = () => {
+      hl.clearLayers();
+      const pts = focus?.points;
+      if (!pts?.length) return;
+      if (!focus.path) {
+        pts.forEach((p) => L.circleMarker(p, { radius: 9, color: "#fff", weight: 3, fillColor: HILITE, fillOpacity: 0.9 }).addTo(hl));
+        return;
+      }
+      L.polyline(pts, { color: HILITE, weight: 5, opacity: 0.95 }).addTo(hl);
+      L.circleMarker(pts[0], { radius: 6, color: HILITE, weight: 3, fillColor: "#fff", fillOpacity: 1 }).addTo(hl);
+      const to = map.latLngToContainerPoint(pts[pts.length - 1]);
+      const from = pts.slice(0, -1).reverse().map((p) => map.latLngToContainerPoint(p))
+        .find((p) => Math.hypot(to.x - p.x, to.y - p.y) >= 4);
+      if (from) {
+        const angle = (Math.atan2(to.y - from.y, to.x - from.x) * 180) / Math.PI;
+        L.marker(pts[pts.length - 1], { icon: arrowIcon(angle), interactive: false, keyboard: false }).addTo(hl);
+      }
+    };
+
     const apply = () => {
       hl.clearLayers();
       if (map.getSize().x === 0) return;
-      if (!focus) { defaultRef.current(); return; }
+      const pts = focus?.points ?? [];
+      if (!focus || (!focus.bbox && !pts.length)) { defaultRef.current(); return; }
       if (focus.bbox) {
         const [w, s, e, n] = focus.bbox;
         map.fitBounds([[s, w], [n, e]], { animate: false });
         return;
       }
-      const pts = focus.points ?? [];
-      if (!pts.length) { defaultRef.current(); return; }
       if (focus.path) {
-        L.polyline(pts, { color: HILITE, weight: 5, opacity: 0.95 }).addTo(hl);
-        pts.forEach((p, i) => L.circleMarker(p, {
-          radius: i === 0 ? 7 : 4, color: "#fff", weight: 2, fillColor: i === 0 ? "#fff" : HILITE, fillOpacity: 1,
-        }).addTo(hl));
+        map.fitBounds(L.latLngBounds([...walked, ...pts]), { padding: [40, 40], maxZoom: 19, animate: false });
+      } else if (pts.length === 1) {
+        map.setView(pts[0], SINGLE_POINT_ZOOM, { animate: false });
       } else {
-        pts.forEach((p) => L.circleMarker(p, { radius: 9, color: "#fff", weight: 3, fillColor: HILITE, fillOpacity: 0.9 }).addTo(hl));
+        map.fitBounds(L.latLngBounds(pts), { padding: [48, 48], maxZoom: 19, animate: false });
       }
-      if (pts.length === 1) map.setView(pts[0], SINGLE_POINT_ZOOM, { animate: false });
-      else map.fitBounds(L.latLngBounds(pts), { padding: [48, 48], maxZoom: 19, animate: false });
+      draw();
     };
     applyRef.current = apply;
+    map.on("zoomend", draw);
     apply();
+    return () => { map.off("zoomend", draw); };
   }, [focus, real, guess, path, searched]);
 
   return <div ref={el} className="rr-map" role="img" aria-label="Map with the actual location, your guess and your path" />;

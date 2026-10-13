@@ -54,11 +54,6 @@ function Round({ r }) {
     <div className="rr-body">
       <div className="rr-main">
         {st ? <>
-          <Timeline segments={st.segments} events={r.timeline} duration={st.duration_ms} selected={sel} onSelect={choose} />
-          {picked
-            ? <p className="rr-sel"><span className="rr-t">{clock(picked.t_ms)}</span> <span>{picked.text}</span>
-                <button type="button" className="link-btn" onClick={() => setSel(null)}>Show full round</button></p>
-            : <p className="muted rr-hint">Click an event to see it on the map.</p>}
           <StageBars steps={st.steps} timeMs={st.time_ms} />
           <button type="button" className="btn ghost rr-more" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
             {open ? "Hide details" : "More details"}</button>
@@ -78,6 +73,13 @@ function Round({ r }) {
       <div className="rr-right">
         <div className="rr-sticky">
           <RoundMap real={r.real} guess={r.guess} path={r.path} searched={r.searched} focus={picked?.focus ?? null} />
+          {st && <>
+            <Timeline segments={st.segments} events={r.timeline} duration={st.duration_ms} selected={sel} onSelect={choose} />
+            {picked
+              ? <p className="rr-sel"><span className="rr-t">{clock(picked.t_ms)}</span> <span>{picked.text}</span>
+                  <button type="button" className="rr-clear" aria-label="Show the full round" title="Show the full round" onClick={() => setSel(null)}>❌</button></p>
+              : <p className="muted rr-hint">Click an event to see it on the map.</p>}
+          </>}
         </div>
       </div>
     </div>

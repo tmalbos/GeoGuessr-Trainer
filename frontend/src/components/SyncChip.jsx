@@ -1,15 +1,25 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useSync } from "../lib/sync.jsx";
 import StatusIcon from "./StatusIcon.jsx";
 import "./sync-button.css";
+
+const AUTO_HIDE_MS = 6000; // a successful result disappears on its own; errors stay until dismissed
 
 /** Sync status, visible on every page: progress while running, then the result or the error. */
 export default function SyncChip() {
   const { running, report, err, dismiss } = useSync();
   const [details, setDetails] = useState(false);
-  if (!running && !report && !err) return null;
 
   const error = err ? { message: err, detail: "" } : !running ? report?.errors[0] : null;
+  const succeeded = !running && !!report && !error;
+  useEffect(() => {
+    if (!succeeded) return undefined;
+    const t = setTimeout(dismiss, AUTO_HIDE_MS);
+    return () => clearTimeout(t);
+  }, [succeeded, dismiss]);
+
+  if (!running && !report && !err) return null;
+
   const kind = running ? "run" : error ? "err" : "ok";
   let text;
   if (running) text = report?.found ? `Syncing ${report.saved} of ${report.found}` : "Syncing…";
