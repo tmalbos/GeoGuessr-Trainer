@@ -5,7 +5,7 @@ import json
 from fastapi import APIRouter, HTTPException, Request
 from starlette.concurrency import run_in_threadpool
 
-from src.analysis.replay_behavior import analyze_round, build_path, searched_polygons
+from src.analysis.replay_behavior import analyze_round, build_path, km_between, searched_polygons
 from src.analysis.replay_grading import grade_phases, summarize_grades
 from src.analysis.replay_narrative import narrate
 from src.analysis.replay_stages import stage_breakdown, summarize_stages
@@ -76,10 +76,12 @@ def _round_payload(row: dict, locate, countries_in, region_bounds) -> dict:
             "place": _place(row["guess_city"], row["guess_state"], row["guess_country"]),
         }
     timeline = narrate(phases)
+    # The stored distance is rounded to 0.1 km; with a guess, use the exact one (the UI shows meters under 1 km).
+    exact_km = km_between(real["lat"], real["lng"], guess["lat"], guess["lng"]) if guess else dist
     return {
         "round_number": row["round_number"],
         "score": row["score"],
-        "distance_km": dist,
+        "distance_km": exact_km,
         "steps": row["steps"],
         "time_sec": row["time_sec"],
         "has_replay": bool(events),

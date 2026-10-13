@@ -1,19 +1,33 @@
 .rr-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 16px; margin-bottom: 12px; }
 .rr-score { font-weight: 800; font-size: 20px; }
-/* Map + timeline take two thirds, the step/time bars the last third. */
-.rr-body { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); gap: 24px; align-items: start; }
-@media (max-width: 900px) { .rr-body { grid-template-columns: 1fr; } }
+/* Left: timeline, stage bars and events. Right: the map, which follows the scroll while the round is on screen. */
+.rr-body { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 24px; align-items: stretch; }
 .rr-main { min-width: 0; }
-.rr-more { padding: 6px 14px; margin-top: 4px; }
+.rr-right { min-width: 0; }
+.rr-sticky { position: sticky; top: 16px; }
+@media (max-width: 900px) {
+  .rr-body { grid-template-columns: 1fr; }
+  /* One column: the map goes first and stays pinned to the top while the events scroll under it. */
+  .rr-right { order: -1; position: sticky; top: 0; z-index: 5; padding-bottom: 8px; background: var(--card); }
+  .rr-sticky { position: static; }
+}
+.rr-more { padding: 6px 14px; margin-top: 12px; }
+.rr-hint, .rr-sel { margin: 4px 0 12px; min-height: 22px; }
+.rr-sel { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; font-weight: 600; }
+.rr-sel .link-btn { margin-left: auto; }
 .rr-list { list-style: none; margin: 14px 0 0; padding: 0; display: grid; gap: 2px; }
-/* The grade icon already says good/bad, so rows carry no colored bar. */
-.rr-ev { display: grid; grid-template-columns: 48px 28px 1fr; align-items: baseline; gap: 10px; padding: 6px 0; }
+/* The grade icon already says good/bad, so rows carry no colored bar. Text wraps inside the column, never under the map. */
+.rr-ev { display: grid; grid-template-columns: 48px 28px minmax(0, 1fr); align-items: baseline; gap: 10px; padding: 6px 8px; border-radius: 6px; }
+.rr-ev > span:last-child { min-width: 0; overflow-wrap: anywhere; }
+.rr-ev.can { cursor: pointer; }
+.rr-ev.can:hover { background: #ffffff0d; }
+.rr-ev.sel { background: #ffffff14; box-shadow: inset 3px 0 0 var(--coral); }
 .rr-t { color: var(--mute); font-variant-numeric: tabular-nums; }
 .rr-g { display: inline-grid; place-items: center; align-self: center; }
 .gi { display: inline-block; vertical-align: middle; object-fit: contain; }
-.rr-side { position: sticky; top: 16px; }
-/* z-index: 0 keeps Leaflet's panes below the side rail. */
-.rr-map { position: relative; z-index: 0; height: 460px; border: 1px solid var(--line); border-radius: 8px; background: var(--raise); }
+/* Same ratio as the minimap window the "seen" calculations use (MAP_PX = 1245 x 775 in replay_behavior.py).
+   z-index: 0 keeps Leaflet's panes below the side rail. */
+.rr-map { position: relative; z-index: 0; width: 100%; aspect-ratio: 1245 / 775; border: 1px solid var(--line); border-radius: 8px; background: var(--raise); }
 .rr-pin { background: none; border: 0; }
 .rr-pin svg, .rr-pin img { display: block; filter: drop-shadow(0 1px 3px rgba(0,0,0,.5)); }
 .rr-real img { box-sizing: content-box; width: 32px; height: 32px; border: 3px solid #fff; border-radius: 50%; }
@@ -38,14 +52,18 @@
 .sb-legend { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 13px; color: var(--mute); }
 
 /* Round timeline */
-.tl { margin: 14px 0 12px; }
+.tl { margin: 0 0 4px; }
 .tl-track { position: relative; height: 22px; }
 .tl-bands { position: absolute; inset: 5px 0; overflow: hidden; border-radius: 6px; background: var(--raise); }
 .tl-seg { position: absolute; top: 0; bottom: 0; background: hsl(var(--h) 50% 38%); }
-.tl-ev { position: absolute; top: 50%; width: 5px; height: 5px; margin: -2.5px 0 0 -2.5px; border-radius: 50%;
-  background: #ffffffb0; cursor: default; }
+/* Events are buttons (click = show on the map): reset the button look first. */
+.tl-ev { position: absolute; top: 50%; width: 5px; height: 5px; margin: -2.5px 0 0 -2.5px; padding: 0; border: 0; border-radius: 50%;
+  background: #ffffffb0; cursor: default; appearance: none; }
+.tl-ev.can { cursor: pointer; }
 .tl-ev.gs { width: 8px; height: 8px; margin: -4px 0 0 -4px; background: hsl(var(--h) 65% 55%); border: 1px solid #000a; }
 /* Notable grades show their chess icon itself (no extra circle around it) */
 .tl-ev.gb { width: 20px; height: 20px; margin: -10px 0 0 -10px; display: grid; place-items: center; z-index: 1;
   background: none; border-radius: 0; filter: drop-shadow(0 1px 2px rgba(0,0,0,.6)); }
+.tl-ev.can:hover { outline: 2px solid #ffffff80; outline-offset: 2px; }
+.tl-ev.sel { outline: 2px solid var(--coral); outline-offset: 3px; z-index: 2; }
 .tl-axis { display: flex; justify-content: space-between; margin-top: 4px; font-variant-numeric: tabular-nums; }

@@ -40,8 +40,17 @@ def _dur(ms: float) -> str:
     return f"{s}s" if s < 60 else f"{s // 60}m {s % 60:02d}s"
 
 
-def _km(d: float) -> str:
-    return f"{d:.1f}" if d < 10 else f"{d:,.0f}"
+def _dist(d: float) -> str:
+    """Distance with its unit: meters under a km ('523 m'), then '4.2 km', then '1,234 km'."""
+    m = round(d * 1000)
+    if m < 1000:
+        return f"{m} m"
+    return f"{d:.1f} km" if d < 10 else f"{d:,.0f} km"
+
+
+def _ordinal(n: int) -> str:
+    suffix = "th" if 10 <= n % 100 <= 20 else {1: "st", 2: "nd", 3: "rd"}.get(n % 10, "th")
+    return f"{n}{suffix}"
 
 
 def _secs(ms: float) -> str:
@@ -104,7 +113,9 @@ def _erratic(c) -> str:
 
 def _return_start(c) -> str:
     n = c["visit"]
-    return "You went back to spawn" if n <= 2 else f"You went back to spawn once more (visit {n})"
+    if n <= 2:
+        return "You went back to spawn"
+    return f"You went back to spawn once more ({_ordinal(n)} visit)"
 
 
 # ── Map ─────────────────────────────────────────────────────────────────────
@@ -124,6 +135,8 @@ def _zoom_in(c) -> str:
 def _zoom_in_core(c) -> str:
     """WHERE the zoom went. The speed adverb is merged in here unless the speed has its own line."""
     place, level = c["place"], c.get("level")
+    if c.get("new_country"):  # first zoom into this country: say which one ("Texas, United States")
+        place = f"{place}, {c['new_country']}"
     verb, after = _verb("zoomed back" if c.get("revisit") else "zoomed", c.get("speed_adverb", ""))
     head = "You opened the map and" if c.get("opened") else "You"
     base = f"{head} {verb}{after} into {place}"
@@ -245,7 +258,7 @@ def _pin(c) -> str:
     if key == "pin_5k":
         head = "You moved your pin to" if moved else "You put a pin on"
         return f"{head} the 5K area, although not precisely on the exact spot"
-    km, place, cls = _km(c["dist_km"]), c["place"], _PIN_CLASS[key]
+    km, place, cls = _dist(c["dist_km"]), c["place"], _PIN_CLASS[key]
     miss = ", missing the real location" if c.get("grade") == "miss" else ""
     # Close pin (right region by distance) that sits across an admin line or a border.
     wrong_side = {
@@ -254,23 +267,21 @@ def _pin(c) -> str:
     }.get(c.get("diff", ""))
     if not moved:
         if key == "pin_right_region" and wrong_side:
-            text = f"You placed a pin in {place}, the right region, although {km} km off and in {wrong_side}"
+            text = f"You placed a pin in {place}, the right region, although {km} off and in {wrong_side}"
         elif key == "pin_right_region":
-            text = f"You placed a pin in {place}, the right region but {km} km off"
+            text = f"You placed a pin in {place}, the right region but {km} off"
         elif cls:
-            text = f"You placed a pin in {place}, {cls}, {km} km off"
+            text = f"You placed a pin in {place}, {cls}, {km} off"
         else:
-            text = f"You placed a pin near {place}, {km} km from the real spot"
+            text = f"You placed a pin near {place}, {km} from the real spot"
         return text + miss
     diff = abs(prev - c["dist_km"])
     if c["dist_km"] < prev - 0.05:
-        rel = f"{_km(diff)} km closer than your previous pin, but still {km} km off from the real location"
+        rel = f"{_dist(diff)} closer than your previous pin, but still {km} off from the real location"
     elif c["dist_km"] > prev + 0.05:
-        rel = (
-            f"{_km(diff)} km further than your previous pin, now {km} km off from the real location"
-        )
+        rel = f"{_dist(diff)} further than your previous pin, now {km} off from the real location"
     else:
-        rel = f"about as far as your previous pin, {km} km off from the real location"
+        rel = f"about as far as your previous pin, {km} off from the real location"
     cls_part = f", {cls}" if cls and key != "pin_right_region" else ""
     extra = f", and in {wrong_side}" if key == "pin_right_region" and wrong_side else ""
     return f"You placed a pin in {place}{cls_part}, {rel}{extra}{miss}"
@@ -436,11 +447,18 @@ def narrate(phases: list[dict]) -> list[dict]:
     """
     out: list[dict] = []
     seen_scans: set = set()
+    seen_countries: set = set()
     _pair_zooms(phases)
     for p in phases:
         if _is_noise(p, seen_scans):
             continue
-        ctx = {**p, "dur": _dur(p.get("dur_ms", 0)), "km": _km(p.get("dist_km", 0))}
+        # The first told zoom into a country names it, so "Texas" becomes "Texas, United States".
+        country = p.get("country") if p["key"] == "zoom_in" else None
+        if country and country not in seen_countries:
+            seen_countries.add(country)
+            if p.get("level") in {"region", "city", "point"} and p["place"] != country:
+                p["new_country"] = country
+        ctx = {**p, "dur": _dur(p.get("dur_ms", 0)), "km": _dist(p.get("dist_km", 0))}
         text = _text(p, ctx)
         grade = p.get("grade") or ""
         saved = saved_ms(p)
@@ -461,6 +479,7 @@ def narrate(phases: list[dict]) -> list[dict]:
             "note": _note(p),
             "count": 1,
             "saved_ms": saved,
+            "focus": p.get("focus"),  # what to show on the map when the event is clicked
         }
         if "lat" in p:
             item["lat"], item["lng"] = p["lat"], p["lng"]

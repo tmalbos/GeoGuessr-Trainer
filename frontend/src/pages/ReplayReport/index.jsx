@@ -17,6 +17,12 @@ const saved = (ms) => {
   const s = Math.round(ms / 1000);
   return `${Math.floor(s / 60)}m ${String(s % 60).padStart(2, "0")}s`;
 };
+// Meters under a kilometer ("523 m"), then "4.2 km", then "1,234 km".
+const dist = (km) => {
+  const m = Math.round(km * 1000);
+  if (m < 1000) return `${m} m`;
+  return km < 10 ? `${km.toFixed(1)} km` : `${Math.round(km).toLocaleString()} km`;
+};
 const SAVE_HINT = "Time you lose by moving or zooming slower than an efficient player would";
 const SAVE_STYLE = { color: "var(--sand)", fontWeight: 600 };
 
@@ -34,29 +40,46 @@ function Summary({ s }) {
 
 function Round({ r }) {
   const [open, setOpen] = useState(false);
+  const [sel, setSel] = useState(null); // index of the selected event in r.timeline
   const st = r.has_replay ? r.stages : null;
+  const picked = sel != null ? r.timeline[sel] : null;
+  const choose = (i) => { if (r.timeline[i]?.focus) setSel((s) => (s === i ? null : i)); };
   return <section className="card rr">
     <div className="rr-head">
       <b>Round {r.round_number}</b>
       <span className="rr-score" style={{ color: tone(r.score) }}>{num(r.score)} pts</span>
-      <span className="muted">{num(r.distance_km)} km · {time(r.time_sec)} · {r.steps} steps</span>
+      <span className="muted">{dist(r.distance_km)} · {time(r.time_sec)} · {r.steps} steps</span>
       {st && r.time_saved_ms > 0 && <span style={SAVE_STYLE} title={SAVE_HINT}>⏱ {saved(r.time_saved_ms)} could have been saved</span>}
     </div>
     <div className="rr-body">
       <div className="rr-main">
-        <RoundMap real={r.real} guess={r.guess} path={r.path} searched={r.searched} />
         {st ? <>
-          <Timeline segments={st.segments} events={r.timeline} duration={st.duration_ms} />
+          <Timeline segments={st.segments} events={r.timeline} duration={st.duration_ms} selected={sel} onSelect={choose} />
+          {picked
+            ? <p className="rr-sel"><span className="rr-t">{clock(picked.t_ms)}</span> <span>{picked.text}</span>
+                <button type="button" className="link-btn" onClick={() => setSel(null)}>Show full round</button></p>
+            : <p className="muted rr-hint">Click an event to see it on the map.</p>}
+          <StageBars steps={st.steps} timeMs={st.time_ms} />
           <button type="button" className="btn ghost rr-more" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
             {open ? "Hide details" : "More details"}</button>
-          {open && <ol className="rr-list">{r.timeline.map((e, i) => <li key={i} className="rr-ev" title={e.note || undefined}>
-            <span className="rr-t">{clock(e.t_ms)}</span>
-            <span className="rr-g"><GradeIcon id={e.grade} size={22} /></span>
-            <span>{e.text}{e.count > 1 && <span className="muted"> ×{e.count}</span>}</span>
-          </li>)}</ol>}
+          {open && <ol className="rr-list">{r.timeline.map((e, i) => {
+            const can = !!e.focus;
+            return <li key={i} className={`rr-ev ${can ? "can" : ""} ${sel === i ? "sel" : ""}`} title={e.note || undefined}
+              role={can ? "button" : undefined} tabIndex={can ? 0 : undefined} aria-pressed={can ? sel === i : undefined}
+              onClick={() => choose(i)}
+              onKeyDown={(ev) => { if (can && (ev.key === "Enter" || ev.key === " ")) { ev.preventDefault(); choose(i); } }}>
+              <span className="rr-t">{clock(e.t_ms)}</span>
+              <span className="rr-g"><GradeIcon id={e.grade} size={22} /></span>
+              <span>{e.text}{e.count > 1 && <span className="muted"> ×{e.count}</span>}</span>
+            </li>;
+          })}</ol>}
         </> : <p className="muted">No replay stored for this round.</p>}
       </div>
-      {st && <div className="rr-side"><StageBars steps={st.steps} timeMs={st.time_ms} /></div>}
+      <div className="rr-right">
+        <div className="rr-sticky">
+          <RoundMap real={r.real} guess={r.guess} path={r.path} searched={r.searched} focus={picked?.focus ?? null} />
+        </div>
+      </div>
     </div>
   </section>;
 }

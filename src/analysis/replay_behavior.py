@@ -417,6 +417,7 @@ def analyze_round(
             "start",
             "start",
             place=real["place"] or UNKNOWN_PLACE,
+            focus={"points": [[real["lat"], real["lng"]]]},
             **_start_info(real, region_bounds),
         )
         _movement(panos, s, guess, add)
@@ -505,6 +506,7 @@ def analyze_round(
             lng=lng,
             diff=diff,
             term=admin_term(real["country_code"]),
+            focus={"points": [[lat, lng]]},
         )
         prev_d = d
 
@@ -632,6 +634,14 @@ def _movement(panos, s, guess, add) -> None:
             "lat": last[1],
             "lng": last[2],
             "dur_ms": span,
+            # Every position of the run (where it started + each step), for the map highlight.
+            "focus": {
+                "points": [
+                    [round(prev[1], 6), round(prev[2], 6)],
+                    *[[round(it[1], 6), round(it[2], 6)] for it in items],
+                ],
+                "path": True,
+            },
         }
         t0 = items[0][0]
         if wasteful >= 2:
@@ -669,7 +679,7 @@ def _movement(panos, s, guess, add) -> None:
         if km_between(lat, lng, first[1], first[2]) * 1000 <= START_RETURN_M:
             flush()
             spawn_visits += 1
-            add(t, "move", "return_start", visit=spawn_visits)
+            add(t, "move", "return_start", visit=spawn_visits, focus={"points": [[lat, lng]]})
             prev_pano = pano
             continue
         seen = visits.setdefault(_pano_key(pano), [])
@@ -792,6 +802,7 @@ def _map_session(
                 to_real=bool(sg["code"] and sg["code"] == real["country_code"]),
                 lat=sg["lat"],
                 lng=sg["lng"],
+                focus={"bbox": list(_viewport_bbox(sg["lat"], sg["lng"], FOCUS_MIN_ZOOM))},
             )
             memory["hesitations"] += 1
             hes_times.append(sg["t0"])
@@ -810,6 +821,9 @@ def _map_session(
             c = (start, open_view["lat"], open_view["lng"], open_view["zoom"])
         zin = r["z1"] > r["z0"]
         place, level, view = view_at(c, r["z1"]) if c else ("the map", "", {})
+        focus = {"bbox": list(view["view_boxes"][0])} if view else None
+        adm = where(c[1], c[2]) if c else None
+        country = (adm or {}).get("country") or ""
         if zin:
             expected = ZOOM_STEP_S * 1000 * (r["z1"] - r["z0"] + 1)
             actual = r["t1"] - r["t0"]
@@ -823,6 +837,8 @@ def _map_session(
                 revisit=place in memory["zoomed"],
                 opened=i == 0 and r["t0"] - start <= OPEN_ZOOM_MS,
                 zid=zid,
+                focus=focus,
+                country=country,
                 **view,
             )
             add(
@@ -834,6 +850,7 @@ def _map_session(
                 ratio=actual / expected,
                 expected_ms=expected,
                 dur_ms=actual,
+                focus=focus,
             )
             if c:
                 memory["zoomed"].add(place)
@@ -851,6 +868,7 @@ def _map_session(
                 place=place,
                 other_country=other_country,
                 hesitating=hesitating,
+                focus=focus,
                 **view,
             )
         emitted = True
@@ -877,8 +895,13 @@ def _map_session(
             c = (start, open_view["lat"], open_view["lng"], zoom)
         if zoom is None or c is None:
             continue
-        place, level, _ = view_at(c, zoom)
-        data = {"place": place, "level": level, "ratio": total / (STARE_EXPECTED_S * 1000)}
+        place, level, view = view_at(c, zoom)
+        data = {
+            "place": place,
+            "level": level,
+            "ratio": total / (STARE_EXPECTED_S * 1000),
+            "focus": {"bbox": list(view["view_boxes"][0])},
+        }
         inside = [
             x
             for x in sess["samples"]
@@ -1007,6 +1030,15 @@ def _scan(pans, sg, real, where, countries_in=None) -> dict:
         "view_boxes": boxes,
         "zoom": max(z for _, _, _, z in pans),
         "center": (mid[1], mid[2]),
+        # The whole area covered by the search, for the map highlight.
+        "focus": {
+            "bbox": [
+                min(b[0] for b in boxes),
+                min(b[1] for b in boxes),
+                max(b[2] for b in boxes),
+                max(b[3] for b in boxes),
+            ]
+        },
     }
     if not sg["code"] or not regions:
         base["key"] = "scan_area"
