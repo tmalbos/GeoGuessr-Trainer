@@ -5,6 +5,7 @@ import FilePicker from "./FilePicker.jsx";
 import RatingDots from "./RatingDots.jsx";
 import { LocationIcon } from "./tagUi.jsx";
 import { CATEGORY_ICONS, DEFAULT_LOCATION, GENERAL_TAGS, LOCATION_TAGS, RATINGS, VISIBILITIES, tagHue } from "./tags.js";
+import "./blur.css";
 
 const GEO_ACCEPT = ".geojson,.json,.gpkg,.zip,.parquet,.kml";
 const GEO_HINT = "Polygons, lines or points, detected automatically. GeoJSON, GeoPackage, zipped Shapefile, GeoParquet or KML";
@@ -33,6 +34,7 @@ export default function ClueEditor({ cc, name, clue, onClose, onSaved }) {
   const [menu, setMenu] = useState(null); // null | "cat" | "loc"
   const [rating, setRating] = useState(() => Object.fromEntries(RATINGS.map(([k]) => [k, clue?.[k] != null ? String(clue[k]) : ""])));
   const [visibility, setVisibility] = useState(clue?.visibility ?? "visible");
+  const [blur, setBlur] = useState(!!clue?.blur);
   const [files, setFiles] = useState({});
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState("");
@@ -40,7 +42,7 @@ export default function ClueEditor({ cc, name, clue, onClose, onSaved }) {
   const area = useRef(null);
   const slot = useRef(null);
 
-  const snapshot = () => JSON.stringify([scope, info, general, location, rating, visibility, Object.keys(files)]);
+  const snapshot = () => JSON.stringify([scope, info, general, location, rating, visibility, blur, Object.keys(files)]);
   const initial = useRef(snapshot());
   const dirty = snapshot() !== initial.current;
   const requestClose = () => (dirty ? setConfirm(true) : onClose());
@@ -82,10 +84,11 @@ export default function ClueEditor({ cc, name, clue, onClose, onSaved }) {
 
   const slots = FILES.filter((f) => f.scopes.includes(scope));
   const has = (kind) => !!files[kind] || !!currentFor(kind);
+  const hasImage = has("image");
   const problems = [];
   if (!info.trim()) problems.push("Write what the clue teaches.");
   if (!general || !location) problems.push("Add a tag.");
-  if (scope === "nat" && !has("image")) problems.push("Add an image.");
+  if (scope === "nat" && !hasImage) problems.push("Add an image.");
   if (scope === "reg" && !AREA_KINDS.some(has)) problems.push("Add a CSV or a geometry file.");
 
   const save = async () => {
@@ -93,7 +96,7 @@ export default function ClueEditor({ cc, name, clue, onClose, onSaved }) {
     const num = (v) => (v === "" ? null : Number(v));
     try {
       await api(clue ? `/clues/${cc}/${clue.id}` : `/clues/${cc}`, { method: clue ? "PUT" : "POST", body: {
-        scope, info, tags: [location, general], visibility,
+        scope, info, tags: [location, general], visibility, blur: hasImage && blur,
         frequency: num(rating.frequency), ease: num(rating.ease), reliability: num(rating.reliability),
         files: Object.fromEntries(slots.filter((s) => files[s.kind]).map((s) =>
           [s.kind === "geometry" ? files.geometry.kind : s.kind, files[s.kind].token])),
@@ -148,6 +151,10 @@ export default function ClueEditor({ cc, name, clue, onClose, onSaved }) {
 
       <h4>Files</h4>
       {slots.map((s) => <FilePicker key={s.kind} {...s} current={currentFor(s.kind)} value={files[s.kind]} onChange={(v) => setFiles((f) => ({ ...f, [s.kind]: v }))} />)}
+      {hasImage && <label className="chk-row" htmlFor="cl-blur">
+        <input id="cl-blur" type="checkbox" checked={blur} onChange={(e) => setBlur(e.target.checked)} />
+        Blur the image (it clears when you hover over it)
+      </label>}
 
       {err && <p className="err">{err}</p>}
       <div className="modal-actions">

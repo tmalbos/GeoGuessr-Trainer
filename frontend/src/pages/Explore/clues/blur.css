@@ -1,0 +1,11 @@
+/* Blurred clue image: a fixed blur that goes away on hover (or keyboard focus / tap).
+   The saved file is untouched; this is only a CSS filter. Change --clue-blur to tune the strength. */
+.clue-media { --clue-blur: 24px; }
+.clue-media img.clue-blur { filter: blur(var(--clue-blur)); transform: scale(1.08); transition: filter .2s ease, transform .2s ease; cursor: pointer; }
+.clue-media img.clue-blur:hover,
+.clue-media img.clue-blur:focus-visible { filter: none; transform: none; }
+@media (prefers-reduced-motion: reduce) { .clue-media img.clue-blur { transition: none; } }
+
+/* Checkbox row in the clue editor */
+.chk-row { display: flex; align-items: center; gap: 8px; margin: 12px 0 0; font-weight: 400; cursor: pointer; }
+.chk-row input { width: auto; max-width: none; padding: 0; }

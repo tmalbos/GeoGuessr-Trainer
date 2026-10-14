@@ -371,6 +371,7 @@ class ClueBody(BaseModel):
     ease: int | None = Field(None, ge=1, le=10)
     reliability: int | None = Field(None, ge=1, le=10)
     visibility: Literal["visible", "guide-only", "analysis-only"] = "visible"
+    blur: bool = False  # blur the clue image until hovered (only kept when the clue has an image)
     files: dict[str, str] = {}  # kind -> staging token
 
 
@@ -455,9 +456,12 @@ def add_clue(cc: str, body: ClueBody):
                 "ease": body.ease,
                 "reliability": body.reliability,
                 "visibility": body.visibility,
+                "blur": True if body.blur else None,
                 **names,
             }
             entry = {k: v for k, v in entry.items() if v is not None}
+            if "image" not in entry:
+                entry.pop("blur", None)
             items = [*_load(cc), entry]
             _save(cc, items)
             _set_has(cc, items)
@@ -522,10 +526,13 @@ def update_clue(cc: str, clue_id: str, body: ClueBody):
                 "ease": body.ease,
                 "reliability": body.reliability,
                 "visibility": body.visibility,
+                "blur": True if body.blur else None,
                 **kept,
                 **names,
             }
             entry = {k: v for k, v in entry.items() if v is not None}
+            if "image" not in entry:
+                entry.pop("blur", None)
             updated = [entry if c is old else c for c in items]
             _save(cc, updated)
             _set_has(cc, updated)

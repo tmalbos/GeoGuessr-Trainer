@@ -2,6 +2,7 @@ import ClueMap from "./ClueMap.jsx";
 import RichText from "./richText.jsx";
 import { CategoryChip, LocationChip } from "./tagUi.jsx";
 import { GENERAL_TAGS, LOCATION_TAGS } from "./tags.js";
+import "./blur.css";
 
 const ico = { width: 16, height: 16, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 2, strokeLinecap: "round", strokeLinejoin: "round", "aria-hidden": true };
 const Trash = () => <svg {...ico}><path d="M3 6h18" /><path d="M8 6V4h8v2" /><path d="M19 6l-1 14H6L5 6" /><path d="M10 11v6M14 11v6" /></svg>;
@@ -20,7 +21,9 @@ export default function ClueCard({ cc, clue, editing, onDelete, onEdit }) {
     <div className="clue-media">
       {clue.image
         ? <>
-            <img src={`/api/clues/${cc}/files/${clue.image}`} alt="" loading="lazy" />
+            <img src={`/api/clues/${cc}/files/${clue.image}`} alt="" loading="lazy"
+              className={clue.blur ? "clue-blur" : undefined} tabIndex={clue.blur ? 0 : undefined}
+              title={clue.blur ? "Hover to reveal" : undefined} />
             {hasMap && <div className="clue-ov">{map}</div>}
           </>
         : <div className="clue-full">{map}</div>}
