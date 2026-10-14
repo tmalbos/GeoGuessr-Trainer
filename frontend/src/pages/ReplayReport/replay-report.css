@@ -12,11 +12,6 @@
   .rr-sticky { position: static; }
 }
 .rr-more { padding: 6px 14px; margin-top: 12px; }
-.rr-sel { margin: 6px 0 0; }
-.rr-sel { display: flex; align-items: baseline; gap: 4px 10px; font-weight: 600; }
-.rr-sel > span:last-of-type { flex: 1; min-width: 0; overflow-wrap: anywhere; }
-.rr-clear { background: none; border: 0; padding: 0 4px; cursor: pointer; font-size: 14px; line-height: 1; }
-.rr-clear:hover { filter: brightness(1.3); }
 .rr-list { list-style: none; margin: 14px 0 0; padding: 0; display: grid; gap: 2px; }
 /* The grade icon already says good/bad, so rows carry no colored bar. Text wraps inside the column, never under the map. */
 .rr-ev { display: grid; grid-template-columns: 48px 28px minmax(0, 1fr); align-items: baseline; gap: 10px; padding: 6px 8px; border-radius: 6px; }
@@ -29,7 +24,7 @@
 .gi { display: inline-block; vertical-align: middle; object-fit: contain; }
 /* Same ratio as the minimap window the "seen" calculations use (MAP_PX = 1245 x 775 in replay_behavior.py).
    z-index: 0 keeps Leaflet's panes below the side rail. */
-.rr-map { position: relative; z-index: 0; width: 90%; aspect-ratio: 1245 / 775; border: 1px solid var(--line); border-radius: 8px; background: var(--raise); }
+.rr-map { position: relative; z-index: 0; width: 90%; margin: 0 auto; aspect-ratio: 1245 / 775; border: 1px solid var(--line); border-radius: 8px; background: var(--raise); }
 .rr-pin, .rr-arrow { background: none; border: 0; }
 .rr-arrow svg { display: block; filter: drop-shadow(0 1px 3px rgba(0,0,0,.6)); }
 .rr-pin svg, .rr-pin img { display: block; filter: drop-shadow(0 1px 3px rgba(0,0,0,.5)); }
@@ -55,7 +50,7 @@
 .sb-seg small { font-size: 14px; font-weight: 700; font-variant-numeric: tabular-nums; }
 
 /* Round timeline */
-.tl { display: flex; align-items: center; gap: 10px; margin: 8px 0 0; width: 90%; box-sizing: border-box}
+.tl { display: flex; align-items: center; gap: 10px; margin: 8px auto 0; width: 90%; box-sizing: border-box}
 .tl-track { position: relative; flex: 1; height: 22px; }
 .tl-end { font-variant-numeric: tabular-nums; white-space: nowrap; }
 .tl-bands { position: absolute; inset: 5px 0; overflow: hidden; border-radius: 6px; background: var(--raise); cursor: help; }
@@ -77,3 +72,8 @@
 .rr-photo img { display: block; margin: 0 auto; max-width: 100%; max-height: 50vh; aspect-ratio: 16 / 9; object-fit: contain; border: 1px solid var(--line); border-radius: 8px; background: var(--raise); }
 .rr-photo.loading img { opacity: 0.5; }
 .rr-photo.error p { margin: 0; padding: 20px 12px; text-align: center; border: 1px dashed var(--line); border-radius: 8px; }
+
+/* Debug panel under the photo (#/history?debug) */
+.rr-dbg { display: grid; gap: 6px; margin-top: 8px; font-size: 12px; }
+.rr-dbg label { display: inline-flex; align-items: center; gap: 6px; margin: 0 12px 0 0; font-weight: 400; }
+.rr-dbg input { width: 84px; padding: 3px 6px; }

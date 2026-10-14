@@ -9,6 +9,7 @@ from src.analysis.replay_behavior import analyze_round, build_path, km_between, 
 from src.analysis.replay_grading import grade_phases, summarize_grades
 from src.analysis.replay_look import add_looks
 from src.analysis.replay_narrative import narrate
+from src.analysis.replay_savings import merge_parts, round_savings
 from src.analysis.replay_stages import stage_breakdown, summarize_stages
 from src.api.deps import get_ctx
 
@@ -79,6 +80,8 @@ def _round_payload(row: dict, locate, countries_in, region_bounds) -> dict:
             "place": _place(row["guess_city"], row["guess_state"], row["guess_country"]),
         }
     timeline = narrate(phases)
+    stages = stage_breakdown(events, real)
+    savings = round_savings(events, stages, phases)
     # The stored distance is rounded to 0.1 km; with a guess, use the exact one (the UI shows meters under 1 km).
     exact_km = km_between(real["lat"], real["lng"], guess["lat"], guess["lng"]) if guess else dist
     return {
@@ -90,9 +93,11 @@ def _round_payload(row: dict, locate, countries_in, region_bounds) -> dict:
         "has_replay": bool(events),
         "real": {"lat": real["lat"], "lng": real["lng"], "place": real["place"]},
         "guess": guess,
-        "stages": stage_breakdown(events, real),
+        "stages": stages,
         "timeline": timeline,
-        "time_saved_ms": round(sum(it.get("saved_ms", 0) for it in timeline)),
+        "time_saved_ms": savings["time_ms"],
+        "steps_saved": savings["steps"],
+        "saved_parts": savings["parts"],
         "path": build_path(events),
         "searched": searched_polygons(phases),
     }
@@ -145,6 +150,8 @@ async def replay_report(challenge_token: str, game_id: str, request: Request):
         **summarize_stages([r["stages"] for r in rounds]),
         "grades": summarize_grades(grades),
         "time_saved_ms": sum(r["time_saved_ms"] for r in rounds),
+        "steps_saved": sum(r["steps_saved"] for r in rounds),
+        "saved_parts": merge_parts([r["saved_parts"] for r in rounds]),
     }
     report = {"summary": summary, "rounds": rounds}
     if len(_CACHE) >= _CACHE_MAX:
