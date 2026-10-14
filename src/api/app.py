@@ -11,6 +11,7 @@ from src.api.routers import (
     analysis,
     clues,
     countries,
+    coverage,
     history,
     minigames,
     replay_report,
@@ -49,6 +50,7 @@ for router_module in (
     study_scripts,
     clues,
     countries,
+    coverage,
     replay_report,
     streetview,
 ):

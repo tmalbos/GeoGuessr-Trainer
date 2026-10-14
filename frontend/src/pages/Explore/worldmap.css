@@ -1,4 +1,23 @@
-/* Countries without clues are dimmed gray; the ones with clues keep the normal blue. */
+/* Coverage colors. No coverage = dimmed gray. Official (has clues) = the normal blue (see explore.css).
+   Trekker = darker blue, speculated = purple version of the normal blue, unofficial = darker purple. */
 .wm-c.none path { fill: #3b4452; }
 .wm-c.none .wm-dot { fill: #3b4452; stroke: #6b7686; }
 .wm:not(.moving) .wm-c.none:hover path, .wm:not(.moving) .wm-c.none:hover .wm-dot { fill: #505b6c; }
+
+.wm-c.trekker path { fill: #173f59; }
+.wm-c.trekker .wm-dot { fill: #173f59; stroke: #3b7fa8; }
+.wm:not(.moving) .wm-c.trekker:hover path, .wm:not(.moving) .wm-c.trekker:hover .wm-dot { fill: #2a6a94; }
+
+.wm-c.speculated path { fill: #67509e; }
+.wm-c.speculated .wm-dot { fill: #67509e; stroke: #a08fd8; }
+.wm:not(.moving) .wm-c.speculated:hover path, .wm:not(.moving) .wm-c.speculated:hover .wm-dot { fill: #9a85d6; }
+
+.wm-c.unofficial path { fill: #3d2c66; }
+.wm-c.unofficial .wm-dot { fill: #3d2c66; stroke: #7d6bc0; }
+.wm:not(.moving) .wm-c.unofficial:hover path, .wm:not(.moving) .wm-c.unofficial:hover .wm-dot { fill: #6a56a8; }
+
+/* Hover tooltip: country name, then its coverage */
+.wm-tip { position: absolute; z-index: 5; pointer-events: none; padding: 6px 10px; line-height: 1.3;
+  background: var(--raise); border: 1px solid var(--line); border-radius: 6px; box-shadow: 0 6px 18px rgba(0,0,0,.5); white-space: nowrap; }
+.wm-tip b { display: block; }
+.wm-tip span { display: block; color: var(--mute); font-size: 13px; }

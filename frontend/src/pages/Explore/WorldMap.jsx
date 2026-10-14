@@ -1,5 +1,6 @@
 import { memo, useEffect, useRef, useState } from "react";
 import { clueCountriesCached, loadClueCountries } from "./clueCountries.js";
+import { COVERAGE_LABELS, coverageCached, loadCoverage } from "./coverage.js";
 import { loadWorld } from "./geo.js";
 import "./worldmap.css";
 
@@ -15,15 +16,17 @@ const SMOOTH_MS = 60; // zoom easing time constant
 // Where the map was left, so coming back from a country page keeps the view.
 let saved = null;
 
-// Static geometry: React never re-renders this except when `has` (countries with clues) arrives.
+// Static geometry: React never re-renders this except when `has` / `cov` arrive.
 // All zooming happens by editing the <g> transform directly.
-const Shapes = memo(function Shapes({ world, has }) {
+// Coverage: explicit state from data/coverage.txt, else "official" if the country has clues, else "none".
+const Shapes = memo(function Shapes({ world, has, cov }) {
   return <>
     <path className="wm-land" d={world.land} fillRule="evenodd" />
     {world.countries.map((c) => {
-      const none = has && !has.has(String(c.id).toUpperCase());
-      return <g key={c.id} className={`wm-c${none ? " none" : ""}`} data-id={c.id} role="button"
-        aria-label={none ? `${c.name}, no clues yet` : c.name}>
+      const code = String(c.id).toUpperCase();
+      const state = cov?.[code] ?? (has && !has.has(code) ? "none" : "official");
+      return <g key={c.id} className={`wm-c ${state}`} data-id={c.id} data-name={c.name} data-cov={state} role="button"
+        aria-label={`${c.name}, ${COVERAGE_LABELS[state]}`}>
         <path d={c.d} fillRule="evenodd" />
         {c.dots.map(([x, y], i) => <g key={i} className="wm-pt" data-size={c.size}>
           <circle className="wm-hit" cx={x} cy={y} r="0" />
@@ -39,20 +42,24 @@ export default function WorldMap({ onSelect }) {
   // Set of ISO codes with clues. Comes from an in-memory cache, so after the first visit it is known immediately.
   const [has, setHas] = useState(clueCountriesCached);
   const [hasFailed, setHasFailed] = useState(false); // couldn't load it: show the map without dimming
+  const [cov, setCov] = useState(coverageCached); // { CC: state } from data/coverage.txt
+  const [covFailed, setCovFailed] = useState(false);
   const [err, setErr] = useState("");
   const box = useRef(null);
   const gRef = useRef(null);
+  const tipRef = useRef(null);
   const api = useRef({ zoomBy: () => {} });
   const selectRef = useRef(onSelect);
   selectRef.current = onSelect;
 
-  // The map stays hidden until it knows which countries have clues, so it never flashes "all colored".
-  const known = !!has || hasFailed;
+  // The map stays hidden until it knows the colors, so it never flashes "all colored".
+  const known = (!!has || hasFailed) && (!!cov || covFailed);
 
   useEffect(() => {
     let off = false;
     loadWorld().then((w) => !off && setWorld(w)).catch((e) => !off && setErr(e.message));
     if (!has) loadClueCountries().then((s) => !off && setHas(s)).catch(() => !off && setHasFailed(true));
+    if (!cov) loadCoverage().then((c) => !off && setCov(c)).catch(() => !off && setCovFailed(true));
     return () => { off = true; };
   }, []);
 
@@ -60,6 +67,7 @@ export default function WorldMap({ onSelect }) {
     if (!world) return undefined;
     const el = box.current;
     const g = gRef.current;
+    const tip = tipRef.current;
     const unit = world.unit;
     // v = what is drawn, t = where it is heading. Wheel/buttons move t and v eases toward it;
     // dragging and pinching move both at once so they feel attached to the finger.
@@ -137,6 +145,22 @@ export default function WorldMap({ onSelect }) {
       zoomAt(px, py, Math.exp(-dy * (e.ctrlKey ? 0.01 : 0.002)));
     };
 
+    // Hover tooltip: country name, then its coverage. Edited directly (no React re-render).
+    const hideTip = () => { tip.style.display = "none"; };
+    const onHover = (e) => {
+      if (e.pointerType === "touch" || el.classList.contains("moving")) { hideTip(); return; }
+      const c = e.target.closest?.(".wm-c");
+      if (!c) { hideTip(); return; }
+      tip.children[0].textContent = c.dataset.name;
+      tip.children[1].textContent = COVERAGE_LABELS[c.dataset.cov] ?? "";
+      tip.style.display = "block";
+      const [px, py] = local(e);
+      const x = px + 14 + tip.offsetWidth > s.W ? px - 14 - tip.offsetWidth : px + 14;
+      const y = py + 14 + tip.offsetHeight > s.H ? py - 14 - tip.offsetHeight : py + 14;
+      tip.style.left = `${Math.max(0, x)}px`;
+      tip.style.top = `${Math.max(0, y)}px`;
+    };
+
     const ptrs = new Map();
     let drag = null;
     let pinch = null;
@@ -182,6 +206,7 @@ export default function WorldMap({ onSelect }) {
         drag.moved = true;
         el.setPointerCapture(e.pointerId);
         el.classList.add("moving");
+        hideTip();
       }
       const { v, t } = s;
       v.x = drag.vx + dx; v.y = drag.vy + dy;
@@ -214,6 +239,8 @@ export default function WorldMap({ onSelect }) {
     el.addEventListener("wheel", onWheel, { passive: false });
     el.addEventListener("pointerdown", onDown);
     el.addEventListener("pointermove", onMove);
+    el.addEventListener("pointermove", onHover);
+    el.addEventListener("pointerleave", hideTip);
     el.addEventListener("pointerup", onUp);
     el.addEventListener("pointercancel", onCancel);
     el.addEventListener("keydown", onKey);
@@ -224,6 +251,8 @@ export default function WorldMap({ onSelect }) {
       el.removeEventListener("wheel", onWheel);
       el.removeEventListener("pointerdown", onDown);
       el.removeEventListener("pointermove", onMove);
+      el.removeEventListener("pointermove", onHover);
+      el.removeEventListener("pointerleave", hideTip);
       el.removeEventListener("pointerup", onUp);
       el.removeEventListener("pointercancel", onCancel);
       el.removeEventListener("keydown", onKey);
@@ -232,7 +261,7 @@ export default function WorldMap({ onSelect }) {
 
   return <div className="wm" ref={box} tabIndex={0} aria-label="World map. Click a country to open its clues. Use plus and minus to zoom, arrow keys to move.">
     {world && <svg className="wm-svg" width="100%" height="100%" style={known ? undefined : { visibility: "hidden" }}>
-      <g ref={gRef}><Shapes world={world} has={has} /></g>
+      <g ref={gRef}><Shapes world={world} has={has} cov={cov} /></g>
     </svg>}
     {(!world || !known) && !err && <p className="wm-msg muted">Loading map…</p>}
     {err && <p className="wm-msg err">{err}</p>}
@@ -240,5 +269,6 @@ export default function WorldMap({ onSelect }) {
       <button type="button" className="btn" aria-label="Zoom in" onClick={() => api.current.zoomBy(1.6)}>+</button>
       <button type="button" className="btn" aria-label="Zoom out" onClick={() => api.current.zoomBy(1 / 1.6)}>−</button>
     </div>}
+    <div className="wm-tip" ref={tipRef} style={{ display: "none" }} aria-hidden="true"><b /><span /></div>
   </div>;
 }
