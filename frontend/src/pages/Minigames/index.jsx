@@ -1,9 +1,9 @@
-import StreetGenerator from "./StreetGenerator.jsx";
+import PlaceExplorer from "./PlaceExplorer.jsx";
 
-// For now Minigames only hosts the street network generator (the base both minigames will build on).
+// Minigames builds on real map windows cut from OpenStreetMap GeoPackages (see scripts/build_minigame_gpkg.py).
 export default function Minigames() {
   return <>
     <h2>Minigames</h2>
-    <StreetGenerator />
+    <PlaceExplorer />
   </>;
 }

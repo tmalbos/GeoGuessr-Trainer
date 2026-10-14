@@ -6,48 +6,29 @@
 @media (max-width: 960px) { .mg-panel { position: static; max-height: none; } }
 .mg-panel h3 { margin: 18px 0 6px; font-size: 15px; }
 .mg-panel h3:first-child { margin-top: 4px; }
-.mg-note { margin: 10px 0 0; }
-.mg-presets { display: flex; flex-wrap: wrap; gap: 6px; }
-.mg-presets button { border: 1px solid var(--line); background: var(--raise); border-radius: 999px; padding: 5px 12px; cursor: pointer; font-size: 13px; }
-.mg-presets button:hover { border-color: var(--sea-hi); }
-.mg-presets button.on { background: var(--sea); border-color: var(--sea); color: #fff; }
+.mg-go { width: 100%; padding: 14px 18px; font-size: 16px; }
 
-.mg-row { margin: 10px 0 0; }
+.mg-row { margin: 14px 0 0; }
 .mg-row label { display: flex; justify-content: space-between; align-items: baseline; margin: 0 0 2px; font-size: 13px; font-weight: 500; }
 .mg-row output { color: var(--sea-hi); font-weight: 700; font-size: 13px; }
-.mg-row select { max-width: none; }
 .mg-row input[type="range"] { width: 100%; max-width: none; padding: 0; border: 0; background: none; accent-color: var(--sea-hi); height: 22px; }
-.mg-seed { display: flex; gap: 8px; align-items: center; }
-.mg-seed input { max-width: none; }
-.mg-seed .btn { padding: 8px 12px; white-space: nowrap; }
-.mg-debug { margin-top: 18px; border-top: 1px solid var(--line); padding-top: 10px; }
-.mg-debug summary { cursor: pointer; font-weight: 600; font-size: 15px; }
-.mg-debug h3 { margin-top: 16px; }
+.mg-ends { display: flex; justify-content: space-between; font-size: 12px; color: var(--mute); }
 .mg-check { display: flex; align-items: center; gap: 8px; margin: 8px 0 0; font-weight: 400; font-size: 13px; cursor: pointer; }
 .mg-check input { width: auto; padding: 0; }
+.mg-note { margin: 10px 0 0; }
 
-.mg-verdict { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 8px; }
-.badge.bad { color: var(--coral); border-color: #ff735799; background: #ff735714; }
-.badge.warn { color: #e6b84a; border-color: #e6b84a66; background: #e6b84a14; }
-.mg-viol { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
-.mg-viol button { width: 100%; text-align: left; background: none; border: 0; border-radius: 6px; padding: 5px 8px; cursor: pointer;
-  font-size: 13px; line-height: 1.35; color: var(--ink); }
-.mg-viol button:hover { background: var(--raise); }
-.mg-viol button b { color: var(--coral); margin-right: 4px; }
-.mg-viol button.warn b { color: #e6b84a; }
+.mg-facts { display: grid; grid-template-columns: auto 1fr; gap: 3px 12px; margin: 0; font-size: 13px; }
+.mg-facts dt { color: var(--mute); }
+.mg-facts dd { margin: 0; text-align: right; font-weight: 600; }
 
 .mg-view { display: grid; gap: 12px; min-width: 0; }
-.mg-stats { display: flex; flex-wrap: wrap; gap: 8px 22px; }
-.mg-stats div { display: grid; }
-.mg-stats b { font-size: 17px; font-weight: 800; letter-spacing: -.01em; }
-.mg-stats span { font-size: 12px; color: var(--mute); }
-.mg-canvas-wrap { position: relative; height: calc(100vh - 230px); min-height: 420px; border: 1px solid var(--line);
-  border-radius: 10px; overflow: hidden; background: var(--paper); }
-.mg-canvas-wrap { transition: opacity .15s; }
-.mg-canvas-wrap.stale { opacity: .6; }
+.mg-canvas-wrap { position: relative; height: calc(100vh - 170px); min-height: 420px; border: 1px solid var(--line);
+  border-radius: 10px; overflow: hidden; background: var(--paper); transition: opacity .15s; }
+.mg-canvas-wrap.busy { opacity: .6; }
 @media (prefers-reduced-motion: reduce) { .mg-canvas-wrap { transition: none; } }
 .mg-canvas-wrap canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; cursor: grab; touch-action: none; }
 .mg-canvas-wrap canvas:active { cursor: grabbing; }
 .mg-hint { position: absolute; right: 12px; bottom: 10px; font-size: 12px; color: var(--mute); pointer-events: none; }
+.mg-empty { position: absolute; inset: 0; display: grid; place-items: center; color: var(--mute); text-align: center; padding: 24px; }
 .mg-tools { display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: center; }
 .mg-tools .btn { padding: 6px 14px; }
