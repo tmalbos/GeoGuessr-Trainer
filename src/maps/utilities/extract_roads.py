@@ -97,9 +97,6 @@ def extract_multilinestrings(input_pbf: str, output_geojson: str) -> None:
         # route -> must exist, cannot be null, must equal "road"
         # ------------------------------------------------------------
 
-        if "name" not in properties:
-            continue
-
         if "type" not in properties:
             continue
 

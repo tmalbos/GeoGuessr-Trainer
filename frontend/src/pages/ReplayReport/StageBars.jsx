@@ -12,8 +12,9 @@ function Row({ title, values, fmt, size }) {
     <div className={`sb-bar ${size}`}>
       {STAGES.filter((s) => values[s.id] > 0).map((s) => {
         const share = values[s.id] / total;
+        const tip = `${s.label}: ${fmt(values[s.id])} (${Math.round(share * 100)}%)`;
         return <span key={s.id} className="sb-seg" style={{ "--h": s.hue, flex: `${values[s.id]} 1 0` }}
-          title={`${s.label}: ${fmt(values[s.id])} (${Math.round(share * 100)}%)`}>
+          role="img" aria-label={tip} title={tip}>
           {share >= ICON && <span aria-hidden="true">{s.emoji}</span>}
           {share >= FULL && <small>{fmt(values[s.id])}</small>}
         </span>;
@@ -23,13 +24,10 @@ function Row({ title, values, fmt, size }) {
 }
 
 /** Where the steps and the time went, split into the four stages. Steps first: they measure efficiency.
- *  The legend only lists the stages that actually appear in this round / game. */
+ */
 export default function StageBars({ steps, timeMs, size = "md" }) {
-  const used = STAGES.filter((s) => steps[s.id] > 0 || timeMs[s.id] > 0);
   return <div className="sb">
     <Row title="Steps" values={steps} fmt={String} size={size} />
     <Row title="Time" values={timeMs} fmt={clock} size={size} />
-    <div className="sb-legend">{used.map((s) => <span key={s.id} style={{ "--h": s.hue }}>
-      <span aria-hidden="true">{s.emoji}</span> {s.label}</span>)}</div>
   </div>;
 }

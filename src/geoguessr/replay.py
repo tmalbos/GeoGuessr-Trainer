@@ -39,12 +39,11 @@ def _is_align(payload: dict) -> bool:
 
 def compress_replay(events: list[dict]) -> list[dict]:
     """Rewrite absolute (epoch ms) timestamps as milliseconds relative to
-    this replay's own first event. Collapses consecutive PanoPov/PanoZoom
-    into deduped 'Deliberating' markers (no payload), except a PanoPov at
-    heading=0 (or 360), pitch=-89 (north + ground, the align hotkey), which is kept
-    as a single 'Aligning' event. Strips panoId from PanoPosition.
-    Everything else (MapPosition, MapZoom, MapDisplay, PinPosition,
-    GuessWithLatLng, ...) is kept verbatim aside from the relative timestamp.
+    this replay's own first event. A PanoPov at heading=0 (or 360), pitch=-89
+    (north + ground, the align hotkey) becomes a single payload-less 'Aligning' event.
+    Strips panoId from PanoPosition. Everything else (PanoPov, PanoZoom, MapPosition, MapZoom,
+    MapDisplay, PinPosition, GuessWithLatLng, ...) is kept verbatim aside from the relative
+    timestamp. (Older stored replays collapsed PanoPov/PanoZoom into 'Deliberating' markers.).
     """
     if not events:
         return []
@@ -56,16 +55,8 @@ def compress_replay(events: list[dict]) -> list[dict]:
         rel_time_ms = ev["time"] - anchor_ms
         etype = ev["type"]
 
-        if etype == "PanoPov":
-            payload = ev.get("payload") or {}
-            if _is_align(payload):
-                compressed.append({"time": rel_time_ms, "type": "Aligning"})
-                continue
-
-        if etype in {"PanoPov", "PanoZoom"}:
-            if compressed and compressed[-1]["type"] == "Deliberating":
-                continue
-            compressed.append({"time": rel_time_ms, "type": "Deliberating"})
+        if etype == "PanoPov" and _is_align(ev.get("payload") or {}):
+            compressed.append({"time": rel_time_ms, "type": "Aligning"})
             continue
 
         payload = dict(ev.get("payload") or {})
@@ -97,7 +88,7 @@ def _is_setup_center(payload: dict) -> bool:
 def _is_setup_event(ev: dict) -> bool:
     payload = ev.get("payload") or {}
     kind = ev["type"]
-    if kind == "Deliberating":
+    if kind in {"Deliberating", "PanoPov", "PanoZoom"}:
         return True
     if kind == "MapDisplay":
         return payload.get("isActive") is False
@@ -115,8 +106,8 @@ def clean_replay_start(events: list[dict], real_lat: float, real_lng: float) -> 
     2. Every other event at time 0 is dropped (nobody can act at exactly 0).
     3. If the next PanoPosition is within SAME_PLACE_M of the real location it is the same
        position, not a step: keep one event at time 0 with the value of the second.
-    4. Setup events before SETUP_WINDOW_MS are dropped: Deliberating, MapDisplay off, MapZoom 1
-       and the default-position MapPosition.
+    4. Setup events before SETUP_WINDOW_MS are dropped: PanoPov/PanoZoom (and legacy
+       Deliberating), MapDisplay off, MapZoom 1 and the default-position MapPosition.
     """
     out = [dict(ev) for ev in events]
     first = next((ev for ev in out if ev["time"] == 0 and ev["type"] == "PanoPosition"), None)
@@ -165,4 +156,7 @@ def had_movement(compressed_events: list[dict]) -> bool:
 
 
 def had_pan_or_zoom(compressed_events: list[dict]) -> bool:
-    return any(ev["type"] in {"Deliberating", "Aligning"} for ev in compressed_events)
+    return any(
+        ev["type"] in {"PanoPov", "PanoZoom", "Deliberating", "Aligning"}
+        for ev in compressed_events
+    )

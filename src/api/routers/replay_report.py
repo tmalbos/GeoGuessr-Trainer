@@ -7,6 +7,7 @@ from starlette.concurrency import run_in_threadpool
 
 from src.analysis.replay_behavior import analyze_round, build_path, km_between, searched_polygons
 from src.analysis.replay_grading import grade_phases, summarize_grades
+from src.analysis.replay_look import add_looks
 from src.analysis.replay_narrative import narrate
 from src.analysis.replay_stages import stage_breakdown, summarize_stages
 from src.api.deps import get_ctx
@@ -67,6 +68,8 @@ def _round_payload(row: dict, locate, countries_in, region_bounds) -> dict:
         "time_limit_ms": limit_s * 1000 if limit_s else None,
     }
     phases = analyze_round(events, real, result, locate, countries_in, region_bounds)
+    # Street-view looks (stare / zoom / look around). Old replays without PanoPov/PanoZoom add nothing.
+    phases = add_looks(phases, events)
     grade_phases(phases, events, real, locate)
     guess = None
     if row["guess_latitude"] is not None:

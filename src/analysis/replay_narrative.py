@@ -3,6 +3,8 @@
 One template per phase key. A value is either a format string or a function of the phase
 (for sentences that change with the facts or the grade). To add variety later, make a value a
 list of templates and pick one (seed the choice by game + round so a report doesn't change on reload).
+
+Look events carry a `view`; the UI shows it as a Street View photo when the event is selected.
 """
 
 from src.geo.admin_terms import UNKNOWN_PLACE
@@ -29,6 +31,9 @@ ZOOM_ADVERB = {
 # ("very slowly", "painfully slowly"...) goes right after the verb ("moved painfully slowly").
 PRE_ADVERBS = {"slowly", "efficiently", "hesitantly", "sluggishly"}
 POSITIVE = {"best", "excellent", "good"}
+# "...but the real spot was in X" is only repeated after this much time or this many told events.
+REAL_SPOT_GAP_MS = 60_000
+REAL_SPOT_GAP_EVENTS = 20
 # Slow enough to count as time that could have been saved.
 SAVING_GRADES = {"good", "inaccuracy", "mistake", "blunder"}
 # Zoom: the place it went to is "bad" with these grades.
@@ -118,11 +123,55 @@ def _return_start(c) -> str:
     return f"You went back to spawn once more ({_ordinal(n)} visit)"
 
 
+# ── Street view looking ─────────────────────────────────────────────────────
+def _look_stare(c) -> str:
+    return f"You stared at this for {_dur(c['dur_ms'])}"
+
+
+def _look_zoom(c) -> str:
+    text = f"You zoomed into this for {_dur(c['dur_ms'])}"
+    if c.get("around"):
+        text += " while looking around at your surroundings"
+    return text
+
+
+def _look_sweep(c) -> str:
+    return {
+        "quick": "You took a quick glance at your surroundings",
+        "normal": "You looked around your surroundings",
+        "patient": "You patiently looked around your surroundings",
+        "really_patient": "You really patiently looked around your surroundings",
+    }[c["tier"]]
+
+
 # ── Map ─────────────────────────────────────────────────────────────────────
 def _quick_map(c) -> str:
     if c["zoom_dir"]:
         return f"You opened the map and closed it only doing a little bit of a zoom {c['zoom_dir']}"
     return "You opened and closed the map without really doing anything"
+
+
+def _prefixed(c) -> bool:
+    """Does this zoom sentence carry the "saw this and immediately opened the map" prefix?"""
+    return bool(
+        c.get("opened")
+        and c.get("pre_look")
+        and not (c.get("grade") == "miss" and c.get("near_pin"))
+    )
+
+
+def _zoom_country(c) -> str:
+    """First line of a zoom that enters a new country: only the country."""
+    if _prefixed(c):
+        head = "You saw this and immediately opened the map, then"
+    elif c.get("opened"):
+        head = "You opened the map and"
+    else:
+        head = "You"
+    verb, after = _verb(
+        "zoomed back" if c.get("country_seen") else "zoomed", c.get("speed_adverb", "")
+    )
+    return f"{head} {verb}{after} into {c['split_country']}"
 
 
 def _zoom_in(c) -> str:
@@ -135,10 +184,16 @@ def _zoom_in(c) -> str:
 def _zoom_in_core(c) -> str:
     """WHERE the zoom went. The speed adverb is merged in here unless the speed has its own line."""
     place, level = c["place"], c.get("level")
-    if c.get("new_country"):  # first zoom into this country: say which one ("Texas, United States")
-        place = f"{place}, {c['new_country']}"
-    verb, after = _verb("zoomed back" if c.get("revisit") else "zoomed", c.get("speed_adverb", ""))
-    head = "You opened the map and" if c.get("opened") else "You"
+    verb, after = _verb(
+        "zoomed back" if c.get("revisit") else ("zoomed further" if c.get("further") else "zoomed"),
+        c.get("speed_adverb", ""),
+    )
+    if _prefixed(c):
+        head = "You saw this and immediately opened the map, then"
+    elif c.get("opened"):
+        head = "You opened the map and"
+    else:
+        head = "You"
     base = f"{head} {verb}{after} into {place}"
     if c.get("grade") == "miss":
         if c.get("near_pin"):
@@ -196,12 +251,24 @@ def _hesitate(c) -> str:
     )
 
 
+def _regions(parts: str) -> str:
+    """'central' -> 'central region'; 'northern and central' -> 'northern and central regions'."""
+    return f"{parts} regions" if (" and " in parts or "," in parts) else f"{parts} region"
+
+
+def _scan_miss(c) -> str:
+    text = f"You started searching inside {c['place']}"
+    if c.get("say_real", True):
+        text += f", but the real spot was in {c['real_place']}"
+    return text
+
+
 def _scan_country(c) -> str:
     if c["key"] == "scan_country":
         if c.get("parts"):
             return (
                 f"You seemed to know you were in {c['place']}, but searched around its "
-                f"{c['parts']} regions for {c['dur']} without a clear one in mind"
+                f"{_regions(c['parts'])} for {c['dur']} without a clear one in mind"
             )
         return (
             f"You seemed to know you were in {c['place']}, but scanned across "
@@ -210,7 +277,7 @@ def _scan_country(c) -> str:
     if c.get("parts"):
         return (
             f"You zoomed further into {c['place']} and started searching around its "
-            f"{c['parts']} regions for {c['dur']}"
+            f"{_regions(c['parts'])} for {c['dur']}"
         )
     return (
         f"You zoomed further into {c['place']} and started searching across "
@@ -224,6 +291,8 @@ def _align(c) -> str:
     if nth == 1:
         if closed:
             text = f"You closed the map in order to align the road{where}"
+        elif c["key"] in {"align_city", "align_region"} and c.get("repeat_ident"):
+            text = "You tried aligning the current road"
         elif c["key"] == "align_city":
             text = f"You identified this was {c['place']} and started trying to align the road"
         elif c["key"] == "align_region":
@@ -306,6 +375,10 @@ TEXT = {
     "move_revisit": "You went back to a position you had already been to",
     "return_start": _return_start,
     "pause": "You stopped to look for clues for {dur}",
+    "look_stare": _look_stare,
+    "look_zoom": _look_zoom,
+    "look_sweep": _look_sweep,
+    "look_open": "You saw this and immediately opened the map",
     "map_open": "You opened the map for {dur}",
     "map_close": "You closed the map",
     "quick_map": _quick_map,
@@ -317,7 +390,7 @@ TEXT = {
     "scan_country": _scan_country,
     "scan_country_wrong": _scan_country,
     "scan_regions_hit": "You started searching inside {place}, which included the right region",
-    "scan_regions_miss": "You started searching inside {place}, but the real spot was in {real_place}",
+    "scan_regions_miss": _scan_miss,
     "scan_area": "You scanned the map around {place}",
     "align": _align,
     "align_city": _align,
@@ -440,28 +513,31 @@ def _is_noise(p: dict, seen_scans: set) -> bool:
 
 
 def narrate(phases: list[dict]) -> list[dict]:
-    """Phases -> [{t_ms, kind, grade, text, note, count, saved_ms, lat?, lng?}]. Identical neighbours are merged (count).
+    """Phases -> [{t_ms, kind, grade, text, note, count, saved_ms, focus, view, lat?, lng?}]. Identical neighbours are merged (count).
 
     `note` is extra info for the UI to show on hover only (how much time was left on the table).
     `saved_ms` is the time efficient movement / zooming would have saved on that event.
+    A zoom that enters a new country is told as two events: the country (best / blunder), then
+    "zoomed further into" the place inside it.
     """
     out: list[dict] = []
     seen_scans: set = set()
     seen_countries: set = set()
+    idents: set = set()
+    last_country = None  # country of the last told zoom
+    last_real_spot = None  # (t_ms, number of events told by then)
     _pair_zooms(phases)
+    # A told zoom that carries the "saw this and immediately opened the map" prefix replaces the standalone line.
+    absorbed = {
+        p["pre_look_t"]
+        for p in phases
+        if p["key"] == "zoom_in" and not p.get("hide") and _prefixed(p)
+    }
     for p in phases:
-        if _is_noise(p, seen_scans):
-            continue
-        # The first told zoom into a country names it, so "Texas" becomes "Texas, United States".
-        country = p.get("country") if p["key"] == "zoom_in" else None
-        if country and country not in seen_countries:
-            seen_countries.add(country)
-            if p.get("level") in {"region", "city", "point"} and p["place"] != country:
-                p["new_country"] = country
-        ctx = {**p, "dur": _dur(p.get("dur_ms", 0)), "km": _dist(p.get("dist_km", 0))}
-        text = _text(p, ctx)
-        grade = p.get("grade") or ""
-        saved = saved_ms(p)
+        if p["key"] == "look_open" and p["open_t"] in absorbed:
+            p["hide"] = True
+
+    def push(p, text, grade, saved, note, view, dt=0) -> None:
         if (
             out
             and out[-1]["kind"] == p["kind"]
@@ -470,18 +546,74 @@ def narrate(phases: list[dict]) -> list[dict]:
         ):
             out[-1]["count"] += 1
             out[-1]["saved_ms"] += saved
-            continue
+            return
         item = {
-            "t_ms": p["t"],
+            "t_ms": p["t"] + dt,
             "kind": p["kind"],
             "grade": grade,
             "text": text,
-            "note": _note(p),
+            "note": note,
             "count": 1,
             "saved_ms": saved,
             "focus": p.get("focus"),  # what to show on the map when the event is clicked
+            "view": view,  # Street View photo to show when the event is clicked
         }
         if "lat" in p:
             item["lat"], item["lng"] = p["lat"], p["lng"]
         out.append(item)
+
+    for p in phases:
+        if _is_noise(p, seen_scans):
+            continue
+        ctx = {**p, "dur": _dur(p.get("dur_ms", 0)), "km": _dist(p.get("dist_km", 0))}
+        view = p.get("view")
+        if p["key"] == "zoom_in":
+            if _prefixed(p):
+                view = p["pre_look"]
+            country = p.get("country")
+            if country and p.get("level") in {"country", "region", "city", "point"}:
+                split = (
+                    p["level"] != "country" and p["place"] != country and country != last_country
+                )
+                last_country = country
+                if split:
+                    push(
+                        p,
+                        _zoom_country(
+                            {
+                                **ctx,
+                                "split_country": country,
+                                "country_seen": country in seen_countries,
+                            }
+                        ),
+                        "best" if p.get("in_real_country") else "blunder",
+                        0.0,
+                        "",
+                        view,
+                    )
+                    ctx = {
+                        **ctx,
+                        "opened": False,
+                        "pre_look": None,
+                        "speed_adverb": "",
+                        "further": True,
+                    }
+                    view = None
+                    seen_countries.add(country)
+                    push(p, _text(p, ctx), p.get("grade") or "", saved_ms(p), _note(p), view, dt=1)
+                    continue
+                seen_countries.add(country)
+        elif p["key"] == "scan_regions_miss":
+            say = (
+                last_real_spot is None
+                or p["t"] - last_real_spot[0] >= REAL_SPOT_GAP_MS
+                or len(out) - last_real_spot[1] >= REAL_SPOT_GAP_EVENTS
+            )
+            ctx["say_real"] = say
+            if say:
+                last_real_spot = (p["t"], len(out))
+        elif p["key"] in {"align_city", "align_region"}:
+            ctx["repeat_ident"] = p["place"] in idents
+            idents.add(p["place"])
+        push(p, _text(p, ctx), p.get("grade") or "", saved_ms(p), _note(p), view)
     return out

@@ -51,11 +51,19 @@ SCAN_MIN_SAMPLES = 5  # pan events needed to call it a search
 SCAN_MAX_LOOKUPS = 40  # admin lookups per search (downsampled)
 SCAN_MAX_BOXES = 120  # viewport boxes kept per search (downsampled) before clipping
 FULL_COUNTRY_REGIONS = 4  # this many regions visited = scanning the whole country
-# Focus: which country the map is centered on. A change of country is a "hesitation".
+# Focus: which country the map is looking at. A change of country is a "hesitation".
 FOCUS_MIN_MS = 1200  # a country must hold the map this long (unless it is the last) to count
 FOCUS_MAX_LOOKUPS = 120  # country lookups per map session (downsampled)
 HESITATE_MERGE_MS = (
     1500  # a zoom out this close before a change of focus counts as part of the hesitation
+)
+# The country "in focus" is the one that fills most of the map window, not the one under its center.
+DOMINANT_MIN_ZOOM = 4  # below this the window spans too much of the world to name one country
+DOMINANT_CENTER_BIAS = (
+    0.6  # the country under the center still wins if it fills this share of the biggest one
+)
+DOMINANT_MIN_SHARE = (
+    0.1  # the winner must fill at least this share of the window, else fall back to the center
 )
 # How much of the country a map window covers (smaller side, vs the country's bounding box)
 FRAME_COUNTRY = 0.6  # at least this much = the view frames the whole country
@@ -92,6 +100,7 @@ _PRIORITY = {
     "zoom": 1,
     "move": 1,
     "align": 2,
+    "look": 2,
     "pause": 2,
     "hesitate": 2,
     "scan": 3,
@@ -199,7 +208,21 @@ def _pin_place(admin, with_country: bool) -> str:
     return ", ".join(dict.fromkeys(p for p in parts if p))
 
 
-def _view_place(level, admin, lat, lng) -> str:
+def _part_of_region(admin, lat, lng, region_bounds) -> str:
+    """'central Kunene region': where inside the FIRST-level division the point is (never the 2nd level)."""
+    state, code = admin.get("state"), admin.get("country_code")
+    if not state or not code or state == admin.get("country") or region_bounds is None:
+        return ""
+    try:
+        bounds = region_bounds(code, state)
+    except Exception:  # noqa: BLE001
+        return ""
+    if not bounds:
+        return ""
+    return f"{position_in_box(lat, lng, bounds)} {with_term(state, code)}"
+
+
+def _view_place(level, admin, lat, lng, region_bounds=None) -> str:
     """Name of what a map window shows, at the level it frames. Never coordinates."""
     if level == "world":
         return "the world view"
@@ -212,7 +235,11 @@ def _view_place(level, admin, lat, lng) -> str:
         elif level == "region":
             name = admin.get("state") or admin.get("country")
         else:
-            name = admin.get("city") or admin.get("state") or admin.get("country")
+            name = (
+                _part_of_region(admin, lat, lng, region_bounds)
+                or admin.get("state")
+                or admin.get("country")
+            )
         if name:
             return name
     return UNKNOWN_PLACE
@@ -274,6 +301,62 @@ def _view_level(bbox, zoom, extent) -> str:
     if share >= FRAME_CITY:
         return "city"
     return "point"
+
+
+def _dominant_country(lat, lng, zoom, where, countries_in) -> dict | None:
+    """The country that fills most of the map window centered on (lat, lng), not the one under its center.
+
+    Returns {code, name, lat, lng} where (lat, lng) is a point inside that country (the center when
+    it is inside, otherwise a point of the country that is in view), or None when it can't tell.
+    """
+    win = _viewport_bbox(lat, lng, zoom)
+    try:
+        candidates = countries_in(*win)
+    except Exception:  # noqa: BLE001
+        return None
+    areas: dict = {}
+    for code, geom in candidates:
+        area = _overlap_area(geom, win)
+        if area > 0 and area > areas.get(code, (0.0, None))[0]:
+            areas[code] = (area, geom)
+    win_area = (win[2] - win[0]) * (win[3] - win[1])
+    if not areas or win_area <= 0:
+        return None
+    best = max(areas, key=lambda c: areas[c][0])
+    if areas[best][0] < DOMINANT_MIN_SHARE * win_area:
+        return None
+    here = where(lat, lng)
+    here_code = here.get("country_code") if here else None
+    # The country under the center keeps the focus unless another one clearly fills more of the window.
+    if here_code in areas and areas[here_code][0] >= DOMINANT_CENTER_BIAS * areas[best][0]:
+        return {"code": here_code, "name": here.get("country") or here_code, "lat": lat, "lng": lng}
+    try:
+        pt = shapely.clip_by_rect(areas[best][1], *win).representative_point()
+        plat, plng = pt.y, pt.x
+    except Exception:  # noqa: BLE001
+        plat, plng = lat, lng
+    a = where(plat, plng)
+    return {
+        "code": best,
+        "name": (a.get("country") if a else None) or best,
+        "lat": plat,
+        "lng": plng,
+    }
+
+
+def _make_dominant(where, countries_in):
+    """dominant(lat, lng, zoom) -> {code, name, lat, lng} | None, cached for the round."""
+    cache: dict = {}
+
+    def dominant(lat, lng, zoom):
+        if countries_in is None or zoom is None or zoom < DOMINANT_MIN_ZOOM:
+            return None
+        key = (round(lat, 3), round(lng, 3), zoom)
+        if key not in cache:
+            cache[key] = _dominant_country(lat, lng, zoom, where, countries_in)
+        return cache[key]
+
+    return dominant
 
 
 # ── Event stream → raw structures ───────────────────────────────────────────
@@ -399,7 +482,13 @@ def analyze_round(
 
     panos, sessions, guess = s["panos"], s["sessions"], s["guess"]
     # Shared across the round's map sessions: countries looked at, hesitations so far, places zoomed.
-    memory = {"seen": [], "hesitations": 0, "zoomed": set(), "zid": 0}
+    memory = {
+        "seen": [],
+        "hesitations": 0,
+        "zoomed": set(),
+        "zid": 0,
+        "dom": _make_dominant(where, countries_in),
+    }
 
     # Pins closer together than PIN_MERGE_MS are one
     pins: list = []
@@ -698,14 +787,11 @@ def _movement(panos, s, guess, add) -> None:
 
 
 # ── Map sessions ────────────────────────────────────────────────────────────
-def _country_of(where, sample) -> str:
-    a = where(sample[1], sample[2])
-    return (a.get("country_code") or "") if a else ""
+def _focus_segments(sess, where, end, dominant) -> list[dict]:
+    """Which country the map is looking at over time (zoomed in enough to mean something).
 
-
-def _focus_segments(sess, where, end) -> list[dict]:
-    """Which country the center of the map is on over time (zoomed in enough to mean something).
-
+    The country is the one that fills most of the map window (see _dominant_country), so a view
+    whose exact center falls in the sea or a neighbour still counts as looking at the right country.
     [{key, code, name, t0, t1, lat, lng}]. A country that only flashes by (panning past it)
     is dropped; the last one is always kept, since closing the map right after it matters.
     """
@@ -716,9 +802,13 @@ def _focus_segments(sess, where, end) -> list[dict]:
     if look[-1] is not pts[-1]:
         look = [*look, pts[-1]]
     raw: list[dict] = []
-    for t, lat, lng, _ in look:
-        a = where(lat, lng)
-        key = ((a.get("country_code") or ""), (a.get("country") or "")) if a else ("", "")
+    for t, lat, lng, z in look:
+        d = dominant(lat, lng, z)
+        if d:
+            key = (d["code"], d["name"])
+        else:
+            a = where(lat, lng)
+            key = ((a.get("country_code") or ""), (a.get("country") or "")) if a else ("", "")
         if raw and raw[-1]["key"] == key:
             continue
         raw.append({"key": key, "t0": t, "lat": lat, "lng": lng})
@@ -748,6 +838,7 @@ def _map_session(
     pins_in = [p for p in s["pins"] if start <= p[0] <= end]
     guess_in = bool(guess and start <= guess[0] <= end)
     quiet = not pins_in and not guess_in
+    dominant = memory["dom"]
 
     # Opened and closed in a blink without doing anything useful
     if (
@@ -767,10 +858,16 @@ def _map_session(
     emitted = False
 
     def view_at(c, zoom):
-        """(place, level, view dict) of the map window centered on sample c at `zoom`."""
+        """(place, level, view dict, dominant country) of the map window centered on sample c at `zoom`."""
         bx = _viewport_bbox(c[1], c[2], zoom)
-        level = _view_level(bx, zoom, extent(c[1], c[2]))
-        place = _view_place(level, where(c[1], c[2]), c[1], c[2])
+        dom = dominant(c[1], c[2], zoom)
+        # Name the window by the country that fills it, even if the exact center is elsewhere.
+        alat, alng = (dom["lat"], dom["lng"]) if dom else (c[1], c[2])
+        level = _view_level(bx, zoom, extent(alat, alng))
+        admin = where(alat, alng)
+        if admin is None and dom:
+            admin = {"country_code": dom["code"], "country": dom["name"]}
+        place = _view_place(level, admin, alat, alng, region_bounds)
         return (
             place,
             level,
@@ -780,10 +877,11 @@ def _map_session(
                 "level": level,
                 "center": (c[1], c[2]),
             },
+            dom,
         )
 
-    # Hesitation: the country under the map's center changes
-    segs = _focus_segments(sess, where, end)
+    # Hesitation: the country in focus changes
+    segs = _focus_segments(sess, where, end, dominant)
     hes_times: list = []
     prev_seg = None
     for sg in segs:
@@ -820,10 +918,16 @@ def _map_session(
         if c is None and open_view["lat"] is not None:
             c = (start, open_view["lat"], open_view["lng"], open_view["zoom"])
         zin = r["z1"] > r["z0"]
-        place, level, view = view_at(c, r["z1"]) if c else ("the map", "", {})
+        place, level, view, dom = view_at(c, r["z1"]) if c else ("the map", "", {}, None)
         focus = {"bbox": list(view["view_boxes"][0])} if view else None
         adm = where(c[1], c[2]) if c else None
-        country = (adm or {}).get("country") or ""
+        if dom:
+            country, country_code = dom["name"], dom["code"]
+        else:
+            country, country_code = (
+                (adm or {}).get("country") or "",
+                (adm or {}).get("country_code"),
+            )
         if zin:
             expected = ZOOM_STEP_S * 1000 * (r["z1"] - r["z0"] + 1)
             actual = r["t1"] - r["t0"]
@@ -839,6 +943,7 @@ def _map_session(
                 zid=zid,
                 focus=focus,
                 country=country,
+                in_real_country=bool(country_code and country_code == real["country_code"]),
                 **view,
             )
             add(
@@ -855,11 +960,8 @@ def _map_session(
             if c:
                 memory["zoomed"].add(place)
         else:
-            a_here = where(c[1], c[2]) if c else None
             # "Another country" includes land we have no map for (Unknown_Country).
-            other_country = bool(c) and not (
-                a_here and a_here.get("country_code") == real["country_code"]
-            )
+            other_country = bool(c) and not (country_code and country_code == real["country_code"])
             hesitating = any(r["t0"] <= h <= r["t1"] + HESITATE_MERGE_MS for h in hes_times)
             add(
                 r["t0"],
@@ -895,7 +997,7 @@ def _map_session(
             c = (start, open_view["lat"], open_view["lng"], zoom)
         if zoom is None or c is None:
             continue
-        place, level, view = view_at(c, zoom)
+        place, level, view, _ = view_at(c, zoom)
         data = {
             "place": place,
             "level": level,
@@ -928,14 +1030,12 @@ def _map_session(
         and not any(a <= p[0] <= b for a, b in stare_spans)
     ]
     for sg in segs:
-        seg_pans = [
-            p for p in pans if sg["t0"] <= p[0] < sg["t1"] and _country_of(where, p) == sg["code"]
-        ]
+        seg_pans = [p for p in pans if sg["t0"] <= p[0] < sg["t1"]]
         if len(seg_pans) >= SCAN_MIN_SAMPLES:
             add(
                 seg_pans[0][0],
                 "scan",
-                **_scan(seg_pans, sg, real, where, countries_in),
+                **_scan(seg_pans, sg, real, where, countries_in, dominant),
             )
             emitted = True
 
@@ -1004,13 +1104,14 @@ def _clip_boxes(boxes, countries_in) -> list:
     return out
 
 
-def _scan(pans, sg, real, where, countries_in=None) -> dict:
+def _scan(pans, sg, real, where, countries_in=None, dominant=None) -> dict:
     """One search inside the country the map was focused on (`sg`, from _focus_segments)."""
     sample = _downsample(pans, SCAN_MAX_LOOKUPS)
     regions: Counter = Counter()
     for _, lat, lng, _ in sample:
         a = where(lat, lng)
-        if a:
+        # Only regions of the focused country count (the window center may sit in a neighbour).
+        if a and (not sg["code"] or a.get("country_code") == sg["code"]):
             regions[a.get("state") or a.get("country")] += 1
     boxes = list(
         dict.fromkeys(
@@ -1043,7 +1144,9 @@ def _scan(pans, sg, real, where, countries_in=None) -> dict:
     if not sg["code"] or not regions:
         base["key"] = "scan_area"
     elif len(regions) >= FULL_COUNTRY_REGIONS:
-        ext = _country_extent(countries_in, mid[1], mid[2])
+        d = dominant(mid[1], mid[2], mid[3]) if dominant else None
+        alat, alng = (d["lat"], d["lng"]) if d and d["code"] == sg["code"] else (mid[1], mid[2])
+        ext = _country_extent(countries_in, alat, alng)
         base["parts"] = parts_text([(la, ln) for _, la, ln, _ in sample], ext[3]) if ext else ""
         base["key"] = "scan_country" if sg["code"] == real["country_code"] else "scan_country_wrong"
     else:
