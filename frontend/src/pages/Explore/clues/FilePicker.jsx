@@ -9,6 +9,9 @@ async function post(url, body, type) {
   return r.json();
 }
 
+// A staged upload that was replaced or removed is thrown away on the server (best effort).
+const discardStaged = (token) => { if (token) fetch(`/api/clues/staged/${token}`, { method: "DELETE" }).catch(() => {}); };
+
 const FolderIcon = () => <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
   <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z" /></svg>;
 
@@ -56,7 +59,12 @@ export default function FilePicker({ kind, label, hint, accept, value, onChange,
   const run = async (job, shown) => {
     attempted.current = shown;
     setText(shown); setBusy(true); setErr("");
-    try { onChange(await job()); } catch (e) { setErr(e.message); } finally { setBusy(false); }
+    const previous = value?.token; // the upload this one replaces
+    try {
+      const next = await job();
+      discardStaged(previous);
+      onChange(next);
+    } catch (e) { setErr(e.message); } finally { setBusy(false); }
   };
   const upload = (file) => file && run(() => post(`/clues/stage/${kind}?filename=${encodeURIComponent(file.name)}`, file), file.name);
   const fromPath = (p) => {
@@ -86,7 +94,7 @@ export default function FilePicker({ kind, label, hint, accept, value, onChange,
         onBlur={() => { if (text.trim() && text !== attempted.current && !busy) fromPath(text); }} />
       <button type="button" className="btn ghost fp-browse" disabled={busy} title="Browse files" aria-label={`Browse for ${label}`}
         onClick={() => input.current.click()}><FolderIcon /></button>
-      {value && <button type="button" className="btn ghost" onClick={() => { onChange(null); setText(""); attempted.current = ""; }}>Remove</button>}
+      {value && <button type="button" className="btn ghost" onClick={() => { discardStaged(value.token); onChange(null); setText(""); attempted.current = ""; }}>Remove</button>}
       <input ref={input} type="file" accept={accept} hidden onChange={(e) => { upload(e.target.files[0]); e.target.value = ""; }} />
     </div>
     {busy && <p className="muted">Processing…</p>}

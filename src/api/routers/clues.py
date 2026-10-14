@@ -2,8 +2,10 @@
 
 Layout:  data/clues/{CC}/clues.yaml  +  data/clues/{CC}/<nat|reg>_<tag>_#####.<ext>
 Flow:    POST /clues/stage/{kind}  -> file is converted/simplified into data/clues/.staging, preview returned
+         DELETE /clues/staged/{token} -> throws a staged file away (replaced / removed in the editor)
          POST /clues/{CC}          -> staged files are renamed into the country folder, entry added to yaml
-         PUT  /clues/{CC}/{id}     -> same body; only the files that are sent get replaced
+         PUT  /clues/{CC}/{id}     -> same body; only the files that are sent get replaced (overwritten in place
+                                      when the clue already has a file of that kind and the extension matches)
 Needs:   Pillow, geopandas, shapely (>= 2.1 for gap-free coverage simplification), pyarrow, pyyaml.
 """
 
@@ -53,6 +55,7 @@ IMAGE_QUALITY = 88
 PREVIEW_MAX_FEATURES = 5000
 
 ASSET_RE = re.compile(r"(nat|reg)_[a-z]+_\d{5}\.(webp|csv|parquet)")
+TOKEN_RE = re.compile(r"[0-9a-f]{32}")
 _LOCK = threading.Lock()
 
 # Countries that have at least one clue shown in the normal view. Built from disk on first request,
@@ -140,7 +143,7 @@ def _next_name(folder: Path, scope: str, general: str, suffix: str) -> str:
 
 
 def _staged_path(token: str, kind: str) -> Path:
-    if not re.fullmatch(r"[0-9a-f]{32}", token) or kind not in KINDS:
+    if not TOKEN_RE.fullmatch(token) or kind not in KINDS:
         raise HTTPException(422, "Invalid staged file")
     hits = list(STAGING.glob(f"{token}.{kind}.*"))
     if not hits:
@@ -347,6 +350,16 @@ def staged_file(token: str, kind: str):
     return FileResponse(_staged_path(token, kind))
 
 
+# Must stay ABOVE DELETE /clues/{cc}/{clue_id}, or "staged" is read as a country code.
+@router.delete("/clues/staged/{token}")
+def discard_staged(token: str):
+    """Throw away a staged upload that was replaced or removed in the editor."""
+    if not TOKEN_RE.fullmatch(token):
+        raise HTTPException(422, "Invalid staged file")
+    _discard(token)
+    return {"ok": True}
+
+
 # ── clues ──────────────────────────────────────────────────────────────────
 
 
@@ -408,7 +421,9 @@ def list_clues(cc: str, show_all: Annotated[bool, Query(alias="all")] = False):
 
 @router.get("/clues/{cc}/files/{name}")
 def clue_file(cc: str, name: str):
-    return FileResponse(_asset(cc, name))
+    # "no-cache" = the browser may keep it but must revalidate, so a file overwritten in place
+    # (same name, new content) shows up right away.
+    return FileResponse(_asset(cc, name), headers={"Cache-Control": "no-cache"})
 
 
 @router.get("/clues/{cc}/geo/{name}")
@@ -455,8 +470,11 @@ def add_clue(cc: str, body: ClueBody):
 
 @router.put("/clues/{cc}/{clue_id}")
 def update_clue(cc: str, clue_id: str, body: ClueBody):
-    """Edit a clue. Text, tags, ratings and visibility are replaced; files only when new ones are sent
-    (a new geometry file replaces whichever geometry the clue had).
+    """Edit a clue. Text, tags, ratings and visibility are replaced; files only when new ones are sent.
+
+    A new file of a kind the clue already has (same extension) overwrites the old file in place, so
+    nothing is left behind. A new geometry file replaces whichever geometry the clue had: if it is the
+    same geometry kind it is overwritten in place, otherwise the old geometry file is deleted.
     """
     cc = _cc(cc)
     folder = CLUES_DIR / cc
@@ -473,12 +491,27 @@ def update_clue(cc: str, clue_id: str, body: ClueBody):
         if replaced & set(GEOM_KINDS):
             replaced |= set(GEOM_KINDS)
         names: dict[str, str] = {}
+        overwrite: dict[
+            str, Path
+        ] = {}  # kind -> staged file that goes over the clue's existing file
         try:
             for kind in KINDS:
-                if kind in staged:
-                    name = _next_name(folder, body.scope, general, staged[kind].suffix)
-                    shutil.move(staged[kind], folder / name)
-                    names[kind] = name
+                if kind not in staged:
+                    continue
+                old_name = old.get(kind)
+                if (
+                    old_name
+                    and ASSET_RE.fullmatch(old_name)
+                    and Path(old_name).suffix == staged[kind].suffix
+                    and (folder / old_name).is_file()
+                ):
+                    # Same slot: keep the file name, swap the content after the yaml is saved.
+                    names[kind] = old_name
+                    overwrite[kind] = staged[kind]
+                    continue
+                name = _next_name(folder, body.scope, general, staged[kind].suffix)
+                shutil.move(staged[kind], folder / name)
+                names[kind] = name
             kept = {k: old[k] for k in KINDS if old.get(k) and k not in replaced}
             entry = {
                 "id": old["id"],
@@ -497,12 +530,22 @@ def update_clue(cc: str, clue_id: str, body: ClueBody):
             _save(cc, updated)
             _set_has(cc, updated)
         except Exception:
-            for name in names.values():
-                (folder / name).unlink(missing_ok=True)
+            # Only brand-new files are removed; overwrite targets are the clue's existing files.
+            for kind, name in names.items():
+                if kind not in overwrite:
+                    (folder / name).unlink(missing_ok=True)
             raise
+        for kind, src in overwrite.items():
+            try:
+                src.replace(folder / names[kind])
+            except OSError as e:
+                msg = "Could not overwrite the old file. Close anything using it and try again."
+                raise HTTPException(500, msg) from e
+        # Old files that no longer belong to the clue (replaced by a differently named file).
+        kept_names = set(names.values())
         for kind in replaced:
             old_name = old.get(kind)
-            if old_name and ASSET_RE.fullmatch(old_name):
+            if old_name and old_name not in kept_names and ASSET_RE.fullmatch(old_name):
                 (folder / old_name).unlink(missing_ok=True)
     return entry
 
