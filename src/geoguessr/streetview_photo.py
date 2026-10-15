@@ -8,6 +8,12 @@ C: https://streetviewpixels-pa.googleapis.com/v1/thumbnail (undocumented, keyles
 
 Both endpoints are undocumented internals. They are isolated in `_fetch_pano_dots` and
 `_fetch_thumbnail` so a paid Static API fallback could replace them later.
+
+Conventions (measured against GeoGuessr's own replay viewer):
+  * GeoGuessr's zoom gives the VERTICAL field of view (90 / 2**zoom). The thumbnail endpoint wants
+    the HORIZONTAL one, so `_fetch_thumbnail` converts it for the output aspect ratio.
+  * GeoGuessr (and Google Maps URLs) use pitch < 0 = looking down. The thumbnail endpoint is the
+    opposite, so `_fetch_thumbnail` flips the sign.
 """
 
 import asyncio
@@ -23,6 +29,7 @@ TILE_ZOOM = 17
 TILE_SIZE = 256
 SEARCH_RADIUS_M = 50
 OUT_W, OUT_H = 640, 360  # 16:9, like the street view window
+MAX_THUMB_FOV = 120  # widest horizontal fov asked from the thumbnail endpoint
 TILE_CACHE_MAX = 512
 HEADERS = {"User-Agent": "Mozilla/5.0", "Referer": "https://www.google.com/"}
 TIMEOUT_S = 15
@@ -126,10 +133,18 @@ async def resolve_pano_id(
 
 
 # ── C: panoId + orientation -> JPEG ─────────────────────────────────────────
+def horizontal_fov(vertical_fov: float) -> float:
+    """Horizontal fov of an OUT_W x OUT_H picture whose vertical fov is `vertical_fov` (degrees)."""
+    half = math.tan(math.radians(vertical_fov) / 2)
+    return math.degrees(2 * math.atan(half * OUT_W / OUT_H))
+
+
 async def _fetch_thumbnail(
     client: httpx.AsyncClient, pano_id: str, heading: float, pitch: float, fov: float
 ) -> bytes:
+    """`fov` and `pitch` use GeoGuessr's conventions (vertical fov, pitch < 0 = down)."""
     failures = []
+    thumb_fov = min(MAX_THUMB_FOV, horizontal_fov(fov))
     for cb_client in ("maps_sv.share", "maps_sv.tactile"):
         params = httpx.QueryParams(
             {
@@ -138,8 +153,8 @@ async def _fetch_thumbnail(
                 "w": OUT_W,
                 "h": OUT_H,
                 "yaw": heading,
-                "pitch": pitch,
-                "thumbfov": round(fov),  # the endpoint only accepts an integer
+                "pitch": -pitch,  # this endpoint: positive = down
+                "thumbfov": round(thumb_fov),  # the endpoint only accepts an integer
             },
         )
         res = await _get(
@@ -155,7 +170,7 @@ async def _fetch_thumbnail(
 async def retrieve_photo(
     client: httpx.AsyncClient, position: LatLng, heading_deg: float, pitch_deg: float, zoom: float
 ) -> bytes:
-    """JPEG bytes of the latest pano near `position`. zoom 0..1 = fov 90..10 degrees."""
+    """JPEG bytes of the latest pano near `position`. zoom 0..1 = vertical fov 90..10 degrees."""
     pano_id = await resolve_pano_id(client, position)
     if not pano_id:
         raise NoStreetViewCoverageError(position)
