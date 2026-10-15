@@ -4,25 +4,29 @@ import { HORIZON, buildWorld } from "./streetWorld.js";
 
 // First-person walk through a place, Street View style:
 //  - you stand on a panorama node 2.5 m above the road, drag to look around, scroll to zoom
-//  - ground chevrons mark the links; click one (or press W / S) to glide to the next node
+//  - ground arrows mark the links; click one (or press W / S) to glide to the next node
+//  - after a move the arrow that continues in the same direction is selected; hold Space to keep going that way
 //  - A / D (or left / right) turn the view
 
 const EYE = 2.5;
-const ARROW_DIST = 4.2;
-const MOVE_MS = 420;
+const ARROW_DIST = 4.5;
+const MOVE_MS = 420, FAST_MS = 240; // normal step / Space-repeat step
 const TURN_RATE = 1.6; // rad/s with the keyboard
 const MAX_PITCH = THREE.MathUtils.degToRad(85);
-const FWD_CONE = 1.2; // rad (~70 deg): how far off the view a link can be and still count as "forward"
+const FWD_CONE = 1.2; // rad (~70 deg): how far off a direction a link can be and still count as "that way"
 const TAU = Math.PI * 2;
 
 const wrapPi = (a) => { a = (a + Math.PI) % TAU; if (a < 0) a += TAU; return a - Math.PI; };
 const bearing = (x0, y0, x1, y1) => Math.atan2(x1 - x0, y1 - y0); // compass: 0 = north, clockwise
 const ease = (t) => t * t * (3 - 2 * t);
-const KEYS = { w: "f", arrowup: "f", s: "b", arrowdown: "b", a: "l", arrowleft: "l", d: "r", arrowright: "r" };
+const KEYS = { w: "f", arrowup: "f", s: "b", arrowdown: "b", a: "l", arrowleft: "l", d: "r", arrowright: "r", " ": "sp" };
 
-function chevron() {
+// GeoGuessr's arrow outline: M 0 -120 L 60 -60 L 40 -30 L -40 -30 L -60 -60 (SVG units, tip up).
+// Flipped to ground axes and recentred; 40 units = 1 m.
+const ARROW = [[0, 120], [60, 60], [40, 30], [-40, 30], [-60, 60]];
+function arrowGeometry() {
   const s = new THREE.Shape();
-  [[0, 0.7], [1.1, -0.3], [0.8, -0.6], [0, 0.1], [-0.8, -0.6], [-1.1, -0.3]].forEach(([x, y], i) => (i ? s.lineTo(x, y) : s.moveTo(x, y)));
+  ARROW.forEach(([x, y], i) => (i ? s.lineTo(x / 40, (y - 75) / 40) : s.moveTo(x / 40, (y - 75) / 40)));
   s.closePath();
   return new THREE.ShapeGeometry(s);
 }
@@ -46,35 +50,45 @@ export function createStreetView(container, place, { onView, onNode } = {}) {
 
   // ── state ──
   let node = graph.count ? pickStart(graph) : -1;
+  const startNode = node;
   let heading = 0, pitch = 0, hfov = 90, steps = 0, anim = null, hovered = null;
+  let travel = null; // bearing of the last move
+  let sel = null;    // selected arrow (link node), the one that keeps the travel direction
   const keys = new Set();
   const here = () => (node < 0 ? { x: 0, y: 0 } : { x: graph.x[node], y: graph.y[node] });
   const bearingTo = (a, b) => bearing(graph.x[a], graph.y[a], graph.x[b], graph.y[b]);
   if (node >= 0 && graph.adj[node].length) heading = bearingTo(node, graph.adj[node][0]);
+  const start = here();
 
   // ── ground arrows ──
-  const chevGeo = chevron();
-  const darkMat = new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.4, side: THREE.DoubleSide, depthTest: false, depthWrite: false, fog: false });
-  const idleMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.75, side: THREE.DoubleSide, depthTest: false, depthWrite: false, fog: false });
-  const hoverMat = idleMat.clone(); hoverMat.opacity = 1;
+  const arrowGeo = arrowGeometry();
+  const mat = (color, opacity) => new THREE.MeshBasicMaterial({ color, transparent: true, opacity, side: THREE.DoubleSide, depthTest: false, depthWrite: false, fog: false });
+  const darkMat = mat(0x000000, 0.4), idleMat = mat(0xffffff, 0.75), hoverMat = mat(0xffffff, 1);
   const arrows = new THREE.Group();
   scene.add(arrows);
   let hits = [];
+  const rest = (m) => (m.userData.nb === sel ? hoverMat : idleMat);
 
   function rebuildArrows() {
     arrows.clear();
-    hits = []; hovered = null;
+    hits = []; hovered = null; sel = null;
     if (node < 0) return;
     arrows.position.set(graph.x[node], 0.05, -graph.y[node]);
-    const seen = [];
+    const shown = [];
     for (const nb of graph.adj[node]) {
       const b = bearingTo(node, nb);
-      if (seen.some((s) => Math.abs(wrapPi(s - b)) < 0.17)) continue; // two links in nearly the same direction: show one
-      seen.push(b);
+      if (shown.some((s) => Math.abs(wrapPi(s.b - b)) < 0.17)) continue; // two links in nearly the same direction: show one
+      shown.push({ nb, b });
+    }
+    if (travel != null) {
+      let bd = FWD_CONE;
+      for (const s of shown) { const d = Math.abs(wrapPi(s.b - travel)); if (d < bd) { bd = d; sel = s.nb; } }
+    }
+    for (const { nb, b } of shown) {
       const pivot = new THREE.Object3D();
       pivot.rotation.y = -b;
-      const dark = new THREE.Mesh(chevGeo, darkMat), light = new THREE.Mesh(chevGeo, idleMat);
-      dark.scale.setScalar(1.3);
+      const dark = new THREE.Mesh(arrowGeo, darkMat), light = new THREE.Mesh(arrowGeo, nb === sel ? hoverMat : idleMat);
+      dark.scale.setScalar(1.25);
       for (const m of [dark, light]) { m.rotation.x = -Math.PI / 2; m.position.z = -ARROW_DIST; m.userData = { nb, light }; }
       dark.renderOrder = 90; light.renderOrder = 91;
       pivot.add(dark, light);
@@ -88,8 +102,9 @@ export function createStreetView(container, place, { onView, onNode } = {}) {
   };
 
   // ── movement ──
-  function go(to, turn) {
-    anim = { from: node, to, t: 0, h0: heading, h1: turn ? heading + wrapPi(bearingTo(node, to) - heading) : heading };
+  function go(to, turn, fast = false) {
+    travel = bearingTo(node, to);
+    anim = { from: node, to, t: 0, dur: fast ? FAST_MS : MOVE_MS, h0: heading, h1: turn ? heading + wrapPi(travel - heading) : heading };
     arrows.visible = false;
   }
   function finish() {
@@ -98,7 +113,14 @@ export function createStreetView(container, place, { onView, onNode } = {}) {
     rebuildArrows();
     onNode?.(info());
   }
-  function pick(h) { // link whose bearing is closest to h, within the forward cone
+  function teleport(n) { // instant jump (return to start / checkpoint); not counted as a step
+    if (n == null || n < 0 || n >= graph.count) return;
+    anim = null; arrows.visible = true; node = n; pitch = 0; travel = null;
+    if (graph.adj[n].length) heading = bearingTo(n, graph.adj[n][0]);
+    rebuildArrows();
+    onNode?.(info());
+  }
+  function pick(h) { // link whose bearing is closest to h, within the cone
     let best = -1, bd = FWD_CONE;
     for (const nb of graph.adj[node]) {
       const d = Math.abs(wrapPi(bearingTo(node, nb) - h));
@@ -117,7 +139,7 @@ export function createStreetView(container, place, { onView, onNode } = {}) {
   };
   const setHover = (m) => {
     if (m === hovered) return;
-    if (hovered) hovered.userData.light.material = idleMat;
+    if (hovered) hovered.userData.light.material = rest(hovered);
     hovered = m;
     if (m) m.userData.light.material = hoverMat;
     canvas.style.cursor = m ? "pointer" : "grab";
@@ -152,6 +174,7 @@ export function createStreetView(container, place, { onView, onNode } = {}) {
   const onKeyDown = (e) => {
     const k = KEYS[e.key.toLowerCase()];
     if (!k || typing(e) || e.ctrlKey || e.metaKey || e.altKey) return;
+    if (k === "sp" && e.target?.tagName === "BUTTON") return; // let Space press a focused button
     keys.add(k); e.preventDefault();
   };
   const onKeyUp = (e) => { const k = KEYS[e.key.toLowerCase()]; if (k) keys.delete(k); };
@@ -192,14 +215,14 @@ export function createStreetView(container, place, { onView, onNode } = {}) {
     last = now;
 
     if (anim) {
-      anim.t += (dt * 1000) / MOVE_MS;
+      anim.t += (dt * 1000) / anim.dur;
       if (anim.t >= 1) finish();
     }
     if (!anim && node >= 0) {
-      const turn = (keys.has("r") - keys.has("l")) * TURN_RATE * (hfov / 90) * dt;
-      heading += turn;
+      heading += (keys.has("r") - keys.has("l")) * TURN_RATE * (hfov / 90) * dt;
       if (keys.has("f")) { const t = pick(heading); if (t >= 0) go(t, true); }
       else if (keys.has("b")) { const t = pick(heading + Math.PI); if (t >= 0) go(t, false); }
+      else if (keys.has("sp") && sel != null) go(sel, false, true); // keep going the way you were going
     }
 
     let px, py;
@@ -221,7 +244,10 @@ export function createStreetView(container, place, { onView, onNode } = {}) {
   return {
     empty: node < 0,
     nodes: graph.count,
-    start: here(), // where the round began = the location to guess
+    start,            // where the round began = the location to guess ({x, y} in metres)
+    startNode,
+    current: () => node,
+    teleport,
     dispose() {
       cancelAnimationFrame(raf);
       ro.disconnect();
@@ -229,7 +255,7 @@ export function createStreetView(container, place, { onView, onNode } = {}) {
       window.removeEventListener("keyup", onKeyUp);
       window.removeEventListener("blur", onBlur);
       world.dispose();
-      chevGeo.dispose(); darkMat.dispose(); idleMat.dispose(); hoverMat.dispose();
+      arrowGeo.dispose(); darkMat.dispose(); idleMat.dispose(); hoverMat.dispose();
       renderer.dispose();
       canvas.remove();
     },
