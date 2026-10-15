@@ -32,3 +32,12 @@
 .mg-empty { position: absolute; inset: 0; display: grid; place-items: center; color: var(--mute); text-align: center; padding: 24px; }
 .mg-tools { display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: center; }
 .mg-tools .btn { padding: 6px 14px; }
+
+/* 3D street view: compass (N rotates against the view heading) and a readable hint over the sky/road */
+.sv-compass { position: absolute; top: 12px; right: 12px; width: 52px; height: 52px; border-radius: 50%; pointer-events: none;
+  background: #0d1117b3; border: 1px solid var(--line); }
+.sv-needle { position: absolute; inset: 0; }
+.sv-needle::before { content: ""; position: absolute; left: 50%; top: 7px; margin-left: -5px; border: 5px solid transparent;
+  border-bottom: 14px solid var(--coral); border-top: 0; }
+.sv-needle b { position: absolute; left: 0; right: 0; top: 22px; text-align: center; font-size: 11px; color: var(--ink); }
+.mg-canvas-wrap .mg-hint { color: var(--ink); background: #0d1117b3; padding: 3px 8px; border-radius: 6px; }
