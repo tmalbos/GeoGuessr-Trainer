@@ -6,6 +6,7 @@ Flow:    POST /clues/stage/{kind}  -> file is converted/simplified into data/clu
          POST /clues/{CC}          -> staged files are renamed into the country folder, entry added to yaml
          PUT  /clues/{CC}/{id}     -> same body; only the files that are sent get replaced (overwritten in place
                                       when the clue already has a file of that kind and the extension matches)
+         POST /clues/{CC}/reorder  -> {ids: [...]} sets the order of the clues in the yaml
 Needs:   Pillow, geopandas, shapely (>= 2.1 for gap-free coverage simplification), pyarrow, pyyaml.
 """
 
@@ -53,6 +54,8 @@ PREVIEW_PRECISION = 1e-5  # ~1 m, only for the GeoJSON sent to the browser
 IMAGE_MAX_PX = 1600
 IMAGE_QUALITY = 88
 PREVIEW_MAX_FEATURES = 5000
+
+URL_RE = re.compile(r"https?://\S+", re.IGNORECASE)
 
 ASSET_RE = re.compile(r"(nat|reg)_[a-z]+_\d{5}\.(webp|csv|parquet)")
 TOKEN_RE = re.compile(r"[0-9a-f]{32}")
@@ -372,6 +375,7 @@ class ClueBody(BaseModel):
     reliability: int | None = Field(None, ge=1, le=10)
     visibility: Literal["visible", "guide-only", "analysis-only"] = "visible"
     blur: bool = False  # blur the clue image until hovered (only kept when the clue has an image)
+    source: str = ""  # link to where the information came from (optional)
     files: dict[str, str] = {}  # kind -> staging token
 
 
@@ -398,6 +402,16 @@ def _validate(b: ClueBody, have: set[str] | frozenset[str] = frozenset()) -> tup
     if b.scope == "reg" and not any(k in kinds for k in AREA_KINDS):
         raise HTTPException(422, "A regional clue needs a csv, polygons, lines or points file")
     return loc[0], gen[0]
+
+
+def _clean_source(b: ClueBody) -> str | None:
+    """The source link, or None when empty. Only http(s) links are accepted."""
+    url = b.source.strip()
+    if not url:
+        return None
+    if len(url) > 500 or not URL_RE.fullmatch(url):
+        raise HTTPException(422, "The source must be a link starting with http:// or https://")
+    return url
 
 
 @router.get("/clues/summary")
@@ -436,6 +450,7 @@ def clue_geo(cc: str, name: str):
 def add_clue(cc: str, body: ClueBody):
     cc = _cc(cc)
     location, general = _validate(body)
+    source = _clean_source(body)
     folder = CLUES_DIR / cc
     with _LOCK:
         staged = {k: _staged_path(t, k) for k, t in body.files.items()}
@@ -457,6 +472,7 @@ def add_clue(cc: str, body: ClueBody):
                 "reliability": body.reliability,
                 "visibility": body.visibility,
                 "blur": True if body.blur else None,
+                "source": source,
                 **names,
             }
             entry = {k: v for k, v in entry.items() if v is not None}
@@ -472,15 +488,36 @@ def add_clue(cc: str, body: ClueBody):
     return entry
 
 
+class OrderBody(BaseModel):
+    ids: list[str]
+
+
+@router.post("/clues/{cc}/reorder")
+def reorder_clues(cc: str, body: OrderBody):
+    """Put the clues in the given order. Ids that don't exist are ignored; clues not mentioned keep
+    their relative order and go at the end, so a stale list from the browser never loses a clue.
+    """
+    cc = _cc(cc)
+    with _LOCK:
+        items = _load(cc)
+        by_id = {c.get("id"): c for c in items}
+        ordered = [by_id[i] for i in dict.fromkeys(body.ids) if i in by_id]
+        placed = {c.get("id") for c in ordered}
+        ordered += [c for c in items if c.get("id") not in placed]
+        _save(cc, ordered)
+    return {"ok": True}
+
+
 @router.put("/clues/{cc}/{clue_id}")
 def update_clue(cc: str, clue_id: str, body: ClueBody):
-    """Edit a clue. Text, tags, ratings and visibility are replaced; files only when new ones are sent.
+    """Edit a clue. Text, tags, ratings, visibility and source are replaced; files only when new ones are sent.
 
     A new file of a kind the clue already has (same extension) overwrites the old file in place, so
     nothing is left behind. A new geometry file replaces whichever geometry the clue had: if it is the
     same geometry kind it is overwritten in place, otherwise the old geometry file is deleted.
     """
     cc = _cc(cc)
+    source = _clean_source(body)
     folder = CLUES_DIR / cc
     with _LOCK:
         items = _load(cc)
@@ -527,6 +564,7 @@ def update_clue(cc: str, clue_id: str, body: ClueBody):
                 "reliability": body.reliability,
                 "visibility": body.visibility,
                 "blur": True if body.blur else None,
+                "source": source,
                 **kept,
                 **names,
             }

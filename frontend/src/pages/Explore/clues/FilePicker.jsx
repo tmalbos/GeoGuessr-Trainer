@@ -47,8 +47,9 @@ function Preview({ kind, v }) {
 }
 
 /** Path box + browse button. Also accepts drag and drop, and Ctrl+V of a path, a copied file or an image.
- *  `current` ({ src?, text }) = the file a clue already has (edit mode); picking a new one replaces it. */
-export default function FilePicker({ kind, label, hint, accept, value, onChange, current }) {
+ *  `current` ({ src?, text }) = the file a clue already has (edit mode); picking a new one replaces it.
+ *  `extra` = something to show in the top-right corner of the box (e.g. the Blur checkbox). */
+export default function FilePicker({ kind, label, hint, accept, value, onChange, current, extra }) {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
   const [drag, setDrag] = useState(false);
@@ -81,7 +82,7 @@ export default function FilePicker({ kind, label, hint, accept, value, onChange,
   return <div className={`fp ${drag ? "drag" : ""}`}
     onDragOver={(e) => { e.preventDefault(); setDrag(true); }} onDragLeave={() => setDrag(false)}
     onDrop={(e) => { e.preventDefault(); setDrag(false); upload(e.dataTransfer.files[0]); }}>
-    <div className="fp-head"><b>{label}</b>{hint && <Info text={hint} />}</div>
+    <div className="fp-head"><b>{label}</b>{hint && <Info text={hint} />}{extra}</div>
     {value && <Preview kind={kind} v={value} />}
     {!value && current && <div className="fp-prev">
       {current.src && <img className="fp-img" src={current.src} alt="Current file" />}

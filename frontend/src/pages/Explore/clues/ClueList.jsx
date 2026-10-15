@@ -26,6 +26,8 @@ export default function ClueList({ id, name, editing }) {
   const [hidden, setHidden] = useState(() => new Set()); // deleted but still undoable
   const [cat, setCat] = useState("");
   const [loc, setLoc] = useState("");
+  const [drag, setDrag] = useState(null); // { id, key } of the clue being dragged
+  const [over, setOver] = useState(null); // id of the clue it is hovering
   const pending = useRef(new Map()); // key -> { cc, clueId }, deletes waiting out their undo window
 
   useEffect(() => {
@@ -72,31 +74,75 @@ export default function ClueList({ id, name, editing }) {
     });
   };
 
+  // Drag a clue by its grip onto another one in the same block: it takes that clue's place.
+  // The saved order is the country's full list, so only the dragged clue moves in it.
+  const moveTo = async (fromId, toId) => {
+    if (!items) return;
+    const ids = items.map((x) => x.id);
+    const a = ids.indexOf(fromId);
+    const b = ids.indexOf(toId);
+    if (a < 0 || b < 0 || a === b) return;
+    ids.splice(b, 0, ids.splice(a, 1)[0]);
+    const byId = new Map(items.map((x) => [x.id, x]));
+    const previous = items;
+    setItems(ids.map((i) => byId.get(i)));
+    try { await api(`/clues/${id}/reorder`, { method: "POST", body: { ids } }); }
+    catch (ex) { setItems(previous); toast.push(errorText(ex), { kind: "err", ms: 6000 }); }
+  };
+  const release = () => { setDrag(null); setOver(null); };
+  const grab = (e, c, key) => {
+    e.dataTransfer.effectAllowed = "move";
+    e.dataTransfer.setData("text/plain", c.id);
+    const card = e.currentTarget.closest("article");
+    if (card) {
+      const r = card.getBoundingClientRect();
+      e.dataTransfer.setDragImage(card, e.clientX - r.left, e.clientY - r.top);
+    }
+    setDrag({ id: c.id, key });
+  };
+  const hover = (e, c, key) => {
+    if (!drag || drag.key !== key || drag.id === c.id) return; // only inside the same block
+    e.preventDefault();
+    setOver(c.id);
+  };
+  const drop = (e, c, key) => {
+    e.preventDefault();
+    if (drag && drag.key === key && drag.id !== c.id) moveTo(drag.id, c.id);
+    release();
+  };
+
   const visible = (items ?? []).filter((c) => !hidden.has(`${id}/${c.id}`));
   const cats = GENERAL_TAGS.filter((t) => visible.some((c) => catOf(c) === t));
   const count = (t) => visible.filter((c) => catOf(c) === t).length;
   const filtered = visible.filter((c) => (!cat || catOf(c) === cat) && (!loc || locOf(c) === loc));
-  const grouped = !cat && cats.length > 1;
-  const card = (c) => <ClueCard key={c.id} cc={id} clue={c} editing={editing} onDelete={remove} onEdit={setForm} />;
+  // `key` = the block the card is shown in (clues can only be dragged inside their own block).
+  const card = (c, key) => <ClueCard key={c.id} cc={id} clue={c} editing={editing} onDelete={remove} onEdit={setForm}
+    dragging={drag?.id === c.id} over={over === c.id}
+    onGrab={(e) => grab(e, c, key)} onOver={(e) => hover(e, c, key)} onDrop={(e) => drop(e, c, key)} onRelease={release} />;
   const clear = () => { setCat(""); setLoc(""); };
 
   let list;
   if (!filtered.length) {
     list = <p className="muted">No clues match. <button type="button" className="link-btn" onClick={clear}>Clear filters</button></p>;
-  } else if (grouped) {
-    const other = filtered.filter((c) => !catOf(c));
-    list = <>
-      {cats.map((t) => {
-        const g = filtered.filter((c) => catOf(c) === t);
-        return g.length > 0 && <section key={t}>
-          <h4 className="clue-group"><span aria-hidden="true">{CATEGORY_ICONS[t]}</span> {t} <span className="count">{g.length}</span></h4>
-          {g.map(card)}
-        </section>;
-      })}
-      {other.map(card)}
-    </>;
   } else {
-    list = filtered.map(card);
+    // National clues are one plain block. Regional ones get a heading per category.
+    const nat = filtered.filter((c) => c.scope !== "reg");
+    const reg = filtered.filter((c) => c.scope === "reg");
+    const regCats = GENERAL_TAGS.filter((t) => reg.some((c) => catOf(c) === t));
+    const grouped = !cat && regCats.length > 1;
+    list = <>
+      {nat.map((c) => card(c, "nat"))}
+      {grouped ? <>
+        {regCats.map((t) => {
+          const g = reg.filter((c) => catOf(c) === t);
+          return <section key={t}>
+            <h4 className="clue-group"><span aria-hidden="true">{CATEGORY_ICONS[t]}</span> {t} <span className="count">{g.length}</span></h4>
+            {g.map((c) => card(c, t))}
+          </section>;
+        })}
+        {reg.filter((c) => !catOf(c)).map((c) => card(c, "reg"))}
+      </> : reg.map((c) => card(c, "reg"))}
+    </>;
   }
 
   return <>

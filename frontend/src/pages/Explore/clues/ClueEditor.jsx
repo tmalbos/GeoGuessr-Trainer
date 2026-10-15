@@ -16,6 +16,7 @@ const FILES = [
 ];
 const AREA_KINDS = ["csv", "geometry"];
 const GEOM_FIELDS = ["polygons", "lines", "points"];
+const URL_OK = /^https?:\/\/\S+$/i;
 
 // kind "cat" = neutral chip with an emoji; anything else is a location (icon + color).
 const Tag = ({ t, kind, on, caret, onClick, ...rest }) =>
@@ -35,6 +36,7 @@ export default function ClueEditor({ cc, name, clue, onClose, onSaved }) {
   const [rating, setRating] = useState(() => Object.fromEntries(RATINGS.map(([k]) => [k, clue?.[k] != null ? String(clue[k]) : ""])));
   const [visibility, setVisibility] = useState(clue?.visibility ?? "visible");
   const [blur, setBlur] = useState(!!clue?.blur);
+  const [source, setSource] = useState(clue?.source ?? "");
   const [files, setFiles] = useState({});
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState("");
@@ -42,7 +44,8 @@ export default function ClueEditor({ cc, name, clue, onClose, onSaved }) {
   const area = useRef(null);
   const slot = useRef(null);
 
-  const snapshot = () => JSON.stringify([scope, info, general, location, rating, visibility, blur, Object.keys(files)]);
+  const snapshot = () => JSON.stringify([scope, info, general, location, rating, visibility, blur,
+    source, Object.keys(files)]);
   const initial = useRef(snapshot());
   const dirty = snapshot() !== initial.current;
   const requestClose = () => (dirty ? setConfirm(true) : onClose());
@@ -90,6 +93,7 @@ export default function ClueEditor({ cc, name, clue, onClose, onSaved }) {
   if (!general || !location) problems.push("Add a tag.");
   if (scope === "nat" && !hasImage) problems.push("Add an image.");
   if (scope === "reg" && !AREA_KINDS.some(has)) problems.push("Add a CSV or a geometry file.");
+  if (source.trim() && !URL_OK.test(source.trim())) problems.push("The source must be a link starting with http:// or https://.");
 
   const save = async () => {
     setSaving(true); setErr("");
@@ -98,6 +102,7 @@ export default function ClueEditor({ cc, name, clue, onClose, onSaved }) {
       await api(clue ? `/clues/${cc}/${clue.id}` : `/clues/${cc}`, { method: clue ? "PUT" : "POST", body: {
         scope, info, tags: [location, general], visibility, blur: hasImage && blur,
         frequency: num(rating.frequency), ease: num(rating.ease), reliability: num(rating.reliability),
+        source: source.trim(),
         files: Object.fromEntries(slots.filter((s) => files[s.kind]).map((s) =>
           [s.kind === "geometry" ? files.geometry.kind : s.kind, files[s.kind].token])),
       } });
@@ -130,6 +135,10 @@ export default function ClueEditor({ cc, name, clue, onClose, onSaved }) {
           <button key={k} type="button" aria-pressed={scope === k} className={scope === k ? "on" : ""} disabled={!!clue && scope !== k} onClick={() => setScope(k)}>{l}</button>)}
       </div>
 
+      {slots.map((s) => <FilePicker key={s.kind} {...s} current={currentFor(s.kind)} value={files[s.kind]} onChange={(v) => setFiles((f) => ({ ...f, [s.kind]: v }))}
+        extra={s.kind === "image" && hasImage ? <label className="chk-row" htmlFor="cl-blur">
+          <input id="cl-blur" type="checkbox" checked={blur} onChange={(e) => setBlur(e.target.checked)} />Blur</label> : null} />)}
+
       <label htmlFor="cl-info">Info</label>
       <div className="rt-bar" role="toolbar" aria-label="Text formatting">
         <button type="button" title="Bold" onClick={() => wrap("**")}><b>B</b></button>
@@ -149,12 +158,9 @@ export default function ClueEditor({ cc, name, clue, onClose, onSaved }) {
           {VISIBILITIES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select>
       </div>
 
-      <h4>Files</h4>
-      {slots.map((s) => <FilePicker key={s.kind} {...s} current={currentFor(s.kind)} value={files[s.kind]} onChange={(v) => setFiles((f) => ({ ...f, [s.kind]: v }))} />)}
-      {hasImage && <label className="chk-row" htmlFor="cl-blur">
-        <input id="cl-blur" type="checkbox" checked={blur} onChange={(e) => setBlur(e.target.checked)} />
-        Blur the image (it clears when you hover over it)
-      </label>}
+      <label htmlFor="cl-src">Source</label>
+      <input id="cl-src" type="text" value={source} onChange={(e) => setSource(e.target.value)}
+        placeholder="Link (Wikipedia, Plonkit, Reddit, RMRG, Discord…)" />
 
       {err && <p className="err">{err}</p>}
       <div className="modal-actions">

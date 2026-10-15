@@ -38,12 +38,28 @@
 .vis-row select { width: auto; min-width: 160px; }
 .problems { margin: 8px 0 0; text-align: right; font-size: 12px; }
 
-/* ── Clue card tools ── */
-.clue-tools { position: absolute; top: 12px; right: 0; display: flex; gap: 6px; z-index: 1; }
+/* ── Clue card tools (edit / delete / drag grip) ── */
+.clue-tools { position: absolute; top: 12px; right: 0; display: flex; align-items: center; gap: 6px; z-index: 1; }
 .clue-tools .clue-del, .clue-edit { position: static; display: grid; place-items: center; padding: 7px; background: none; border-radius: 6px; cursor: pointer; }
 .clue-edit { color: var(--sea-hi); border: 1px solid var(--sea-hi); }
 .clue-edit:hover { background: #6cc0e51a; }
-.clue-body.has-tools { padding-right: 92px; }
+.clue-body.has-tools { padding-right: 96px; }
+.clue-grip { position: absolute; right: 0; top: 50%; transform: translateY(-50%); display: grid; place-items: center; padding: 8px 6px; color: var(--mute); cursor: grab; user-select: none; }
+.clue-grip:hover { color: var(--ink); }
+.clue-grip:active { cursor: grabbing; }
+.clue.dragging { opacity: .4; }
+.clue.over { background: #ffffff0d; outline: 2px dashed var(--sea-hi); outline-offset: -2px; }
+
+/* ── Source link: the site's icon, bottom right of the card ── */
+.chip.src { position: absolute; right: 0; bottom: 16px; display: grid; place-items: center; padding: 6px 16px; text-decoration: none; }
+.chip.src:hover { border-color: var(--sea-hi); }
+.chip.src img { display: block; border-radius: 3px; }
+
+/* ── Image box: the Blur checkbox sits in its top-right corner ── */
+.fp-head .chk-row { margin: 0 0 0 auto; }
+
+/* ── Selection outline inside the editor: blue, not red ── */
+.modal-back :focus-visible, .cp.editing :focus-visible { outline-color: var(--sea-hi); }
 
 /* ── Filters and groups ── */
 .clue-filter { display: grid; gap: 10px; margin-bottom: 8px; }
