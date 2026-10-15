@@ -41,3 +41,28 @@
   border-bottom: 14px solid var(--coral); border-top: 0; }
 .sv-needle b { position: absolute; left: 0; right: 0; top: 22px; text-align: center; font-size: 11px; color: var(--ink); }
 .mg-canvas-wrap .mg-hint { color: var(--ink); background: #0d1117b3; padding: 3px 8px; border-radius: 6px; }
+
+/* 3D street view: hint moves left so the minimap owns the bottom-right corner */
+.mg-canvas-wrap .mg-hint { right: auto; left: 12px; }
+
+/* Minimap: small in the corner, grows on hover (or with the toggle), fills most of the view after the guess */
+.mm { position: absolute; right: 12px; bottom: 12px; z-index: 5; display: flex; flex-direction: column;
+  width: 240px; height: 190px; background: var(--card); border: 1px solid var(--line); border-radius: 10px; overflow: hidden;
+  box-shadow: 0 8px 24px rgba(0,0,0,.55); opacity: .92; transition: width .2s ease, height .2s ease, opacity .15s; }
+.mm:hover, .mm:focus-within, .mm.open { opacity: 1; width: min(520px, calc(100% - 24px)); height: min(430px, calc(100% - 24px)); }
+.mm.result { opacity: 1; width: min(780px, calc(100% - 24px)); height: min(560px, calc(100% - 24px)); }
+@media (prefers-reduced-motion: reduce) { .mm { transition: none; } }
+.mm-map { flex: 1; min-height: 0; isolation: isolate; }
+.mm-map.leaflet-container { background: var(--paper); font: inherit; cursor: crosshair; }
+.mm-map .leaflet-control-attribution { font-size: 10px; background: #0d1117b3; color: var(--mute); }
+.mm-map .leaflet-control-attribution a { color: var(--mute); }
+.mm-pin { background: none; border: 0; }
+.mm-toggle { position: absolute; top: 6px; left: 6px; z-index: 1000; width: 28px; height: 28px; padding: 0; border-radius: 6px;
+  background: #0d1117cc; border: 1px solid var(--line); color: var(--ink); cursor: pointer; font-size: 15px; line-height: 1; }
+.mm-toggle:hover { border-color: var(--sea-hi); }
+.mm-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px; border-top: 1px solid var(--line); }
+.mm-guess { width: 100%; padding: 9px 14px; }
+.mm-res { display: grid; line-height: 1.25; }
+.mm-res b { font-size: 18px; font-weight: 800; }
+.mm-res b.ok { color: var(--ok); }
+.mm-res span { font-size: 13px; color: var(--mute); }

@@ -221,6 +221,7 @@ export function createStreetView(container, place, { onView, onNode } = {}) {
   return {
     empty: node < 0,
     nodes: graph.count,
+    start: here(), // where the round began = the location to guess
     dispose() {
       cancelAnimationFrame(raf);
       ro.disconnect();
