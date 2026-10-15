@@ -77,3 +77,6 @@
 .rr-dbg { display: grid; gap: 6px; margin-top: 8px; font-size: 12px; }
 .rr-dbg label { display: inline-flex; align-items: center; gap: 6px; margin: 0 12px 0 0; font-weight: 400; }
 .rr-dbg input { width: 84px; padding: 3px 6px; }
+
+/* "Could have been saved" lines: same help cursor as the stage bars */
+.rr-save { cursor: help; }

@@ -18,13 +18,15 @@ let saved = null;
 
 // Static geometry: React never re-renders this except when `has` / `cov` arrive.
 // All zooming happens by editing the <g> transform directly.
-// Coverage: explicit state from data/coverage.txt, else "official" if the country has clues, else "none".
+// Coverage color: only countries with at least one clue are painted with their coverage state
+// (data/coverage.txt, else "official"). Countries without clues always look like "none".
+// If the clue list could not be loaded (has = null), fall back to the coverage state alone.
 const Shapes = memo(function Shapes({ world, has, cov }) {
   return <>
     <path className="wm-land" d={world.land} fillRule="evenodd" />
     {world.countries.map((c) => {
       const code = String(c.id).toUpperCase();
-      const state = cov?.[code] ?? (has && !has.has(code) ? "none" : "official");
+      const state = has && !has.has(code) ? "none" : (cov?.[code] ?? "official");
       return <g key={c.id} className={`wm-c ${state}`} data-id={c.id} data-name={c.name} data-cov={state} role="button"
         aria-label={`${c.name}, ${COVERAGE_LABELS[state]}`}>
         <path d={c.d} fillRule="evenodd" />

@@ -1,12 +1,14 @@
 import { useEffect, useState } from "react";
 
 // Debug mode: open the app at  #/history?debug  to get editable heading / pitch / fov under each photo.
-const DEBUG = /[?&]debug\b/.test(window.location.hash);
+// Read at render time (not at load), so typing it into an already-open page works.
+const isDebug = () => /[?&]debug\b/.test(window.location.hash);
 const FOV_AT_ZOOM_0 = 90; // keep equal to FOV_AT_ZOOM_0 in src/analysis/replay_look.py
 const num = (v) => (v === "" || v == null || Number.isNaN(Number(v)) ? null : Number(v));
 
 /** Street View photo of a look event's view. Rendered by the backend (/api/streetview/photo). */
 export default function StreetPhoto({ view }) {
+  const DEBUG = isDebug();
   const [ov, setOv] = useState({}); // debug overrides (strings)
   useEffect(() => { setOv({}); }, [view]);
 

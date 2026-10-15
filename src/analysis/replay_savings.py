@@ -9,8 +9,14 @@ intervals, steps are a SET of step indexes):
           Its time is the time that step took (since the previous step, capped at
           STEP_TIME_CAP_MS). Time counts even while the map is open; a step taken while the map
           is open is NOT counted as a wasted step.
+  map     Map time spent looking at the wrong place while standing still in street view (no step
+          taken during that map session): scanning another country, a zoom that lands far from the
+          real spot (grade inaccuracy / miss / mistake / blunder), a hesitation towards another
+          country. The bad time runs from that event to the next map event, or until the map closes.
   slow    Moving / zooming slower than an efficient player (the old calculation).
 """
+
+import operator
 
 from src.analysis.replay_behavior import (
     MOVE_RUN_GAP_MS,
@@ -23,7 +29,20 @@ from src.analysis.replay_narrative import SAVING_GRADES
 
 VERIFY_ALLOWED_MS = 1000
 STEP_TIME_CAP_MS = MOVE_RUN_GAP_MS
-PARTS = ("verify", "repeat", "slow")
+PARTS = ("verify", "repeat", "map", "slow")
+BAD_GRADES = {"inaccuracy", "miss", "mistake", "blunder"}
+
+
+def _map_event(p: dict) -> bool:
+    """Events that say where the map is looking (zoom_speed is about speed, not place)."""
+    key = p["key"]
+    return key in {"zoom_in", "zoom_out", "hesitate"} or key.startswith(("scan_", "pin_"))
+
+
+def _bad_map_event(p: dict) -> bool:
+    if p["key"].startswith("pin_"):
+        return False
+    return p["key"] == "scan_country_wrong" or p.get("grade") in BAD_GRADES
 
 
 def _part() -> dict:
@@ -87,6 +106,20 @@ def round_savings(events: list[dict], stages: dict | None, phases: list[dict]) -
             seen.add(_pano_key(p))
             prev = t
 
+    # map: time looking at the wrong place while standing still
+    map_iv: list[tuple[float, float]] = []
+    for sess in sessions:
+        a, b = sess["start"], sess["end"]
+        if any(a <= t < b for t, _, _ in panos):
+            continue  # the player moved during this map session
+        evs = sorted(
+            (p for p in phases if a <= p["t"] <= b and _map_event(p)), key=operator.itemgetter("t")
+        )
+        for i, p in enumerate(evs):
+            if _bad_map_event(p):
+                stop = next((q["t"] for q in evs[i + 1 :] if q["t"] > p["t"]), b)
+                map_iv.append((p["t"], min(stop, b)))
+
     # slow: time over what an efficient player needs
     slow_iv: list[tuple[float, float]] = []
     for p in phases:
@@ -106,6 +139,7 @@ def round_savings(events: list[dict], stages: dict | None, phases: list[dict]) -
     for name, iv, steps in (
         ("verify", verify_iv, verify_steps),
         ("repeat", repeat_iv, repeat_steps),
+        ("map", map_iv, set()),
         ("slow", slow_iv, set()),
     ):
         before_t, before_s = _union_length(cum_iv), len(cum_steps)

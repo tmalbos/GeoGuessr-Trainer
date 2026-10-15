@@ -24,12 +24,11 @@ const dist = (km) => {
   if (m < 1000) return `${m} m`;
   return km < 10 ? `${km.toFixed(1)} km` : `${Math.round(km).toLocaleString()} km`;
 };
-const SAVE_HINT = "Time and steps lost by verifying a 5K pin, stepping onto positions you had already been on, or moving/zooming slower than an efficient player would";
 const SAVE_STYLE = { color: "var(--sand)", fontWeight: 600 };
-const PART_LABELS = { verify: "Verifying", repeat: "Repeated positions", slow: "Slow moving / zooming" };
+const PART_LABELS = { verify: "Verifying", repeat: "Repeated positions", map: "Looking in the wrong place", slow: "Slow moving / zooming" };
 const stepsText = (n) => `${n} step${n === 1 ? "" : "s"}`;
 const savedText = (ms, steps) => [ms > 0 && saved(ms), steps > 0 && stepsText(steps)].filter(Boolean).join(" and ");
-const savedTitle = (parts) => [SAVE_HINT, ...Object.entries(PART_LABELS)
+const savedTitle = (parts) => [...Object.entries(PART_LABELS)
   .filter(([k]) => parts?.[k] && (parts[k].time_ms || parts[k].steps))
   .map(([k, l]) => `${l}: ${saved(parts[k].time_ms)} · ${stepsText(parts[k].steps)}`)].join("\n");
 const hasSaved = (x) => x.time_saved_ms > 0 || x.steps_saved > 0;
@@ -39,7 +38,7 @@ function Summary({ s }) {
   return <section className="card rr-sum">
     <StageBars steps={s.steps} timeMs={s.time_ms} size="lg" />
     {s.grades.length > 0 && <div className="rr-grades">{s.grades.map((g) => <Grade key={g.grade} id={g.grade} count={g.count} />)}</div>}
-    {hasSaved(s) && <p style={{ margin: 0 }} title={savedTitle(s.saved_parts)}>
+    {hasSaved(s) && <p className="rr-save" style={{ margin: 0 }} title={savedTitle(s.saved_parts)}>
       <span style={SAVE_STYLE}>⏱ {savedText(s.time_saved_ms, s.steps_saved)}</span> <span className="muted">could have been saved</span></p>}
     {s.rounds_with_replay < s.rounds_total && <p className="muted" style={{ margin: 0 }}>
       Steps and time cover {s.rounds_with_replay} of {s.rounds_total} rounds (the rest have no replay).</p>}
@@ -57,7 +56,7 @@ function Round({ r }) {
       <b>Round {r.round_number}</b>
       <span className="rr-score" style={{ color: tone(r.score) }}>{num(r.score)} pts</span>
       <span className="muted">{dist(r.distance_km)} · {time(r.time_sec)} · {r.steps} steps</span>
-      {st && hasSaved(r) && <span style={SAVE_STYLE} title={savedTitle(r.saved_parts)}>⏱ {savedText(r.time_saved_ms, r.steps_saved)} could have been saved</span>}
+      {st && hasSaved(r) && <span className="rr-save" style={SAVE_STYLE} title={savedTitle(r.saved_parts)}>⏱ {savedText(r.time_saved_ms, r.steps_saved)} could have been saved</span>}
     </div>
     <div className="rr-body">
       <div className="rr-main">
