@@ -7,6 +7,11 @@ Flow:    POST /clues/stage/{kind}  -> file is converted/simplified into data/clu
          PUT  /clues/{CC}/{id}     -> same body; only the files that are sent get replaced (overwritten in place
                                       when the clue already has a file of that kind and the extension matches)
          POST /clues/{CC}/reorder  -> {ids: [...]} sets the order of the clues in the yaml
+         GET  /clues/subcontinents -> subcontinents with the countries that have clues (for relating clues)
+Relations: a clue has `relations: [{type, cc, id}]` (same_as | similar_to | group). They are two-way: saving or
+         deleting a clue also updates the clue on the other end (even in another country's yaml).
+         `relation_notes: {same_as|similar_to: {verb, text}}` is the sentence the card shows.
+         `badge`: "subcontinent" | "world" (manual uniqueness badge).
 Needs:   Pillow, geopandas, shapely (>= 2.1 for gap-free coverage simplification), pyarrow, pyyaml.
 """
 
@@ -31,6 +36,8 @@ from PIL import Image, ImageOps
 from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 
+from src.geo.subcontinents import SUBCONTINENTS
+
 CLUES_DIR = Path(__file__).parents[3] / "data" / "clues"
 STAGING = CLUES_DIR / ".staging"
 
@@ -48,6 +55,8 @@ AREA_KINDS = ("csv", "polygons", "lines", "points")
 GEOM_KINDS = ("polygons", "lines", "points")
 GEOM_KIND = {"Polygon": "polygons", "LineString": "lines", "Point": "points"}
 STAGE_KINDS = ("image", "csv", "geometry")
+
+NOTE_TYPES = ("same_as", "similar_to")  # relations that carry a sentence
 
 SIMPLIFY_TOL_DEG = 0.0005  # ~55 m. Lower = more faithful, bigger files.
 PREVIEW_PRECISION = 1e-5  # ~1 m, only for the GeoJSON sent to the browser
@@ -366,6 +375,17 @@ def discard_staged(token: str):
 # ── clues ──────────────────────────────────────────────────────────────────
 
 
+class RelationIn(BaseModel):
+    type: Literal["same_as", "similar_to", "group"]
+    cc: str
+    id: str
+
+
+class NoteIn(BaseModel):
+    verb: Literal["has", "uses"] = "uses"
+    text: str = ""
+
+
 class ClueBody(BaseModel):
     scope: Literal["nat", "reg"]
     info: str
@@ -376,6 +396,11 @@ class ClueBody(BaseModel):
     visibility: Literal["visible", "guide-only", "analysis-only"] = "visible"
     blur: bool = False  # blur the clue image until hovered (only kept when the clue has an image)
     source: str = ""  # link to where the information came from (optional)
+    relations: list[
+        RelationIn
+    ] = []  # the full list of relations of this clue (replaces the stored one)
+    relation_notes: dict[str, NoteIn] = {}  # sentence for same_as / similar_to
+    badge: Literal["subcontinent", "world"] | None = None  # manual uniqueness badge
     files: dict[str, str] = {}  # kind -> staging token
 
 
@@ -414,10 +439,126 @@ def _clean_source(b: ClueBody) -> str | None:
     return url
 
 
+# ── relations ──────────────────────────────────────────────────────────────
+
+
+def _relations_of(body: ClueBody, cc: str) -> tuple[list[dict], dict]:
+    """Normalised relations + notes from the request. Raises 422 on anything inconsistent."""
+    rels: list[dict] = []
+    seen: set[tuple] = set()
+    for r in body.relations:
+        item = {"type": r.type, "cc": _cc(r.cc), "id": r.id}
+        if r.type == "group" and item["cc"] != cc:
+            raise HTTPException(422, "A group can only join clues of the same country")
+        key = (item["type"], item["cc"], item["id"])
+        if key not in seen:
+            seen.add(key)
+            rels.append(item)
+    present = {r["type"] for r in rels}
+    notes: dict[str, dict] = {}
+    for t in NOTE_TYPES:
+        if t not in present:
+            continue
+        n = body.relation_notes.get(t)
+        text = n.text.strip() if n else ""
+        if not text:
+            raise HTTPException(422, f"Finish the sentence for the {t.replace('_', ' ')} relation")
+        notes[t] = {"verb": n.verb, "text": text}
+    return rels, notes
+
+
+def _set_rels(clue: dict, rels: list[dict]) -> None:
+    """Store `rels` on the clue and drop notes of relation types it no longer has."""
+    if rels:
+        clue["relations"] = rels
+    else:
+        clue.pop("relations", None)
+    present = {r["type"] for r in rels}
+    notes = {k: v for k, v in (clue.get("relation_notes") or {}).items() if k in present}
+    if notes:
+        clue["relation_notes"] = notes
+    else:
+        clue.pop("relation_notes", None)
+
+
+def _sync_relations(
+    books: dict[str, list[dict]], cc: str, entry: dict, old: list[dict], new: list[dict]
+) -> None:
+    """Make the clues on the other end mirror `entry`'s relations (old -> new).
+
+    `books` maps country code -> its clue list; the current country's list MUST be the one that is about to
+    be saved (so edits to clues of the same country aren't overwritten). Other countries are loaded lazily.
+    The caller saves every list in `books` afterwards.
+    """
+
+    def items_of(code: str) -> list[dict]:
+        if code not in books:
+            books[code] = _load(code)
+        return books[code]
+
+    def find(code: str, clue_id: str) -> dict | None:
+        return next((c for c in items_of(code) if c.get("id") == clue_id), None)
+
+    def keys(rels: list[dict]) -> set[tuple]:
+        return {(r["type"], r["cc"], r["id"]) for r in rels}
+
+    old_k, new_k = keys(old), keys(new)
+    added, removed = new_k - old_k, old_k - new_k
+
+    for _, code, cid in added:  # validate everything before touching anything
+        if code == cc and cid == entry["id"]:
+            raise HTTPException(422, "A clue can't be related to itself")
+        if find(code, cid) is None:
+            raise HTTPException(422, "A related clue no longer exists. Reopen the editor.")
+
+    for t, code, cid in removed:
+        target = find(code, cid)
+        if target is None:
+            continue
+        left = [
+            r
+            for r in target.get("relations") or []
+            if not (r["type"] == t and r["cc"] == cc and r["id"] == entry["id"])
+        ]
+        _set_rels(target, left)
+
+    for t, code, cid in added:
+        target = find(code, cid)
+        rels = list(target.get("relations") or [])
+        back = {"type": t, "cc": cc, "id": entry["id"]}
+        if back not in rels:
+            rels.append(back)
+        target["relations"] = rels
+        note = (entry.get("relation_notes") or {}).get(t)
+        if note:  # the other side gets the same sentence unless it already has its own
+            notes = target.get("relation_notes") or {}
+            notes.setdefault(t, dict(note))
+            target["relation_notes"] = notes
+
+
+def _countries_with_clues() -> set[str]:
+    """Every country that has at least one clue (hidden ones too: they can still be related)."""
+    return {
+        d.name.upper()
+        for d in sorted(CLUES_DIR.glob("??"))
+        if d.is_dir() and re.fullmatch(r"[A-Za-z]{2}", d.name) and _load(d.name)
+    }
+
+
 @router.get("/clues/summary")
 def clues_summary():
     """Countries that have at least one clue shown in the normal view (must stay above /clues/{cc})."""
     return {"countries": sorted(_summary())}
+
+
+@router.get("/clues/subcontinents")
+def clues_subcontinents():
+    """[{id, label, countries}] where countries = the ones of that subcontinent that have clues."""
+    have = _countries_with_clues()
+    return [
+        {"id": sid, "label": label, "countries": sorted(c for c in codes.split() if c in have)}
+        for sid, label, codes in SUBCONTINENTS
+    ]
 
 
 @router.get("/clues/{cc}")
@@ -451,6 +592,7 @@ def add_clue(cc: str, body: ClueBody):
     cc = _cc(cc)
     location, general = _validate(body)
     source = _clean_source(body)
+    rels, notes = _relations_of(body, cc)
     folder = CLUES_DIR / cc
     with _LOCK:
         staged = {k: _staged_path(t, k) for k, t in body.files.items()}
@@ -473,13 +615,19 @@ def add_clue(cc: str, body: ClueBody):
                 "visibility": body.visibility,
                 "blur": True if body.blur else None,
                 "source": source,
+                "relations": rels or None,
+                "relation_notes": notes or None,
+                "badge": body.badge,
                 **names,
             }
             entry = {k: v for k, v in entry.items() if v is not None}
             if "image" not in entry:
                 entry.pop("blur", None)
             items = [*_load(cc), entry]
-            _save(cc, items)
+            books = {cc: items}
+            _sync_relations(books, cc, entry, [], rels)
+            for code, its in books.items():
+                _save(code, its)
             _set_has(cc, items)
         except Exception:
             for name in names.values():
@@ -510,7 +658,7 @@ def reorder_clues(cc: str, body: OrderBody):
 
 @router.put("/clues/{cc}/{clue_id}")
 def update_clue(cc: str, clue_id: str, body: ClueBody):
-    """Edit a clue. Text, tags, ratings, visibility and source are replaced; files only when new ones are sent.
+    """Edit a clue. Text, tags, ratings, visibility, source, relations and badge are replaced; files only when new ones are sent.
 
     A new file of a kind the clue already has (same extension) overwrites the old file in place, so
     nothing is left behind. A new geometry file replaces whichever geometry the clue had: if it is the
@@ -518,6 +666,7 @@ def update_clue(cc: str, clue_id: str, body: ClueBody):
     """
     cc = _cc(cc)
     source = _clean_source(body)
+    rels, notes = _relations_of(body, cc)
     folder = CLUES_DIR / cc
     with _LOCK:
         items = _load(cc)
@@ -565,6 +714,9 @@ def update_clue(cc: str, clue_id: str, body: ClueBody):
                 "visibility": body.visibility,
                 "blur": True if body.blur else None,
                 "source": source,
+                "relations": rels or None,
+                "relation_notes": notes or None,
+                "badge": body.badge,
                 **kept,
                 **names,
             }
@@ -572,7 +724,10 @@ def update_clue(cc: str, clue_id: str, body: ClueBody):
             if "image" not in entry:
                 entry.pop("blur", None)
             updated = [entry if c is old else c for c in items]
-            _save(cc, updated)
+            books = {cc: updated}
+            _sync_relations(books, cc, entry, old.get("relations") or [], rels)
+            for code, its in books.items():
+                _save(code, its)
             _set_has(cc, updated)
         except Exception:
             # Only brand-new files are removed; overwrite targets are the clue's existing files.
@@ -604,7 +759,11 @@ def delete_clue(cc: str, clue_id: str):
         if gone is None:
             raise HTTPException(404, "Clue not found")
         remaining = [c for c in items if c is not gone]
-        _save(cc, remaining)
+        books = {cc: remaining}
+        # Clues that pointed at this one lose the relation (and the sentence, if it was their last of that type).
+        _sync_relations(books, cc, gone, gone.get("relations") or [], [])
+        for code, its in books.items():
+            _save(code, its)
         _set_has(cc, remaining)
         for kind in KINDS:
             if gone.get(kind) and ASSET_RE.fullmatch(gone[kind]):

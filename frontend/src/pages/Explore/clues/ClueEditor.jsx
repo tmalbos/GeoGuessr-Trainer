@@ -3,9 +3,13 @@ import ConfirmDialog from "../../../components/ConfirmDialog.jsx";
 import { api, errorText } from "../../../lib/api.js";
 import FilePicker from "./FilePicker.jsx";
 import RatingDots from "./RatingDots.jsx";
+import RelatePicker from "./RelatePicker.jsx";
+import { useCountries } from "./countries.js";
+import { NOTE_TYPES, REL_LABEL, VERBS, joinNames, sameRel, uniq, verbFor } from "./relations.js";
 import { LocationIcon } from "./tagUi.jsx";
 import { CATEGORY_ICONS, DEFAULT_LOCATION, GENERAL_TAGS, LOCATION_TAGS, RATINGS, VISIBILITIES, tagHue } from "./tags.js";
 import "./blur.css";
+import "./relations.css";
 
 const GEO_ACCEPT = ".geojson,.json,.gpkg,.zip,.parquet,.kml";
 const GEO_HINT = "Polygons, lines or points, detected automatically. GeoJSON, GeoPackage, zipped Shapefile, GeoParquet or KML";
@@ -17,6 +21,7 @@ const FILES = [
 const AREA_KINDS = ["csv", "geometry"];
 const GEOM_FIELDS = ["polygons", "lines", "points"];
 const URL_OK = /^https?:\/\/\S+$/i;
+const trunc = (s, n) => (s.length > n ? `${s.slice(0, n)}…` : s);
 
 // kind "cat" = neutral chip with an emoji; anything else is a location (icon + color).
 const Tag = ({ t, kind, on, caret, onClick, ...rest }) =>
@@ -27,6 +32,7 @@ const Tag = ({ t, kind, on, caret, onClick, ...rest }) =>
 
 /** `clue` set = editing that clue; otherwise adding a new one. */
 export default function ClueEditor({ cc, name, clue, onClose, onSaved }) {
+  const { nameOf } = useCountries();
   const [scope, setScope] = useState(clue?.scope ?? "nat");
   const [info, setInfo] = useState(clue?.info ?? "");
   const [location, setLocation] = useState(clue?.tags?.find((t) => LOCATION_TAGS.includes(t)) ?? "");
@@ -37,15 +43,21 @@ export default function ClueEditor({ cc, name, clue, onClose, onSaved }) {
   const [visibility, setVisibility] = useState(clue?.visibility ?? "visible");
   const [blur, setBlur] = useState(!!clue?.blur);
   const [source, setSource] = useState(clue?.source ?? "");
+  const [relations, setRelations] = useState(clue?.relations ?? []);
+  const [notes, setNotes] = useState(clue?.relation_notes ?? {});
+  const [badge, setBadge] = useState(clue?.badge ?? "");
+  const [picking, setPicking] = useState(false);
+  const [others, setOthers] = useState({}); // cc -> that country's clues, only to describe the relation chips
   const [files, setFiles] = useState({});
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState("");
   const [confirm, setConfirm] = useState(false);
   const area = useRef(null);
   const slot = useRef(null);
+  const asked = useRef(new Set());
 
   const snapshot = () => JSON.stringify([scope, info, general, location, rating, visibility, blur,
-    source, Object.keys(files)]);
+    source, relations, notes, badge, Object.keys(files)]);
   const initial = useRef(snapshot());
   const dirty = snapshot() !== initial.current;
   const requestClose = () => (dirty ? setConfirm(true) : onClose());
@@ -68,6 +80,15 @@ export default function ClueEditor({ cc, name, clue, onClose, onSaved }) {
     return () => { document.removeEventListener("keydown", onKey); document.removeEventListener("mousedown", onDown); };
   }, [menu]);
 
+  // Load the clues on the other end of each relation, so the chips can say which clue they point at.
+  useEffect(() => {
+    for (const code of new Set(relations.map((r) => r.cc))) {
+      if (asked.current.has(code)) continue;
+      asked.current.add(code);
+      api(`/clues/${code}?all=true`).then((d) => setOthers((o) => ({ ...o, [code]: d }))).catch(() => {});
+    }
+  }, [relations]);
+
   const pickCategory = (t) => {
     setGeneral(t);
     if (!locTouched) setLocation(DEFAULT_LOCATION[t] ?? "Anywhere");
@@ -75,6 +96,17 @@ export default function ClueEditor({ cc, name, clue, onClose, onSaved }) {
   };
   const pickLocation = (t) => { setLocation(t); setLocTouched(true); setMenu(null); };
   const toggle = (m) => setMenu((cur) => (cur === m ? null : m));
+
+  const present = (t) => relations.some((r) => r.type === t);
+  const note = (t) => ({ verb: "uses", text: "", ...notes[t] });
+  const setNote = (t, patch) => setNotes((n) => ({ ...n, [t]: { verb: "uses", text: "", ...n[t], ...patch } }));
+  const addRelation = (r) => { setRelations((rs) => (rs.some((x) => sameRel(x, r)) ? rs : [...rs, r])); setPicking(false); };
+  const removeRelation = (r) => setRelations((rs) => rs.filter((x) => !sameRel(x, r)));
+  const chipText = (r) => {
+    const snippet = others[r.cc]?.find((c) => c.id === r.id)?.info;
+    const head = r.type === "group" ? "Group" : `${REL_LABEL[r.type]} · ${nameOf(r.cc)}`;
+    return snippet ? `${head} — ${trunc(snippet, 32)}` : head;
+  };
 
   // What the clue already stores (edit mode), so required files don't have to be re-uploaded.
   const currentFor = (kind) => {
@@ -94,6 +126,7 @@ export default function ClueEditor({ cc, name, clue, onClose, onSaved }) {
   if (scope === "nat" && !hasImage) problems.push("Add an image.");
   if (scope === "reg" && !AREA_KINDS.some(has)) problems.push("Add a CSV or a geometry file.");
   if (source.trim() && !URL_OK.test(source.trim())) problems.push("The source must be a link starting with http:// or https://.");
+  for (const t of NOTE_TYPES) if (present(t) && !note(t).text.trim()) problems.push(`Finish the "${REL_LABEL[t]}" sentence.`);
 
   const save = async () => {
     setSaving(true); setErr("");
@@ -103,6 +136,9 @@ export default function ClueEditor({ cc, name, clue, onClose, onSaved }) {
         scope, info, tags: [location, general], visibility, blur: hasImage && blur,
         frequency: num(rating.frequency), ease: num(rating.ease), reliability: num(rating.reliability),
         source: source.trim(),
+        relations,
+        relation_notes: Object.fromEntries(NOTE_TYPES.filter(present).map((t) => [t, note(t)])),
+        badge: badge || null,
         files: Object.fromEntries(slots.filter((s) => files[s.kind]).map((s) =>
           [s.kind === "geometry" ? files.geometry.kind : s.kind, files[s.kind].token])),
       } });
@@ -148,6 +184,32 @@ export default function ClueEditor({ cc, name, clue, onClose, onSaved }) {
       </div>
       <textarea id="cl-info" ref={area} rows={4} value={info} onChange={(e) => setInfo(e.target.value)} placeholder="What does this clue teach?" />
 
+      <div className="rel-sec">
+        <div className="rel-head">
+          <label>Relations</label>
+          <button type="button" className="btn ghost" onClick={() => setPicking(true)}>+ Relate</button>
+        </div>
+        {relations.length > 0 && <div className="rel-chips">
+          {relations.map((r) => <span key={`${r.type}-${r.cc}-${r.id}`} className={`rel-chip ${r.type}`} title={others[r.cc]?.find((c) => c.id === r.id)?.info}>
+            <span>{chipText(r)}</span>
+            <button type="button" aria-label="Remove relation" onClick={() => removeRelation(r)}>×</button>
+          </span>)}
+        </div>}
+        {NOTE_TYPES.filter(present).map((t) => {
+          const codes = uniq(relations.filter((r) => r.type === t).map((r) => r.cc));
+          const n = note(t);
+          return <div className={`rel-note ${t}`} key={t}>
+            <span>{joinNames(codes.map(nameOf))}</span>
+            <select aria-label={`${REL_LABEL[t]} verb`} value={n.verb} onChange={(e) => setNote(t, { verb: e.target.value })}>
+              {VERBS.map((v) => <option key={v} value={v}>{verbFor(v, codes.length)}</option>)}
+            </select>
+            {t === "similar_to" && <span>similar</span>}
+            <input type="text" aria-label={`${REL_LABEL[t]} sentence`} value={n.text} placeholder="…finish the sentence"
+              onChange={(e) => setNote(t, { text: e.target.value })} />
+          </div>;
+        })}
+      </div>
+
       <div className="rates-dots">
         {RATINGS.map(([k, label, lo, hi]) => <RatingDots key={k} label={label} lo={lo} hi={hi} value={rating[k]}
           onChange={(v) => setRating((r) => ({ ...r, [k]: v }))} />)}
@@ -156,6 +218,14 @@ export default function ClueEditor({ cc, name, clue, onClose, onSaved }) {
         <label htmlFor="cl-vis">Visibility</label>
         <select id="cl-vis" value={visibility} onChange={(e) => setVisibility(e.target.value)}>
           {VISIBILITIES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select>
+      </div>
+      <div className="vis-row">
+        <label htmlFor="cl-badge">Uniqueness badge</label>
+        <select id="cl-badge" value={badge} onChange={(e) => setBadge(e.target.value)}>
+          <option value="">None</option>
+          <option value="subcontinent">Subcontinent unique</option>
+          <option value="world">World unique</option>
+        </select>
       </div>
 
       <label htmlFor="cl-src">Source</label>
@@ -169,6 +239,8 @@ export default function ClueEditor({ cc, name, clue, onClose, onSaved }) {
       </div>
       {problems.length > 0 && <p className="muted problems">{problems[0]}</p>}
     </div>
+    {picking && <RelatePicker cc={cc} clueId={clue?.id ?? null} tags={{ general, location }} taken={relations}
+      onPick={addRelation} onClose={() => setPicking(false)} />}
     {confirm && <ConfirmDialog title={clue ? "Discard your changes?" : "Discard this clue?"} body="What you entered won't be saved."
       confirmLabel="Discard" cancelLabel="Keep editing" danger onConfirm={onClose} onCancel={() => setConfirm(false)} />}
   </div>;

@@ -1,0 +1,63 @@
+/* ── Card: relation sentences ── */
+.clue-rel { margin: 8px 0 0; font-size: 16px; line-height: 1.45; overflow-wrap: anywhere; }
+.clue-rel.same_as { color: #c29a1b; }
+.clue-rel.similar_to { color: #4a7bd0; }
+.rel-c { background: none; border: 0; padding: 0; font: inherit; font-weight: 700; color: inherit; cursor: pointer;
+  text-decoration: underline dotted; text-underline-offset: 3px; }
+.rel-c:hover, .rel-c.on { text-decoration-style: solid; }
+
+/* ── Card: related clue shown to the right, description pushed below both ── */
+.clue.expanded { grid-template-columns: repeat(var(--n), minmax(0, 1fr)); }
+.clue.expanded .clue-body { grid-column: 1 / -1; }
+.clue.expanded .clue-media { max-width: 560px; }
+.clue-rel-media { display: grid; gap: 10px; min-width: 0; max-width: 560px; align-content: start; }
+.rel-cap { display: flex; align-items: center; gap: 8px; }
+.rel-cap .flag { width: 20px; height: auto; }
+.rel-cap button { margin-left: auto; background: none; border: 0; color: var(--mute); cursor: pointer; font-size: 18px; line-height: 1; padding: 0 4px; }
+.rel-cap button:hover { color: var(--ink); }
+
+/* ── Card: badges, top right of the image ── */
+.clue-badges { position: absolute; top: 8px; right: 8px; z-index: 2; display: flex; gap: 6px; align-items: center; }
+.cb { font-size: 20px; line-height: 1; cursor: help; filter: drop-shadow(0 1px 3px rgba(0,0,0,.7)); }
+.cb-img { display: block; width: 24px; height: 24px; object-fit: contain; cursor: help; filter: drop-shadow(0 1px 3px rgba(0,0,0,.7)); }
+
+/* ── Grouped clues share one box ── */
+.clue-box { margin: 16px 0; padding: 0 20px; background: var(--card); border: 1px solid var(--sea); border-radius: 10px; }
+.clue-box .clue:first-child { padding-top: 16px; }
+.clue-box .clue:last-child { border-bottom: 0; }
+
+/* ── Editor: relations section ── */
+.rel-sec { margin-top: 18px; display: grid; gap: 8px; }
+.rel-head { display: flex; align-items: center; justify-content: space-between; }
+.rel-head label { margin: 0; }
+.rel-head .btn { padding: 5px 12px; }
+.rel-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.rel-chip { display: inline-flex; align-items: center; gap: 8px; padding: 3px 4px 3px 12px; border-radius: 999px; font-size: 13px;
+  border: 1px solid var(--line); background: var(--raise); max-width: 100%; }
+.rel-chip.same_as { border-color: #c29a1b; color: #e0bb4a; }
+.rel-chip.similar_to { border-color: #4a7bd0; color: #86a9e6; }
+.rel-chip span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rel-chip button { background: none; border: 0; color: inherit; cursor: pointer; font-size: 16px; line-height: 1; padding: 0 6px; }
+.rel-note { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.rel-note.same_as > span:first-child { color: #c29a1b; font-weight: 600; }
+.rel-note.similar_to > span:first-child { color: #4a7bd0; font-weight: 600; }
+.rel-note select { width: auto; min-width: 70px; }
+.rel-note input { flex: 1; min-width: 180px; }
+
+/* ── Relate picker (sits above the clue editor) ── */
+.rp-back { position: fixed; inset: 0; z-index: 120; background: rgba(0,0,0,.6); display: grid; place-items: center; padding: 16px; }
+.rp { width: min(720px, 100%); max-height: 88vh; overflow-y: auto; background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 20px 22px; }
+.rp h3 { margin: 0 0 12px; font-size: 20px; }
+.rp h4 { margin: 16px 0 8px; font-size: 13px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: var(--mute); }
+.rp .tabs { margin-bottom: 4px; }
+.rp-countries { display: flex; flex-wrap: wrap; gap: 6px; }
+.rp-countries .fchip .flag { width: 18px; height: auto; }
+.rp-list { display: grid; gap: 8px; }
+.rp-clue { display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 12px; align-items: center; text-align: left; padding: 8px;
+  background: var(--raise); border: 1px solid var(--line); border-radius: 8px; cursor: pointer; }
+.rp-clue:hover:not(:disabled) { border-color: var(--sea-hi); }
+.rp-clue:disabled { opacity: .5; cursor: default; }
+.rp-clue img, .rp-noimg { width: 96px; height: 64px; object-fit: cover; border-radius: 6px; background: var(--paper); display: grid; place-items: center; color: var(--mute); font-size: 12px; }
+.rp-tags { display: block; font-size: 11px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--mute); }
+.rp-info { font-size: 14px; overflow-wrap: anywhere; }
+.rp-actions { display: flex; justify-content: flex-end; margin-top: 16px; }

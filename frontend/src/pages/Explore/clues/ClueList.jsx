@@ -7,10 +7,12 @@ import { invalidateClueCountries, setHasClues } from "../clueCountries.js";
 import ClueCard from "./ClueCard.jsx";
 import ClueEditor from "./ClueEditor.jsx";
 import EmptyCat from "./EmptyCat.jsx";
+import { groupBlocks } from "./relations.js";
 import { LocationIcon } from "./tagUi.jsx";
 import { CATEGORY_ICONS, GENERAL_TAGS, LOCATION_TAGS, tagHue } from "./tags.js";
 import "./clues.css";
 import "./clues-extra.css";
+import "./relations.css";
 
 const catOf = (c) => c.tags.find((t) => GENERAL_TAGS.includes(t));
 const locOf = (c) => c.tags.find((t) => LOCATION_TAGS.includes(t));
@@ -119,6 +121,10 @@ export default function ClueList({ id, name, editing }) {
   const card = (c, key) => <ClueCard key={c.id} cc={id} clue={c} editing={editing} onDelete={remove} onEdit={setForm}
     dragging={drag?.id === c.id} over={over === c.id}
     onGrab={(e) => grab(e, c, key)} onOver={(e) => hover(e, c, key)} onDrop={(e) => drop(e, c, key)} onRelease={release} />;
+  // Clues joined by a "group" relation are drawn together inside one box.
+  const blocks = (arr, key) => groupBlocks(arr).map((b) => b.length > 1
+    ? <div className="clue-box" key={`box-${b[0].id}`}>{b.map((c) => card(c, key))}</div>
+    : card(b[0], key));
   const clear = () => { setCat(""); setLoc(""); };
 
   let list;
@@ -131,17 +137,17 @@ export default function ClueList({ id, name, editing }) {
     const regCats = GENERAL_TAGS.filter((t) => reg.some((c) => catOf(c) === t));
     const grouped = !cat && regCats.length > 1;
     list = <>
-      {nat.map((c) => card(c, "nat"))}
+      {blocks(nat, "nat")}
       {grouped ? <>
         {regCats.map((t) => {
           const g = reg.filter((c) => catOf(c) === t);
           return <section key={t}>
             <h4 className="clue-group"><span aria-hidden="true">{CATEGORY_ICONS[t]}</span> {t} <span className="count">{g.length}</span></h4>
-            {g.map((c) => card(c, t))}
+            {blocks(g, t)}
           </section>;
         })}
-        {reg.filter((c) => !catOf(c)).map((c) => card(c, "reg"))}
-      </> : reg.map((c) => card(c, "reg"))}
+        {blocks(reg.filter((c) => !catOf(c)), "reg")}
+      </> : blocks(reg, "reg")}
     </>;
   }
 

@@ -1,8 +1,14 @@
+import { Fragment, useEffect, useState } from "react";
+import Flag from "../../../components/Flag.jsx";
+import { api, errorText } from "../../../lib/api.js";
 import ClueMap from "./ClueMap.jsx";
 import RichText from "./richText.jsx";
 import { CategoryChip, LocationChip } from "./tagUi.jsx";
 import { GENERAL_TAGS, LOCATION_TAGS } from "./tags.js";
+import { useCountries } from "./countries.js";
+import { verbFor, relsOf, uniq } from "./relations.js";
 import "./blur.css";
+import "./relations.css";
 
 const ico = { width: 16, height: 16, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 2, strokeLinecap: "round", strokeLinejoin: "round", "aria-hidden": true };
 const Trash = () => <svg {...ico}><path d="M3 6h18" /><path d="M8 6V4h8v2" /><path d="M19 6l-1 14H6L5 6" /><path d="M10 11v6M14 11v6" /></svg>;
@@ -13,15 +19,82 @@ const Grip = () => <svg width="14" height="20" viewBox="0 0 14 20" fill="current
 // The site's own icon, taken from its domain. Hidden if it can't be loaded.
 const hostOf = (url) => { try { return new URL(url).hostname.replace(/^www\./, ""); } catch { return ""; } };
 
+// Image (with the regional map overlaid) or, without an image, just the map.
+function Media({ cc, clue, children }) {
+  const hasMap = clue.scope === "reg";
+  const map = hasMap && <ClueMap cc={cc} clue={clue} />;
+  return <div className="clue-media">
+    {clue.image
+      ? <>
+          <img src={`/api/clues/${cc}/files/${clue.image}`} alt="" loading="lazy"
+            className={clue.blur ? "clue-blur" : undefined} tabIndex={clue.blur ? 0 : undefined}
+            title={clue.blur ? "Hover to reveal" : undefined} />
+          {hasMap && <div className="clue-ov">{map}</div>}
+        </>
+      : <div className="clue-full">{map}</div>}
+    {children}
+  </div>;
+}
+
+// ⚠️ same_as, ℹ️ similar_to (automatic) + one manual uniqueness badge (chess "great" / "brilliant"). Three at most.
+function Badges({ clue }) {
+  const items = [];
+  if (relsOf(clue, "same_as").length) items.push(<span key="w" className="cb" role="img" aria-label="Same clue in other countries" title="The same clue exists in other countries">⚠️</span>);
+  if (relsOf(clue, "similar_to").length) items.push(<span key="i" className="cb" role="img" aria-label="Similar clue in other countries" title="A similar clue exists in other countries">ℹ️</span>);
+  if (clue.badge === "subcontinent") items.push(<img key="s" className="cb-img" src="/grades/great.png" alt="Subcontinent unique" title="Subcontinent unique" />);
+  if (clue.badge === "world") items.push(<img key="u" className="cb-img" src="/grades/brilliant.png" alt="World unique" title="World unique" />);
+  return items.length ? <div className="clue-badges">{items}</div> : null;
+}
+
+// "Chile and Peru use similar <text>" — country names open the other clue next to this one.
+function RelationLine({ type, clue, open, nameOf, onToggle }) {
+  const codes = uniq(relsOf(clue, type).map((r) => r.cc));
+  if (!codes.length) return null;
+  const note = { verb: "uses", text: "", ...clue.relation_notes?.[type] };
+  return <p className={`clue-rel ${type}`}>
+    {codes.map((c, i) => <Fragment key={c}>
+      {i > 0 && (i === codes.length - 1 ? " and " : ", ")}
+      <button type="button" className={`rel-c ${open.includes(c) ? "on" : ""}`} aria-pressed={open.includes(c)} onClick={() => onToggle(c)}>{nameOf(c)}</button>
+    </Fragment>)}
+    {" "}{verbFor(note.verb, codes.length)}{type === "similar_to" ? " similar" : ""} {note.text}
+  </p>;
+}
+
+// The related clue(s) of one country, shown to the right of the card's own media.
+function RelatedMedia({ cc, ids, name, onClose }) {
+  const { idOf } = useCountries();
+  const [list, setList] = useState(null);
+  const [err, setErr] = useState("");
+  useEffect(() => {
+    let off = false;
+    api(`/clues/${cc}?all=true`).then((d) => !off && setList(d.filter((c) => ids.includes(c.id)))).catch((e) => !off && setErr(errorText(e)));
+    return () => { off = true; };
+  }, [cc, ids.join()]); // eslint-disable-line react-hooks/exhaustive-deps
+  return <div className="clue-rel-media">
+    <div className="rel-cap">
+      <Flag code={cc} width={20} /><b>{name}</b>
+      <button type="button" aria-label={`Close ${name}`} onClick={onClose}>×</button>
+    </div>
+    {err ? <p className="err">{err}</p>
+      : !list ? <p className="muted">Loading…</p>
+      : list.length ? list.map((c) => <Media key={c.id} cc={idOf(cc)} clue={c} />)
+      : <p className="muted">That clue no longer exists.</p>}
+  </div>;
+}
+
 /** Drag props (edit mode): onGrab (grip drag start), onOver / onDrop (this card as a target), onRelease (drag end),
  *  dragging / over = visual states. */
 export default function ClueCard({ cc, clue, editing, onDelete, onEdit, dragging, over, onGrab, onOver, onDrop, onRelease }) {
-  const hasMap = clue.scope === "reg";
-  const map = hasMap && <ClueMap cc={cc} clue={clue} />;
+  const { nameOf } = useCountries();
+  const [open, setOpen] = useState([]); // countries whose related clue is shown next to this one
+  const toggleOpen = (c) => setOpen((o) => (o.includes(c) ? o.filter((x) => x !== c) : [...o, c]));
   const loc = clue.tags.find((t) => LOCATION_TAGS.includes(t));
   const cat = clue.tags.find((t) => GENERAL_TAGS.includes(t));
   const host = clue.source ? hostOf(clue.source) : "";
-  return <article className={`clue ${dragging ? "dragging" : ""} ${over ? "over" : ""}`}
+  const idsOf = (c) => (clue.relations ?? []).filter((r) => r.type !== "group" && r.cc === c).map((r) => r.id);
+  const shown = open.filter((c) => idsOf(c).length); // a relation removed while open just disappears
+  return <article className={`clue ${shown.length ? "expanded" : ""} ${dragging ? "dragging" : ""} ${over ? "over" : ""}`}
+    style={shown.length ? { "--n": shown.length + 1 } : undefined}
     onDragOver={editing ? onOver : undefined} onDrop={editing ? onDrop : undefined}>
     {editing && <div className="clue-tools">
       <button type="button" className="clue-edit" aria-label="Edit clue" title="Edit clue" onClick={() => onEdit(clue)}><Pencil /></button>
@@ -29,16 +102,8 @@ export default function ClueCard({ cc, clue, editing, onDelete, onEdit, dragging
     </div>}
     {editing && <span className="clue-grip" draggable title="Drag to reorder" aria-label="Drag to reorder"
       onDragStart={onGrab} onDragEnd={onRelease}><Grip /></span>}
-    <div className="clue-media">
-      {clue.image
-        ? <>
-            <img src={`/api/clues/${cc}/files/${clue.image}`} alt="" loading="lazy"
-              className={clue.blur ? "clue-blur" : undefined} tabIndex={clue.blur ? 0 : undefined}
-              title={clue.blur ? "Hover to reveal" : undefined} />
-            {hasMap && <div className="clue-ov">{map}</div>}
-          </>
-        : <div className="clue-full">{map}</div>}
-    </div>
+    <Media cc={cc} clue={clue}><Badges clue={clue} /></Media>
+    {shown.map((c) => <RelatedMedia key={c} cc={c} ids={idsOf(c)} name={nameOf(c)} onClose={() => toggleOpen(c)} />)}
     <div className={`clue-body ${editing ? "has-tools" : ""}`}>
       <div className="clue-tags">
         {loc && <LocationChip t={loc} />}
@@ -47,6 +112,8 @@ export default function ClueCard({ cc, clue, editing, onDelete, onEdit, dragging
         {clue.visibility === "analysis-only" && <span className="chip" style={{ "--h": 0 }}>Analysis only (hidden)</span>}
       </div>
       <p className="clue-info"><RichText text={clue.info} /></p>
+      <RelationLine type="same_as" clue={clue} open={shown} nameOf={nameOf} onToggle={toggleOpen} />
+      <RelationLine type="similar_to" clue={clue} open={shown} nameOf={nameOf} onToggle={toggleOpen} />
     </div>
     {host && <a className="chip neutral src" href={clue.source} target="_blank" rel="noopener noreferrer" title={host} aria-label={`Source: ${host}`}>
       <img src={`https://www.google.com/s2/favicons?domain=${encodeURIComponent(host)}&sz=32`} alt="" width="16" height="16"
