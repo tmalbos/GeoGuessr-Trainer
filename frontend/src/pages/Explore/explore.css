@@ -14,8 +14,6 @@ main.bleed { padding: 0; height: 100vh; overflow: hidden; }
 .wm-dot { fill: #24607f; stroke: var(--sea-hi); stroke-opacity: .6; stroke-width: 1px; vector-effect: non-scaling-stroke; }
 .wm:not(.moving) .wm-c:hover path, .wm:not(.moving) .wm-c:hover .wm-dot { fill: var(--sea-hi); }
 .wm-msg { position: absolute; inset: 0; display: grid; place-items: center; margin: 0; }
-.wm-zoom { position: absolute; right: 20px; bottom: 20px; display: grid; gap: 8px; }
-.wm-zoom .btn { width: 40px; height: 40px; padding: 0; font-size: 20px; line-height: 1; }
 
 /* ── Country page ──
    Two independent scroll areas: the clues column scrolls, the sidebar stays put. */

@@ -50,7 +50,6 @@ export default function WorldMap({ onSelect }) {
   const box = useRef(null);
   const gRef = useRef(null);
   const tipRef = useRef(null);
-  const api = useRef({ zoomBy: () => {} });
   const selectRef = useRef(onSelect);
   selectRef.current = onSelect;
 
@@ -123,7 +122,6 @@ export default function WorldMap({ onSelect }) {
       clampView(t);
       kick();
     };
-    api.current.zoomBy = (f) => zoomAt(s.W / 2, s.H / 2, f);
 
     const measure = () => {
       const r = el.getBoundingClientRect();
@@ -173,7 +171,6 @@ export default function WorldMap({ onSelect }) {
     };
 
     const onDown = (e) => {
-      if (e.target.closest(".wm-zoom")) return;
       if (e.pointerType === "mouse" && e.button !== 0) return;
       ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
       if (ptrs.size === 1) {
@@ -267,10 +264,6 @@ export default function WorldMap({ onSelect }) {
     </svg>}
     {(!world || !known) && !err && <p className="wm-msg muted">Loading map…</p>}
     {err && <p className="wm-msg err">{err}</p>}
-    {world && <div className="wm-zoom">
-      <button type="button" className="btn" aria-label="Zoom in" onClick={() => api.current.zoomBy(1.6)}>+</button>
-      <button type="button" className="btn" aria-label="Zoom out" onClick={() => api.current.zoomBy(1 / 1.6)}>−</button>
-    </div>}
     <div className="wm-tip" ref={tipRef} style={{ display: "none" }} aria-hidden="true"><b /><span /></div>
   </div>;
 }
