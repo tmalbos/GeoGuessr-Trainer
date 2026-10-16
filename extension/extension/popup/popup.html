@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <link rel="stylesheet" href="popup.css" />
+</head>
+<body>
+  <header><img src="../icons/icon48.png" width="32" height="32" alt="" /><h1>Pinpoint Trainer</h1></header>
+
+  <label class="row"><input type="checkbox" id="enabled" /> <b>Activada</b></label>
+  <label class="row"><input type="checkbox" id="hud" /> Mostrar cartelito de estado en GeoGuessr</label>
+  <p class="hint">Si no ves el cartelito abajo en GeoGuessr, recargá la pestaña (F5).</p>
+  <p class="hint">Solo en partidas normales (<code>/game/</code>) de los mapas listados abajo. Nunca en duelos.</p>
+
+  <label>Zoom inicial: <b id="zoomVal"></b></label>
+  <input type="range" id="zoom" min="3" max="18" step="1" />
+  <div class="presets">
+    <button type="button" data-z="6">Región</button>
+    <button type="button" data-z="10">Ciudad</button>
+    <button type="button" data-z="13">Barrio</button>
+    <button type="button" data-z="16">Calle</button>
+  </div>
+
+  <label>Offset del centro (% de la mitad de la ventana)</label>
+  <div class="row">
+    <span>Mín</span><input type="number" id="offsetMin" min="0" max="95" />
+    <span>Máx</span><input type="number" id="offsetMax" min="0" max="95" />
+  </div>
+  <p class="hint">0 = el lugar real queda en el centro. 90 = casi en el borde.</p>
+
+  <label for="maps">Mapas (uno por línea, nombre exacto)</label>
+  <textarea id="maps" rows="4" placeholder="A Community World"></textarea>
+  <p id="status" class="hint"></p>
+
+  <script src="popup.js"></script>
+</body>
+</html>

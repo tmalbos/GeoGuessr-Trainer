@@ -1,0 +1,15 @@
+body { width: 300px; margin: 0; padding: 14px; font: 13px/1.4 system-ui, sans-serif; background: #0d1117; color: #e6edf3; }
+header { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+h1 { font-size: 16px; margin: 0; }
+label { display: block; margin: 12px 0 4px; }
+label.row { margin: 0; }
+.row { display: flex; align-items: center; gap: 8px; }
+input[type="range"] { width: 100%; }
+input[type="number"], textarea { background: #1d242d; color: inherit; border: 1px solid #2a3340; border-radius: 6px; padding: 5px 8px; font: inherit; }
+input[type="number"] { width: 64px; }
+textarea { width: 100%; box-sizing: border-box; resize: vertical; }
+.presets { display: flex; gap: 6px; margin-top: 6px; }
+.presets button { flex: 1; background: #161b22; color: inherit; border: 1px solid #2a3340; border-radius: 999px; padding: 4px 0; cursor: pointer; }
+.presets button:hover { border-color: #6cc0e5; }
+.hint { color: #8b98a8; font-size: 12px; margin: 4px 0 0; }
+code { background: #1d242d; padding: 0 4px; border-radius: 4px; }
