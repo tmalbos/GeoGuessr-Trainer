@@ -12,6 +12,7 @@ Relations: a clue has `relations: [{type, cc, id}]` (same_as | similar_to | grou
          deleting a clue also updates the clue on the other end (even in another country's yaml).
          `relation_notes: {same_as|similar_to: {verb, text}}` is the sentence the card shows.
          `badge`: "subcontinent" | "world" (manual uniqueness badge).
+         `max_height`: px cap for the clue image on the card (only kept when the clue has an image).
 Needs:   Pillow, geopandas, shapely (>= 2.1 for gap-free coverage simplification), pyarrow, pyyaml.
 """
 
@@ -395,6 +396,9 @@ class ClueBody(BaseModel):
     reliability: int | None = Field(None, ge=1, le=10)
     visibility: Literal["visible", "guide-only", "analysis-only"] = "visible"
     blur: bool = False  # blur the clue image until hovered (only kept when the clue has an image)
+    max_height: int | None = Field(
+        None, ge=100, le=2000
+    )  # px cap for the image on the card (only kept with an image)
     source: str = ""  # link to where the information came from (optional)
     relations: list[
         RelationIn
@@ -535,6 +539,43 @@ def _sync_relations(
             notes.setdefault(t, dict(note))
             target["relation_notes"] = notes
 
+    if any(t == "group" for t, _, _ in added):
+        _close_group(items_of(cc), entry["id"], cc)
+
+
+def _close_group(items: list[dict], start_id: str, cc: str) -> None:
+    """Groups are transitive: if 1 is grouped with 2 and with 3, then 2 and 3 are grouped too.
+
+    Walks the group relations from `start_id` and makes every member of that group point at every other member.
+    """
+    by_id = {c.get("id"): c for c in items}
+
+    def peers(cid: str) -> list[str]:
+        return [
+            r["id"]
+            for r in by_id[cid].get("relations") or []
+            if r["type"] == "group" and r["id"] in by_id
+        ]
+
+    members: list[str] = []
+    todo = [start_id]
+    while todo:
+        cid = todo.pop()
+        if cid in members or cid not in by_id:
+            continue
+        members.append(cid)
+        todo.extend(peers(cid))
+
+    for cid in members:
+        rels = list(by_id[cid].get("relations") or [])
+        have = {r["id"] for r in rels if r["type"] == "group"}
+        rels.extend(
+            {"type": "group", "cc": cc, "id": other}
+            for other in members
+            if other != cid and other not in have
+        )
+        by_id[cid]["relations"] = rels
+
 
 def _countries_with_clues() -> set[str]:
     """Every country that has at least one clue (hidden ones too: they can still be related)."""
@@ -614,6 +655,7 @@ def add_clue(cc: str, body: ClueBody):
                 "reliability": body.reliability,
                 "visibility": body.visibility,
                 "blur": True if body.blur else None,
+                "max_height": body.max_height,
                 "source": source,
                 "relations": rels or None,
                 "relation_notes": notes or None,
@@ -623,6 +665,7 @@ def add_clue(cc: str, body: ClueBody):
             entry = {k: v for k, v in entry.items() if v is not None}
             if "image" not in entry:
                 entry.pop("blur", None)
+                entry.pop("max_height", None)
             items = [*_load(cc), entry]
             books = {cc: items}
             _sync_relations(books, cc, entry, [], rels)
@@ -713,6 +756,7 @@ def update_clue(cc: str, clue_id: str, body: ClueBody):
                 "reliability": body.reliability,
                 "visibility": body.visibility,
                 "blur": True if body.blur else None,
+                "max_height": body.max_height,
                 "source": source,
                 "relations": rels or None,
                 "relation_notes": notes or None,
@@ -723,6 +767,7 @@ def update_clue(cc: str, clue_id: str, body: ClueBody):
             entry = {k: v for k, v in entry.items() if v is not None}
             if "image" not in entry:
                 entry.pop("blur", None)
+                entry.pop("max_height", None)
             updated = [entry if c is old else c for c in items]
             books = {cc: updated}
             _sync_relations(books, cc, entry, old.get("relations") or [], rels)

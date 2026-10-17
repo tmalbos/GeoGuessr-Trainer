@@ -55,7 +55,8 @@
 .cp-head { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 12px; margin-bottom: 24px; }
 .cp-head h2 { margin: 0; text-align: center; }
 .cp-head .cp-back { justify-self: start; padding: 6px 12px; }
-.rt-bar { display: flex; gap: 6px; margin-bottom: 6px; }
+.rt-row { display: flex; align-items: flex-start; gap: 10px; margin-top: 6px; }
+.rt-bar { display: flex; gap: 6px; }
 .rt-bar button { min-width: 34px; padding: 4px 10px; background: var(--raise); border: 1px solid var(--line); border-radius: 6px; cursor: pointer; }
 .rt-bar button:hover { border-color: var(--sea-hi); }
 

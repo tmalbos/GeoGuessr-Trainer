@@ -1,6 +1,8 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import ConfirmDialog from "../../../components/ConfirmDialog.jsx";
+import Flag from "../../../components/Flag.jsx";
 import { api, errorText } from "../../../lib/api.js";
+import ClueImage from "./ClueImage.jsx";
 import FilePicker from "./FilePicker.jsx";
 import RatingDots from "./RatingDots.jsx";
 import RelatePicker from "./RelatePicker.jsx";
@@ -9,12 +11,14 @@ import { NOTE_TYPES, REL_LABEL, VERBS, joinNames, sameRel, uniq, verbFor } from 
 import { LocationIcon } from "./tagUi.jsx";
 import { CATEGORY_ICONS, DEFAULT_LOCATION, GENERAL_TAGS, LOCATION_TAGS, RATINGS, VISIBILITIES, tagHue } from "./tags.js";
 import "./blur.css";
+import "./clues.css";
+import "./editor.css";
 import "./relations.css";
 
 const GEO_ACCEPT = ".geojson,.json,.gpkg,.zip,.parquet,.kml";
 const GEO_HINT = "Polygons, lines or points, detected automatically. GeoJSON, GeoPackage, zipped Shapefile, GeoParquet or KML";
+// The image has its own editor (ClueImage); these two are the regional area files.
 const FILES = [
-  { kind: "image", label: "Image", hint: "Shows what the clue looks like", accept: "image/*", scopes: ["nat", "reg"] },
   { kind: "csv", label: "CSV", hint: "GroupName,Level1,Level2,… (administrative areas)", accept: ".csv,text/csv", scopes: ["reg"] },
   { kind: "geometry", label: "Geometry", hint: GEO_HINT, accept: GEO_ACCEPT, scopes: ["reg"] },
 ];
@@ -23,14 +27,28 @@ const GEOM_FIELDS = ["polygons", "lines", "points"];
 const URL_OK = /^https?:\/\/\S+$/i;
 const trunc = (s, n) => (s.length > n ? `${s.slice(0, n)}…` : s);
 
+const ico = { width: 16, height: 16, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 2, strokeLinecap: "round", strokeLinejoin: "round", "aria-hidden": true };
+const LinkIcon = () => <svg {...ico}><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1" /><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1" /></svg>;
+const LinkPlus = () => <svg {...ico} width="18" height="18"><path d="M10 14a4 4 0 0 0 5.7 0l2.3-2.3a4 4 0 0 0-5.7-5.7L11 7" /><path d="M14 10a4 4 0 0 0-5.7 0L6 12.3a4 4 0 0 0 5.7 5.7L13 17" /><path d="M19 2v4M17 4h4" /></svg>;
+const REL_ICON = {
+  same_as: <svg {...ico}><path d="M5 9h14M5 15h14" /></svg>,
+  similar_to: <svg {...ico}><path d="M4 9c2-2 4-2 8 0s6 2 8 0M4 15c2-2 4-2 8 0s6 2 8 0" /></svg>,
+  group: <LinkIcon />,
+};
+const hostOf = (url) => { try { return new URL(url).hostname.replace(/^www\./, ""); } catch { return ""; } };
+const TagPlus = () => <svg {...ico} width="18" height="18"><path d="M20.6 13.4 13.4 20.6a2 2 0 0 1-2.8 0L3 13V3h10l7.6 7.6a2 2 0 0 1 0 2.8z" /><path d="M8 8h.01M16 16v4M14 18h4" /></svg>;
+
 // kind "cat" = neutral chip with an emoji; anything else is a location (icon + color).
 const Tag = ({ t, kind, on, caret, onClick, ...rest }) =>
-  <button type="button" className={`tag ${kind === "cat" ? "neutral" : ""} ${on ? "on" : ""}`} style={{ "--h": tagHue(t) }}
+  <button type="button" title={t} className={`tag ${kind === "cat" ? "neutral" : "loc-only"} ${on ? "on" : ""}`} style={{ "--h": tagHue(t) }}
     aria-pressed={caret ? undefined : on} onClick={onClick} {...rest}>
-    {kind === "cat" ? <span aria-hidden="true">{CATEGORY_ICONS[t]}</span> : <LocationIcon t={t} />} {t}{caret && <span aria-hidden="true"> ▾</span>}
+    {kind === "cat" ? <><span aria-hidden="true">{CATEGORY_ICONS[t]}</span> {t}</> : <><LocationIcon t={t} /><span className="sr">{t}</span></>}
+    {caret && <span aria-hidden="true"> ▾</span>}
   </button>;
 
-/** `clue` set = editing that clue; otherwise adding a new one. */
+/** `clue` set = editing that clue; otherwise adding a new one.
+ *  The top part has the same layout as the clue card (image left; tags, text and sentences right);
+ *  everything else sits below it. */
 export default function ClueEditor({ cc, name, clue, onClose, onSaved }) {
   const { nameOf } = useCountries();
   const [scope, setScope] = useState(clue?.scope ?? "nat");
@@ -42,10 +60,13 @@ export default function ClueEditor({ cc, name, clue, onClose, onSaved }) {
   const [rating, setRating] = useState(() => Object.fromEntries(RATINGS.map(([k]) => [k, clue?.[k] != null ? String(clue[k]) : ""])));
   const [visibility, setVisibility] = useState(clue?.visibility ?? "visible");
   const [blur, setBlur] = useState(!!clue?.blur);
+  const [maxH, setMaxH] = useState(clue?.max_height ?? null); // px cap for the image on the card
+  const [img, setImg] = useState({ has: !!clue?.image, sig: ":0" }); // reported by ClueImage
   const [source, setSource] = useState(clue?.source ?? "");
   const [relations, setRelations] = useState(clue?.relations ?? []);
   const [notes, setNotes] = useState(clue?.relation_notes ?? {});
   const [badge, setBadge] = useState(clue?.badge ?? "");
+  const [srcOpen, setSrcOpen] = useState(false);
   const [picking, setPicking] = useState(false);
   const [others, setOthers] = useState({}); // cc -> that country's clues, only to describe the relation chips
   const [files, setFiles] = useState({});
@@ -54,10 +75,14 @@ export default function ClueEditor({ cc, name, clue, onClose, onSaved }) {
   const [confirm, setConfirm] = useState(false);
   const area = useRef(null);
   const slot = useRef(null);
+  const colRef = useRef(null);
+  const imgApi = useRef(null);
+  const srcRef = useRef(null);
+  const srcInput = useRef(null);
   const asked = useRef(new Set());
 
-  const snapshot = () => JSON.stringify([scope, info, general, location, rating, visibility, blur,
-    source, relations, notes, badge, Object.keys(files)]);
+  const snapshot = () => JSON.stringify([scope, info, general, location, rating, visibility, blur, maxH,
+    img.sig, source, relations, notes, badge, Object.keys(files)]);
   const initial = useRef(snapshot());
   const dirty = snapshot() !== initial.current;
   const requestClose = () => (dirty ? setConfirm(true) : onClose());
@@ -71,6 +96,14 @@ export default function ClueEditor({ cc, name, clue, onClose, onSaved }) {
     requestAnimationFrame(() => { el.focus(); el.setSelectionRange(a + before.length, b + before.length); });
   };
 
+  // The text box grows with what is typed, like the paragraph on the card.
+  useLayoutEffect(() => {
+    const el = area.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${el.scrollHeight + 2}px`;
+  }, [info]);
+
   // Escape closes the open tag menu first, then asks before throwing work away.
   useEffect(() => {
     const onKey = (e) => { if (e.key !== "Escape") return; if (menu) setMenu(null); else closeRef.current(); };
@@ -79,6 +112,15 @@ export default function ClueEditor({ cc, name, clue, onClose, onSaved }) {
     document.addEventListener("mousedown", onDown);
     return () => { document.removeEventListener("keydown", onKey); document.removeEventListener("mousedown", onDown); };
   }, [menu]);
+
+  // When the source box opens, focus it; clicking anywhere outside compresses it again.
+  useEffect(() => {
+    if (!srcOpen) return;
+    srcInput.current?.focus();
+    const onDown = (e) => { if (srcRef.current && !srcRef.current.contains(e.target)) setSrcOpen(false); };
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
+  }, [srcOpen]);
 
   // Load the clues on the other end of each relation, so the chips can say which clue they point at.
   useEffect(() => {
@@ -102,16 +144,13 @@ export default function ClueEditor({ cc, name, clue, onClose, onSaved }) {
   const setNote = (t, patch) => setNotes((n) => ({ ...n, [t]: { verb: "uses", text: "", ...n[t], ...patch } }));
   const addRelation = (r) => { setRelations((rs) => (rs.some((x) => sameRel(x, r)) ? rs : [...rs, r])); setPicking(false); };
   const removeRelation = (r) => setRelations((rs) => rs.filter((x) => !sameRel(x, r)));
-  const chipText = (r) => {
-    const snippet = others[r.cc]?.find((c) => c.id === r.id)?.info;
-    const head = r.type === "group" ? "Group" : `${REL_LABEL[r.type]} · ${nameOf(r.cc)}`;
-    return snippet ? `${head} — ${trunc(snippet, 32)}` : head;
-  };
+  const snippetOf = (r) => others[r.cc]?.find((c) => c.id === r.id);
+  const host = hostOf(source.trim());
+  const srcBad = !!source.trim() && !URL_OK.test(source.trim());
 
   // What the clue already stores (edit mode), so required files don't have to be re-uploaded.
   const currentFor = (kind) => {
     if (!clue) return null;
-    if (kind === "image" && clue.image) return { src: `/api/clues/${cc}/files/${clue.image}`, text: "Current image" };
     if (kind === "csv" && clue.csv) return { text: `Current CSV${clue.csv_rows ? ` (${clue.csv_rows.length - 1} rows)` : ""}` };
     if (kind === "geometry") { const g = GEOM_FIELDS.find((k) => clue[k]); if (g) return { text: `Current geometry (${g})` }; }
     return null;
@@ -119,7 +158,7 @@ export default function ClueEditor({ cc, name, clue, onClose, onSaved }) {
 
   const slots = FILES.filter((f) => f.scopes.includes(scope));
   const has = (kind) => !!files[kind] || !!currentFor(kind);
-  const hasImage = has("image");
+  const hasImage = img.has;
   const problems = [];
   if (!info.trim()) problems.push("Write what the clue teaches.");
   if (!general || !location) problems.push("Add a tag.");
@@ -132,112 +171,145 @@ export default function ClueEditor({ cc, name, clue, onClose, onSaved }) {
     setSaving(true); setErr("");
     const num = (v) => (v === "" ? null : Number(v));
     try {
+      // Edits to the image stay in memory until now; this uploads the final pixels (or reuses the staged file).
+      const imageToken = await imgApi.current.resolve();
+      const upload = Object.fromEntries(slots.filter((s) => files[s.kind]).map((s) =>
+        [s.kind === "geometry" ? files.geometry.kind : s.kind, files[s.kind].token]));
+      if (imageToken) upload.image = imageToken;
       await api(clue ? `/clues/${cc}/${clue.id}` : `/clues/${cc}`, { method: clue ? "PUT" : "POST", body: {
         scope, info, tags: [location, general], visibility, blur: hasImage && blur,
+        max_height: hasImage ? maxH : null,
         frequency: num(rating.frequency), ease: num(rating.ease), reliability: num(rating.reliability),
         source: source.trim(),
         relations,
         relation_notes: Object.fromEntries(NOTE_TYPES.filter(present).map((t) => [t, note(t)])),
         badge: badge || null,
-        files: Object.fromEntries(slots.filter((s) => files[s.kind]).map((s) =>
-          [s.kind === "geometry" ? files.geometry.kind : s.kind, files[s.kind].token])),
+        files: upload,
       } });
       onSaved();
     } catch (e) { setErr(errorText(e)); setSaving(false); }
   };
 
+  const badgeBtn = (key, src, label) => <button type="button" key={key} className={`cb-btn ${badge === key ? "on" : ""}`}
+    aria-pressed={badge === key} aria-label={label} title={label} onClick={() => setBadge(badge === key ? "" : key)}>
+    <img className="cb-img" src={src} alt="" /></button>;
+  // Same badges as the card. The warning / info ones follow the relations by themselves; the two chess icons are toggles.
+  const badges = <div className="clue-badges ed-badges">
+    <span className={`cb ${present("same_as") ? "" : "dim"}`} role="img" aria-label="Same clue in other countries" title="Same clue in other countries (from relations)">⚠️</span>
+    <span className={`cb ${present("similar_to") ? "" : "dim"}`} role="img" aria-label="Similar clue in other countries" title="Similar clue in other countries (from relations)">ℹ️</span>
+    {badgeBtn("subcontinent", "/grades/great.png", "Subcontinent unique")}
+    {badgeBtn("world", "/grades/brilliant.png", "World unique")}
+  </div>;
+
   return <div className="modal-back" onMouseDown={(e) => { if (e.target === e.currentTarget) requestClose(); }}>
-    <div className="modal" role="dialog" aria-modal="true" aria-label={`${clue ? "Edit" : "Add"} clue for ${name}`}>
+    <div className="modal wide" role="dialog" aria-modal="true" aria-label={`${clue ? "Edit" : "Add"} clue for ${name}`}>
       <div className="modal-head">
         <h3>{clue ? "Edit clue" : "Add clue"} · {name}</h3>
-        <div className="tag-slot" ref={slot}>
-          {general
-            ? <div className="tag-pair">
-                <Tag t={general} kind="cat" on caret aria-haspopup="true" aria-expanded={menu === "cat"} onClick={() => toggle("cat")} />
-                <Tag t={location} kind="loc" on caret aria-haspopup="true" aria-expanded={menu === "loc"} onClick={() => toggle("loc")} />
-              </div>
-            : <button type="button" className="tag-empty" aria-label="Add tag" aria-haspopup="true" aria-expanded={menu === "cat"}
-                onClick={() => toggle("cat")}>+ tag</button>}
-          {menu === "cat" && <div className="tag-pop" role="group" aria-label="Category">
-            {GENERAL_TAGS.map((t) => <Tag key={t} t={t} kind="cat" on={general === t} onClick={() => pickCategory(t)} />)}
-          </div>}
-          {menu === "loc" && <div className="tag-pop small" role="group" aria-label="Where it applies">
-            {LOCATION_TAGS.map((t) => <Tag key={t} t={t} kind="loc" on={location === t} onClick={() => pickLocation(t)} />)}
-          </div>}
+        <div className="tabs" role="group" aria-label="Scope">
+          {[["nat", "National"], ["reg", "Regional"]].map(([k, l]) =>
+            <button key={k} type="button" aria-pressed={scope === k} className={scope === k ? "on" : ""} disabled={!!clue && scope !== k} onClick={() => setScope(k)}>{l}</button>)}
         </div>
       </div>
-      <div className="tabs" role="group" aria-label="Scope">
-        {[["nat", "National"], ["reg", "Regional"]].map(([k, l]) =>
-          <button key={k} type="button" aria-pressed={scope === k} className={scope === k ? "on" : ""} disabled={!!clue && scope !== k} onClick={() => setScope(k)}>{l}</button>)}
-      </div>
 
-      {slots.map((s) => <FilePicker key={s.kind} {...s} current={currentFor(s.kind)} value={files[s.kind]} onChange={(v) => setFiles((f) => ({ ...f, [s.kind]: v }))}
-        extra={s.kind === "image" && hasImage ? <label className="chk-row" htmlFor="cl-blur">
-          <input id="cl-blur" type="checkbox" checked={blur} onChange={(e) => setBlur(e.target.checked)} />Blur</label> : null} />)}
-
-      <label htmlFor="cl-info">Info</label>
-      <div className="rt-bar" role="toolbar" aria-label="Text formatting">
-        <button type="button" title="Bold" onClick={() => wrap("**")}><b>B</b></button>
-        <button type="button" title="Italic" onClick={() => wrap("*")}><i>I</i></button>
-        <button type="button" title="Underline" onClick={() => wrap("__")}><u>U</u></button>
-        <button type="button" title="Link" onClick={() => wrap("[", "](https://)")}>Link</button>
-      </div>
-      <textarea id="cl-info" ref={area} rows={4} value={info} onChange={(e) => setInfo(e.target.value)} placeholder="What does this clue teach?" />
-
-      <div className="rel-sec">
-        <div className="rel-head">
-          <label>Relations</label>
-          <button type="button" className="btn ghost" onClick={() => setPicking(true)}>+ Relate</button>
+      {/* Same grid as the clue card: media on the left, body on the right. */}
+      <div className="clue ed-clue">
+        <div className="ed-left" ref={colRef}>
+          <ClueImage ref={imgApi} current={clue?.image ? `/api/clues/${cc}/files/${clue.image}` : null} colRef={colRef} overlay={badges}
+            blur={blur} onBlur={setBlur} maxH={maxH} onMaxH={setMaxH}
+            onState={(h, sig) => setImg((p) => (p.has === h && p.sig === sig ? p : { has: h, sig }))} />
+          <div className="ed-rels">
+            {relations.map((r) => {
+              const o = snippetOf(r);
+              const thumb = o?.image ? `/api/clues/${r.cc}/files/${o.image}` : null;
+              return <span key={`${r.type}-${r.cc}-${r.id}`} className={`rel-chip ed-rel ${r.type}`}
+                title={`${REL_LABEL[r.type]}${r.type === "group" ? "" : ` · ${nameOf(r.cc)}`}${o ? ` — ${trunc(o.info, 80)}` : ""}`}>
+                {REL_ICON[r.type]}
+                {r.type !== "group" && <Flag code={r.cc} width={16} />}
+                {thumb ? <img className="ed-rel-img" src={thumb} alt="" /> : o && <span>{trunc(o.info, 26)}</span>}
+                <button type="button" aria-label="Remove relation" onClick={() => removeRelation(r)}>×</button>
+              </span>;
+            })}
+            <button type="button" className="ed-tool ed-add" aria-label="Relate to another clue" title="Relate to another clue" onClick={() => setPicking(true)}><LinkPlus /></button>
+          </div>
         </div>
-        {relations.length > 0 && <div className="rel-chips">
-          {relations.map((r) => <span key={`${r.type}-${r.cc}-${r.id}`} className={`rel-chip ${r.type}`} title={others[r.cc]?.find((c) => c.id === r.id)?.info}>
-            <span>{chipText(r)}</span>
-            <button type="button" aria-label="Remove relation" onClick={() => removeRelation(r)}>×</button>
-          </span>)}
+        <div className="clue-body ed-body">
+          <div className="ed-tagrow">
+            <div className="clue-tags tag-slot" ref={slot}>
+              {general
+                ? <>
+                    <Tag t={location} kind="loc" on caret aria-haspopup="true" aria-expanded={menu === "loc"} onClick={() => toggle("loc")} />
+                    <Tag t={general} kind="cat" on caret aria-haspopup="true" aria-expanded={menu === "cat"} onClick={() => toggle("cat")} />
+                  </>
+                : <button type="button" className="tag-empty" aria-label="Add tag" title="Add tag" aria-haspopup="true" aria-expanded={menu === "cat"}
+                    onClick={() => toggle("cat")}><TagPlus /></button>}
+              {menu === "cat" && <div className="tag-pop" role="group" aria-label="Category">
+                {GENERAL_TAGS.map((t) => <Tag key={t} t={t} kind="cat" on={general === t} onClick={() => pickCategory(t)} />)}
+              </div>}
+              {menu === "loc" && <div className="tag-pop small" role="group" aria-label="Where it applies">
+                {LOCATION_TAGS.map((t) => <Tag key={t} t={t} kind="loc" on={location === t} onClick={() => pickLocation(t)} />)}
+              </div>}
+            </div>
+            <select className="ed-vis" aria-label="Visibility" title="Visibility" value={visibility} onChange={(e) => setVisibility(e.target.value)}>
+              {VISIBILITIES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select>
+          </div>
+
+          <textarea id="cl-info" className="ed-info" ref={area} rows={4} value={info} aria-label="Info"
+            onChange={(e) => setInfo(e.target.value)} placeholder="What does this clue teach?" />
+          <div className="rt-row">
+            <div className="rt-bar" role="toolbar" aria-label="Text formatting">
+              <button type="button" title="Bold" aria-label="Bold" onClick={() => wrap("**")}><b>B</b></button>
+              <button type="button" title="Italic" aria-label="Italic" onClick={() => wrap("*")}><i>I</i></button>
+              <button type="button" title="Underline" aria-label="Underline" onClick={() => wrap("__")}><u>U</u></button>
+              <button type="button" title="Link" aria-label="Link" onClick={() => wrap("[", "](https://)")}><LinkIcon /></button>
+            </div>
+            {/* The card's source chip (site icon). Click it to edit the link: it widens into a text box. */}
+            <div className={`chip neutral src ed-src ${srcOpen ? "open" : ""} ${srcBad ? "bad" : ""}`} ref={srcRef}>
+              <button type="button" className="ed-src-btn" aria-label="Edit source link" title={host || "Add a source link"} aria-expanded={srcOpen}
+                onClick={() => setSrcOpen((o) => !o)}>
+                {host ? <img src={`https://www.google.com/s2/favicons?domain=${encodeURIComponent(host)}&sz=32`} alt="" width="16" height="16"
+                  onError={(e) => { e.currentTarget.style.display = "none"; }} /> : <LinkIcon />}
+              </button>
+              <input type="text" ref={srcInput} value={source} aria-label="Source link" placeholder="https://…" aria-invalid={srcBad}
+                tabIndex={srcOpen ? 0 : -1} aria-hidden={!srcOpen}
+                onChange={(e) => setSource(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter" || e.key === "Escape") { e.preventDefault(); e.stopPropagation(); setSrcOpen(false); } }} />
+            </div>
+          </div>
+
+          {/* The sentences the card shows under the text. */}
+          {NOTE_TYPES.filter(present).map((t) => {
+            const codes = uniq(relations.filter((r) => r.type === t).map((r) => r.cc));
+            const n = note(t);
+            return <div className={`rel-note ${t}`} key={t}>
+              <span>{joinNames(codes.map(nameOf))}</span>
+              <select aria-label={`${REL_LABEL[t]} verb`} value={n.verb} onChange={(e) => setNote(t, { verb: e.target.value })}>
+                {VERBS.map((v) => <option key={v} value={v}>{verbFor(v, codes.length)}</option>)}
+              </select>
+              {t === "similar_to" && <span>similar</span>}
+              <input type="text" aria-label={`${REL_LABEL[t]} sentence`} value={n.text} placeholder="…finish the sentence"
+                onChange={(e) => setNote(t, { text: e.target.value })} />
+            </div>;
+          })}
+        </div>
+      </div>
+
+      <div className="ed-extra">
+        {slots.length > 0 && <div className="ed-wide">
+          {slots.map((s) => <FilePicker key={s.kind} {...s} current={currentFor(s.kind)} value={files[s.kind]}
+            onChange={(v) => setFiles((f) => ({ ...f, [s.kind]: v }))} />)}
         </div>}
-        {NOTE_TYPES.filter(present).map((t) => {
-          const codes = uniq(relations.filter((r) => r.type === t).map((r) => r.cc));
-          const n = note(t);
-          return <div className={`rel-note ${t}`} key={t}>
-            <span>{joinNames(codes.map(nameOf))}</span>
-            <select aria-label={`${REL_LABEL[t]} verb`} value={n.verb} onChange={(e) => setNote(t, { verb: e.target.value })}>
-              {VERBS.map((v) => <option key={v} value={v}>{verbFor(v, codes.length)}</option>)}
-            </select>
-            {t === "similar_to" && <span>similar</span>}
-            <input type="text" aria-label={`${REL_LABEL[t]} sentence`} value={n.text} placeholder="…finish the sentence"
-              onChange={(e) => setNote(t, { text: e.target.value })} />
-          </div>;
-        })}
+        <div className="rates-dots">
+          {RATINGS.map(([k, label, lo, hi]) => <RatingDots key={k} label={label} lo={lo} hi={hi} value={rating[k]}
+            onChange={(v) => setRating((r) => ({ ...r, [k]: v }))} />)}
+        </div>
       </div>
-
-      <div className="rates-dots">
-        {RATINGS.map(([k, label, lo, hi]) => <RatingDots key={k} label={label} lo={lo} hi={hi} value={rating[k]}
-          onChange={(v) => setRating((r) => ({ ...r, [k]: v }))} />)}
-      </div>
-      <div className="vis-row">
-        <label htmlFor="cl-vis">Visibility</label>
-        <select id="cl-vis" value={visibility} onChange={(e) => setVisibility(e.target.value)}>
-          {VISIBILITIES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select>
-      </div>
-      <div className="vis-row">
-        <label htmlFor="cl-badge">Uniqueness badge</label>
-        <select id="cl-badge" value={badge} onChange={(e) => setBadge(e.target.value)}>
-          <option value="">None</option>
-          <option value="subcontinent">Subcontinent unique</option>
-          <option value="world">World unique</option>
-        </select>
-      </div>
-
-      <label htmlFor="cl-src">Source</label>
-      <input id="cl-src" type="text" value={source} onChange={(e) => setSource(e.target.value)}
-        placeholder="Link (Wikipedia, Plonkit, Reddit, RMRG, Discord…)" />
 
       {err && <p className="err">{err}</p>}
-      <div className="modal-actions">
+      <div className="ed-foot">
+        {problems.length > 0 && <p className="muted problems">{problems[0]}</p>}
         <button type="button" className="btn ghost" onClick={requestClose}>Cancel</button>
         <button type="button" className="btn" title={problems[0]} disabled={saving || problems.length > 0} onClick={save}>{saving ? "Saving…" : "Save clue"}</button>
       </div>
-      {problems.length > 0 && <p className="muted problems">{problems[0]}</p>}
     </div>
     {picking && <RelatePicker cc={cc} clueId={clue?.id ?? null} tags={{ general, location }} taken={relations}
       onPick={addRelation} onClose={() => setPicking(false)} />}

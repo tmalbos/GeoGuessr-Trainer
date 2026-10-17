@@ -1,0 +1,120 @@
+/* ── Height limit (card + editor). The image keeps its proportions: a taller-than-wide image just gets narrower. ── */
+.clue-media.limited:not(.cropping) { width: fit-content; max-width: 100%; margin-inline: auto; }
+.clue-media.limited:not(.cropping) img { width: auto; max-width: 100%; max-height: var(--mh); }
+
+/* ── Editor: same two-column layout as the card ── */
+.modal.wide { width: min(calc(100vw - clamp(300px, 28vw, 420px) - 48px), 100%); }
+/* ^ the clue page's column (viewport - side panel - paddings), so the text box is as wide as on the real card */
+@media (max-width: 900px) { .modal.wide { width: 100%; } }
+.modal-head .tabs { margin: 0; }
+.ed-clue { padding-top: 4px; }
+.ed-left { min-width: 0; display: grid; gap: 8px; align-content: start; }
+.ed-body { min-width: 0; }
+.ed-body .tag-pop { left: 0; right: auto; }
+.ed-body .tag-empty { min-width: 0; display: inline-grid; place-items: center; padding: 4px 14px; }
+.modal textarea.ed-info { font-size: 18px; line-height: 1.45; min-height: 150px; resize: none; overflow: hidden; }
+.ed-body .rel-note { margin-top: 10px; }
+
+/* Extras below the card-like layout */
+.ed-extra { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 32px; align-items: start; }
+.ed-extra > div { min-width: 0; }
+.ed-wide { grid-column: 1 / -1; }
+.ed-extra .rel-sec { margin-top: 16px; }
+.ed-extra .rates-dots { margin-top: 12px; }
+@media (max-width: 900px) { .ed-extra { grid-template-columns: 1fr; } }
+
+/* Sticky footer so Save is always reachable */
+.ed-foot { position: sticky; bottom: -24px; z-index: 5; margin: 20px -24px -24px; padding: 12px 24px; background: var(--card);
+  border-top: 1px solid var(--line); display: flex; align-items: center; justify-content: flex-end; gap: 12px; border-radius: 0 0 10px 10px; }
+.ed-foot .problems { margin: 0 auto 0 0; text-align: left; }
+
+/* Drop zone (no image yet) */
+.ed-drop { display: grid; place-items: center; min-height: 280px; border: 1.5px dashed var(--line); border-radius: 8px; color: var(--mute); cursor: pointer; }
+.ed-drop:hover, .ed-drop:focus-visible, .ed-drop.over { border-color: var(--sea-hi); color: var(--sea-hi); background: #6cc0e50d; }
+.ed-media.over { outline: 2px dashed var(--sea-hi); outline-offset: -2px; }
+.ed-busy { position: absolute; inset: 0; z-index: 6; display: grid; place-items: center; background: rgba(9, 12, 17, .55); }
+.ed-busy .st-icon { margin: 0; }
+.ed-path { max-width: none; }
+
+/* Icon toolbar under the image */
+.ed-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 2px; width: fit-content; max-width: 100%; padding: 3px;
+  background: var(--raise); border: 1px solid var(--line); border-radius: 8px; }
+.ed-tool { display: grid; place-items: center; width: 34px; height: 34px; padding: 0; border: 0; border-radius: 6px; background: none; color: var(--ink); cursor: pointer; }
+.ed-tool:hover:not(:disabled) { background: #ffffff14; }
+.ed-tool:disabled { opacity: .35; cursor: default; }
+.ed-tool[aria-pressed="true"] { background: var(--sea); color: #fff; }
+.ed-tool.ok { color: var(--ok); }
+.ed-tool.no { color: var(--coral); }
+.ed-sep { width: 1px; height: 20px; margin: 0 4px; background: var(--line); }
+
+/* Height-limit handle: the bottom edge of the image */
+.ed-hh { position: absolute; left: 0; right: 0; bottom: 0; z-index: 3; height: 20px; display: grid; place-items: center; cursor: ns-resize;
+  touch-action: none; color: #fff; opacity: .5; background: linear-gradient(transparent, rgba(0, 0, 0, .6)); transition: opacity .15s; }
+.ed-hh::before { content: ""; width: 44px; height: 4px; border-radius: 2px; background: currentColor; }
+.ed-media:hover .ed-hh, .ed-hh:focus-visible, .ed-hh.on { opacity: 1; }
+.ed-hh.set { box-shadow: inset 0 -2px 0 var(--sea-hi); }
+.ed-hval { position: absolute; right: 8px; bottom: 26px; z-index: 4; padding: 2px 8px; border-radius: 6px; background: rgba(0, 0, 0, .8);
+  color: #fff; font-size: 12px; font-weight: 600; font-variant-numeric: tabular-nums; pointer-events: none; }
+
+/* Crop box */
+.ed-crop { position: absolute; inset: 0; z-index: 4; touch-action: none; user-select: none; -webkit-user-select: none; overflow: hidden; }
+.ed-sel { position: absolute; cursor: move; outline: 1.5px solid #fff; box-shadow: 0 0 0 9999px rgba(8, 12, 17, .62); touch-action: none; }
+.ed-sel::before, .ed-sel::after { content: ""; position: absolute; inset: 0; pointer-events: none; }
+.ed-sel::before { background: linear-gradient(90deg, transparent calc(33.33% - .5px), rgba(255, 255, 255, .35) 0 calc(33.33% + .5px), transparent 0 calc(66.66% - .5px), rgba(255, 255, 255, .35) 0 calc(66.66% + .5px), transparent 0); }
+.ed-sel::after { background: linear-gradient(180deg, transparent calc(33.33% - .5px), rgba(255, 255, 255, .35) 0 calc(33.33% + .5px), transparent 0 calc(66.66% - .5px), rgba(255, 255, 255, .35) 0 calc(66.66% + .5px), transparent 0); }
+.ed-h { position: absolute; z-index: 1; width: 14px; height: 14px; border-radius: 3px; background: #fff; box-shadow: 0 1px 4px rgba(0, 0, 0, .6); transform: translate(-50%, -50%); touch-action: none; }
+.ed-h::after { content: ""; position: absolute; inset: -8px; }
+@media (prefers-reduced-motion: reduce) { .ed-hh { transition: none; } }
+
+/* ── Second round ── */
+.ed-drop { position: relative; }
+.ed-body { padding-bottom: 44px; }
+.ed-tagrow { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
+.ed-tagrow .clue-tags { margin-bottom: 0; }
+.ed-vis { width: auto; min-width: 0; max-width: none; padding: 4px 10px; font-size: 13px; }
+.tag.loc-only { padding: 3px 10px; display: inline-flex; align-items: center; gap: 4px; }
+
+/* Badges inside the image: inactive ones are dimmed */
+.cb.dim { opacity: .3; filter: grayscale(1); }
+.cb-btn { display: grid; place-items: center; padding: 0; border: 0; background: none; opacity: .35; filter: grayscale(.7); transition: opacity .15s, filter .15s; }
+.cb-btn:hover { opacity: .75; }
+.cb-btn.on { opacity: 1; filter: none; }
+
+/* Relations under the image: icon + miniature, no text labels */
+.ed-rels { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.ed-rel { padding: 3px 4px 3px 8px; gap: 6px; }
+.ed-rel > span { max-width: 160px; }
+.ed-rel-img { width: 44px; height: 30px; object-fit: cover; border-radius: 4px; display: block; }
+.ed-add { border: 1px dashed var(--sea-hi); color: var(--sea-hi); }
+.ed-rels .flag { width: 16px; height: auto; }
+
+/* Source chip: same spot as on the card, widens when opened */
+.ed-src { display: flex; align-items: center; gap: 6px; padding: 4px 10px; }
+/* In the editor the chip sits in the formatting row, pushed to the far right, instead of
+   the card's absolute bottom-right corner. `.chip.src.ed-src` outranks `.chip.src` (which
+   would otherwise force `display: grid`, stacking the icon and input into two lines). */
+.chip.src.ed-src { position: static; right: auto; bottom: auto; margin-left: auto; align-self: flex-start; display: flex; align-items: center; gap: 0; width: auto; max-width: 54px; overflow: hidden; transition: max-width .22s ease, gap .22s ease; }
+/* Open: widen leftward from the right edge (capped so it doesn't span the whole row). */
+.chip.src.ed-src.open { max-width: min(320px, 100%); gap: 6px; margin-left: auto; }
+/* Keep the icon from shrinking while the row is collapsed. */
+.chip.src.ed-src .ed-src-btn { flex-shrink: 0; }
+/* The input stays mounted so both opening and closing animate; it fades as the chip widens. */
+.chip.src.ed-src input { opacity: 0; transition: opacity .22s ease; }
+.chip.src.ed-src.open input { opacity: 1; }
+.ed-src-btn { display: grid; place-items: center; padding: 2px; border: 0; background: none; color: var(--mute); cursor: pointer; }
+.ed-src.open { width: min(380px, 100%); border-color: var(--sea-hi); }
+.ed-src.bad { border-color: var(--coral); }
+.ed-src input { flex: 1; min-width: 0; max-width: none; padding: 3px 4px; border: 0; background: transparent; }
+.ed-src input:focus-visible { outline: none; }
+
+/* Rating scales: fixed columns so every row lines up */
+.rates-dots .rdots-row { grid-template-columns: 96px 56px max-content 56px 24px; align-items: center; }
+.rates-dots .rdots-row small:nth-of-type(1) { text-align: right; }
+.rates-dots .rdots { display: inline-flex; align-items: center; height: 20px; }
+.rates-dots .rdots button { flex: none; margin: 0; }
+.rates-dots .rate-clear { display: grid; place-items: center; height: 20px; }
+
+/* Grouped clues: no dividers, closer together */
+.clue-box .clue { border-bottom: 0; padding: 8px 0; }
+.clue-box .clue:first-child { padding-top: 16px; }
+.clue-box .clue:last-child { padding-bottom: 16px; }

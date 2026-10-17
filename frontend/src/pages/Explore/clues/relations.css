@@ -18,8 +18,9 @@
 
 /* ── Card: badges, top right of the image ── */
 .clue-badges { position: absolute; top: 8px; right: 8px; z-index: 2; display: flex; gap: 6px; align-items: center; }
-.cb { font-size: 20px; line-height: 1; cursor: help; filter: drop-shadow(0 1px 3px rgba(0,0,0,.7)); }
-.cb-img { display: block; width: 24px; height: 24px; object-fit: contain; cursor: help; filter: drop-shadow(0 1px 3px rgba(0,0,0,.7)); }
+.cb { font-size: 20px; line-height: 1; filter: drop-shadow(0 1px 3px rgba(0,0,0,.7)); }
+/* Scoped to .clue-badges so the card's `.clue-media img { width: 100% }` doesn't stretch these. */
+.clue-badges .cb-img { display: block; width: 20px; height: 20px; object-fit: contain; filter: drop-shadow(0 1px 3px rgba(0,0,0,.7)); }
 
 /* ── Grouped clues share one box ── */
 .clue-box { margin: 16px 0; padding: 0 20px; background: var(--card); border: 1px solid var(--sea); border-radius: 10px; }

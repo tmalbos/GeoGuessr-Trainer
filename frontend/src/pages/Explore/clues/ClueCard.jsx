@@ -8,6 +8,7 @@ import { GENERAL_TAGS, LOCATION_TAGS } from "./tags.js";
 import { useCountries } from "./countries.js";
 import { verbFor, relsOf, uniq } from "./relations.js";
 import "./blur.css";
+import "./editor.css";
 import "./relations.css";
 
 const ico = { width: 16, height: 16, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 2, strokeLinecap: "round", strokeLinejoin: "round", "aria-hidden": true };
@@ -20,10 +21,12 @@ const Grip = () => <svg width="14" height="20" viewBox="0 0 14 20" fill="current
 const hostOf = (url) => { try { return new URL(url).hostname.replace(/^www\./, ""); } catch { return ""; } };
 
 // Image (with the regional map overlaid) or, without an image, just the map.
+// `clue.max_height` (px) caps the image: it keeps its proportions, so a tall image just gets narrower.
 function Media({ cc, clue, children }) {
   const hasMap = clue.scope === "reg";
   const map = hasMap && <ClueMap cc={cc} clue={clue} />;
-  return <div className="clue-media">
+  const limited = !!clue.image && !!clue.max_height;
+  return <div className={`clue-media ${limited ? "limited" : ""}`} style={limited ? { "--mh": `${clue.max_height}px` } : undefined}>
     {clue.image
       ? <>
           <img src={`/api/clues/${cc}/files/${clue.image}`} alt="" loading="lazy"
