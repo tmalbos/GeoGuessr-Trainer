@@ -84,8 +84,8 @@
   const gameToken = () => (location.pathname.match(/^\/(?:[a-z]{2}(?:-[a-z]+)?\/)?game\/([A-Za-z0-9]+)/) || [])[1];
 
   let current = null; // key of the round already armed
-  let lastRound = null; // { lat, lng } of the round in progress (for the HUD button)
-  let game = null; // { mapName, skip, guessed } from the last game response
+  let lastRound = null; // { token, lat, lng } of the round in progress (for the HUD button)
+  let game = null; // { token, mapName, skip, guessed } from the last game response
   let pending = null; // the view to apply: { zoom, center, km, armedAt, status }
   let wasVisible = false;
   let sessionStart = 0; // last moment the minimap became visible (= a round actually started)
@@ -131,19 +131,33 @@
 
   // New round data (or the HUD button): remember the view. It is applied only once the minimap is
   // really on screen, so sitting on the results screen never uses up the apply window.
-  function arm(lat, lng) {
+  function arm(token, lat, lng) {
     const t = offsetTarget(lat, lng);
-    pending = { zoom: cfg.zoom, center: { lat: t.lat, lng: t.lng }, km: t.distKm, armedAt: Date.now(), status: "waiting" };
+    pending = { token, zoom: cfg.zoom, center: { lat: t.lat, lng: t.lng }, km: t.distKm, armedAt: Date.now(), status: "waiting" };
+  }
+
+  // THE gate. Nothing is ever applied (by the loop or by the badge button) unless all of this holds
+  // right now: extension on, a normal /game/ page, a standard game whose round is still open,
+  // and a map from the user's list. Duels, daily/live modes and everything else fail the URL test.
+  function active() {
+    const token = gameToken();
+    return cfg.enabled && !!token && game?.token === token && !game.skip && !game.guessed && listed(game.mapName);
   }
 
   setInterval(() => {
+    // The page is a SPA: forget everything that belongs to another page.
+    const token = gameToken();
+    if (pending && pending.token !== token) pending = null;
+    if (lastRound && lastRound.token !== token) lastRound = null;
+    if (game && game.token !== token) game = null;
+
     const m = guessMap();
     const vis = !!m && isVisible(m);
     if (vis && !wasVisible) sessionStart = Date.now();
     wasVisible = vis;
     if (m) watch(m);
     const p = pending;
-    if (!p || !vis) return;
+    if (!p || !vis || !active()) return;
     const from = Math.max(sessionStart, p.armedAt);
     if (Date.now() - from > WINDOW_MS || lastTouch >= from) return;
     try { m.setZoom(p.zoom); m.setCenter(p.center); } catch { return; }
@@ -156,17 +170,17 @@
     if (!token || (data.token && data.token !== token)) return;
     const round = data.round;
     const r = data.rounds[round - 1];
-    game = { mapName: data.mapName, skip: "", guessed: false };
+    game = { token, mapName: data.mapName, skip: "", guessed: false };
     if (data.type && data.type !== "standard") { game.skip = `tipo ${data.type}`; return; }
     if (!r || typeof r.lat !== "number" || typeof r.lng !== "number") return;
     game.guessed = (data.player?.guesses?.length ?? 0) >= round || data.state === "finished";
     if (game.guessed) return;
-    lastRound = { lat: r.lat, lng: r.lng };
+    lastRound = { token, lat: r.lat, lng: r.lng };
     if (!cfg.enabled || !listed(data.mapName)) return; // only the maps the user listed
     const key = `${token}:${round}`;
     if (key === current) return;
     current = key;
-    arm(r.lat, r.lng);
+    arm(token, r.lat, r.lng);
   }
 
   // GeoGuessr's own game requests (immediate) + a slow poll as a fallback.
@@ -194,7 +208,7 @@
   function headline() {
     if (!settingsReady) return ["bad", "sin configuración (recargá la pestaña)"];
     if (!cfg.enabled) return ["off", "desactivada"];
-    if (!gameToken()) return ["warn", "lista · entrá a una partida (/game/)"];
+    if (!gameToken()) return ["off", "inactiva en esta pantalla (solo funciona en partidas /game/)"];
     if (!patched) return ["warn", "esperando Google Maps…"];
     if (!game) return ["warn", "esperando datos de la partida…"];
     if (game.skip) return ["off", `no aplica (${game.skip})`];
@@ -221,8 +235,8 @@
         button:hover{border-color:#6cc0e5}
       </style>
       <div class="box"><i></i><span></span>
-        <button title="Reaplicar en esta ronda (ignora la lista de mapas)">↻</button></div>`;
-    root.querySelector("button").addEventListener("click", () => { if (lastRound) arm(lastRound.lat, lastRound.lng); });
+        <button title="Reaplicar en esta ronda">↻</button></div>`;
+    root.querySelector("button").addEventListener("click", () => { if (lastRound && active()) arm(lastRound.token, lastRound.lat, lastRound.lng); });
     hud = { host, dot: root.querySelector("i"), text: root.querySelector("span") };
     document.documentElement.appendChild(host);
   }

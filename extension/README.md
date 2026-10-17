@@ -16,11 +16,12 @@ elegido y un offset aleatorio respecto al lugar real, para entrenar el pinpointi
   dentro de un elemento `guess-map*`), lee la ubicación real de `/api/v3/games/{token}` y, cuando el
   minimapa aparece en pantalla, hace `setZoom` + `setCenter`. Muestra un cartelito de estado abajo
   al centro (verde = aplicado, amarillo = esperando, rojo = problema, gris = desactivada);
-  su botón ↻ reaplica en la ronda actual ignorando la lista de mapas.
+  su botón ↻ reaplica en la ronda actual (con las mismas reglas de abajo).
 - `src/bridge.js`: lee `chrome.storage` y le pasa la config a `inject.js`.
 - `popup/`: configuración. `icons/`: íconos.
 
 ## Reglas
+Todas se verifican juntas, en cada aplicación (función `active()` en `inject.js`):
 - Solo corre en `/game/{token}` (nunca duelos ni modos en vivo), solo si está activada y solo si
   `mapName` está en la lista.
 - Offset: % de la mitad de la ventana del minimapa (referencia 232 px = 775 × 0.6 / 2, la misma
