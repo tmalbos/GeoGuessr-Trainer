@@ -7,6 +7,7 @@ import History from "./pages/History.jsx";
 import Minigames from "./pages/Minigames/index.jsx";
 import Settings from "./pages/Settings.jsx";
 import Study from "./pages/Study/index.jsx";
+import Technical from "./pages/Technical/index.jsx";
 
 // [url key, rail label, component]. The URL is the source of truth: #/explore/AR, #/analysis/country, ...
 const PAGES = [
@@ -15,6 +16,7 @@ const PAGES = [
   ["analysis", "Analysis", Analysis],
   ["study", "Study", Study],
   ["minigames", "Minigames", Minigames],
+  ["technical", "Technical", Technical],
   ["settings", "Settings", Settings],
 ];
 

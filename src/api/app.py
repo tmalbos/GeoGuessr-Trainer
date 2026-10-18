@@ -20,6 +20,7 @@ from src.api.routers import (
     streetview,
     study_scripts,
     sync,
+    technical,
 )
 from src.app_context import AppContext
 from src.i18n.lang import load as load_lang
@@ -53,5 +54,6 @@ for router_module in (
     coverage,
     replay_report,
     streetview,
+    technical,
 ):
     app.include_router(router_module.router, prefix="/api")
