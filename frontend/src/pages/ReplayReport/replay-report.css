@@ -23,10 +23,20 @@
 .rr-g { display: inline-grid; place-items: center; align-self: center; }
 .gi { display: inline-block; vertical-align: middle; object-fit: contain; }
 /* Same ratio as the minimap window the "seen" calculations use (MAP_PX = 1245 x 775 in replay_behavior.py).
-   z-index: 0 keeps Leaflet's panes below the side rail. */
-.rr-map { position: relative; z-index: 0; width: 90%; margin: 0 auto; aspect-ratio: 1245 / 775; border: 1px solid var(--line); border-radius: 8px; background: var(--raise); }
-.rr-pin, .rr-arrow { background: none; border: 0; }
-.rr-arrow svg { display: block; filter: drop-shadow(0 1px 3px rgba(0,0,0,.6)); }
+   z-index: 0 keeps the map's own layers below the side rail. */
+.rr-map { position: relative; z-index: 0; width: 90%; margin: 0 auto; aspect-ratio: 1245 / 775; border: 1px solid var(--line); border-radius: 8px; background: var(--raise); overflow: hidden; }
+.rr-pin { position: absolute; pointer-events: none; }
+.rr-map { cursor: grab; touch-action: none; user-select: none; -webkit-user-select: none; }
+.rr-map.moving { cursor: grabbing; }
+.rr-tiles { position: absolute; inset: 0; overflow: hidden; z-index: 1; }
+.rr-tl { position: absolute; left: 0; top: 0; width: 0; height: 0; transform-origin: 0 0; will-change: transform; }
+.rr-tile { position: absolute; width: 256px; height: 256px; max-width: none; pointer-events: none; -webkit-user-drag: none; }
+.rr-zoom { position: absolute; right: 8px; bottom: 24px; z-index: 4; display: grid; gap: 6px; }
+.rr-zoom .btn { width: 32px; height: 32px; padding: 0; font-size: 18px; line-height: 1; }
+/* Our own overlay (path, pins, areas, highlight). Its origin is moved over the map with a transform; it never takes clicks. */
+.rr-layer { position: absolute; left: 0; top: 0; width: 0; height: 0; z-index: 2; pointer-events: none; transform-origin: 0 0; will-change: transform; }
+.rr-svg { position: absolute; left: 0; top: 0; width: 1px; height: 1px; overflow: visible; }
+.rr-attr { position: absolute; right: 0; bottom: 0; z-index: 3; padding: 0 6px; font-size: 10px; color: #333; background: rgba(255,255,255,.75); pointer-events: none; }
 .rr-pin svg, .rr-pin img { display: block; filter: drop-shadow(0 1px 3px rgba(0,0,0,.5)); }
 .rr-real img { box-sizing: content-box; width: 32px; height: 32px; border: 3px solid #fff; border-radius: 50%; }
 
