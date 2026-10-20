@@ -16,6 +16,7 @@ from src.api.routers import (
     minigames,
     replay_report,
     settings,
+    stain,
     status,
     streetview,
     study_scripts,
@@ -55,5 +56,6 @@ for router_module in (
     replay_report,
     streetview,
     technical,
+    stain,
 ):
     app.include_router(router_module.router, prefix="/api")

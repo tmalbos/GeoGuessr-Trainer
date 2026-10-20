@@ -1,0 +1,20 @@
+.st .tp-main { position: static; }
+.st-stage { position: relative; display: block; width: fit-content; max-width: 100%; user-select: none; -webkit-user-select: none;
+  touch-action: none; cursor: crosshair; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: var(--raise); }
+.st-stage img { display: block; max-width: 100%; max-height: 62vh; width: auto; height: auto; pointer-events: none; -webkit-user-drag: none; }
+.st-ov { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+.st-ov path { fill: none; stroke-width: 2; vector-effect: non-scaling-stroke; }
+.st-ov .o { stroke: #6cc0e5; }
+.st-ov .b { stroke: #ff7357; stroke-width: 1.5; }
+.st-crop { position: absolute; outline: 1.5px solid #fff; box-shadow: 0 0 0 9999px rgba(8, 12, 17, .55); pointer-events: none; }
+.st-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; margin: 10px 0; }
+.st-bar .btn { padding: 6px 12px; }
+.st-legend { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 12px; }
+.st-legend i { display: inline-block; width: 18px; height: 0; margin-right: 6px; vertical-align: middle; border-top: 2px solid #6cc0e5; }
+.st-legend i.b { border-top: 2px solid #ff7357; }
+.st-status { font-size: 13px; }
+.st-status b.good { color: var(--ok); } .st-status b.check { color: #e6b84a; } .st-status b.poor { color: var(--coral); }
+.st-result { margin-top: 14px; }
+.sp-svg { display: block; width: 100%; height: auto; max-height: 70vh; }
+.sp-r { fill: #f6f4e4; stroke: #8b98a8; stroke-width: 1px; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
+.sp-poly { fill-opacity: .9; stroke: #1a1a1a; stroke-opacity: .55; stroke-width: 1px; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
