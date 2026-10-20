@@ -1,47 +1,58 @@
 """stain_extract.py — Turn a screenshot of a country map with painted areas ("stains") into polygons.
 
-The map is found by REGISTRATION, not by guessing from colours (colours fail on photos, white
-margins, near-white land...). The country is given, so its outline and first-level borders are known:
+The base map is NEVER extracted: the app already has the country's own map and draws it underneath.
+Only the stains (painted areas) are returned, as polygons in lon/lat.
 
-  1. _edges        crisp edges of the image (a drawn map is full of thin, sharp lines; a photo mostly isn't).
-  2. _candidates   coarse search: slide the known outline + borders (rendered as thin lines) over the edge
-                   map at many scales, per projection, scoring how many line pixels land on an edge
-                   *above what chance would give in that neighbourhood* (so busy photo areas don't win).
-  3. _refine       the best few placements are refined with annealed ICP (outline and borders solved
-                   together, free x / y scale) against the edge pixels. Best confidence wins.
-  4. classes       now the map's exact shape is known: colours are clustered ONLY inside it. The
-                   biggest flat colour is the base map, thin classes are drawn lines, and the other
-                   classes enclosed by land are the stains.
-  5. polygons      each class mask -> smoothed sub-pixel polygon -> lon/lat (inverse transform),
-                   clipped to the outline.
+The map is found by REGISTRATION, not by guessing from colours. The country is given, so its
+outline and first-level borders are known:
+
+  1. _edges        crisp edges of the image, kept only next to LIGHT pixels (a drawn map sits on a
+                   light base; trees, roofs and shadows of a photo mostly don't).
+  2. _candidates   coarse search: slide the known outline + borders over the edge map at several
+                   scales, per projection. The score is "line pixels that land on an edge, above
+                   what chance gives" times "how light the inside of the placed outline is".
+  3. _refine       the best few placements are refined with annealed ICP against the edge pixels.
+  4. stains        inside the matched shape the base colour is the most common flat colour. A stain
+                   is anything that differs from it in CONTRAST (Lab distance, chroma-aware), except
+                   bluish pixels (lakes / rivers) and thin lines (borders, labels).
+  5. polygons      each stain colour -> filled, smoothed polygon -> lon/lat, clipped to the outline.
 
 All pixel work is crop-local (the crop only limits where the search happens).
 """
 
 import io
+import json
 import math
-import operator
 
 import numpy as np
 import shapely
 from PIL import Image, ImageDraw, ImageFilter, ImageOps
 from shapely.affinity import affine_transform
 
+try:  # much faster nearest-neighbour search when scipy is around
+    from scipy.spatial import cKDTree
+except ImportError:  # pragma: no cover
+    cKDTree = None
+
 WORK_MAX = 800  # longest side of the working image, px
-TOL = 40  # L1 colour distance (sum over R,G,B) that still counts as "the same flat colour"
+TOL = 40  # L1 colour distance (sum over R,G,B) under which two shades are merged into one stain
 MIN_CROP = 32  # smallest crop side, px
-MIN_CLASS_SHARE = 0.0015  # a colour class smaller than this share of the map is ignored
-RING_SUPPORT_MIN = (
-    0.4  # share of a stain's surroundings that must be land / lines / outside the map
-)
+MIN_CLASS_SHARE = 0.0015  # a stain smaller than this share of the map is ignored
 EDGE_T = 40.0  # gradient magnitude (sum over channels) that counts as an edge
-COARSE_MAX = 400  # longest side of the image used by the coarse search
-SCALE_STEP = 1.035  # ratio between two scales of the coarse search
-MIN_MAP_FRACTION = 0.1  # smallest map considered, relative to the largest that fits the image
-TOP_K = 5  # coarse candidates that get refined
-ICP_ITERS = 60
-SMOOTH = 1.5  # default blur (px) applied to class masks before vectorising: rounder polygons
+LIGHT_MIN = 170  # a pixel is "light" when its darkest channel is at least this
+COARSE_MAX = 300  # longest side of the image used by the coarse search
+SCALE_STEP = 1.05  # ratio between two scales of the coarse search
+MIN_MAP_FRACTION = 0.2  # smallest map considered, relative to the largest that fits the image
+TOP_K = 3  # coarse candidates that get refined
+ICP_ITERS = 45
+SMOOTH = 1.5  # default blur (px) applied to stain masks before vectorising: rounder polygons
 UPSCALE = 3  # the blurred mask is upscaled by this before thresholding (sub-pixel contours)
+
+# Stain contrast (CIE Lab, distance to the base colour)
+AB_MIN = 8.0  # colour (chroma) difference needed...
+DE_MIN = 9.0  # ...together with this much overall difference
+DE_STRONG = 28.0  # or this much overall difference alone (dark / very different fills)
+HOLE_MIN = 30.0  # holes in a stain smaller than this (px²) are filled
 
 
 class StainError(Exception):
@@ -90,6 +101,10 @@ def _close(m: np.ndarray, r: int) -> np.ndarray:
     return _erode(_dilate(m, r), r)
 
 
+def _open(m: np.ndarray, r: int) -> np.ndarray:
+    return _dilate(_erode(m, r), r)
+
+
 def _mask_geom(m: np.ndarray, simplify: float = 0.8):
     """Boolean mask -> polygon(s) in pixel coordinates (x right, y down)."""
     p = np.pad(m, ((0, 0), (1, 1))).astype(np.int8)
@@ -118,6 +133,15 @@ def _polys(g) -> list:
     return [p for p in shapely.get_parts(g) if p.geom_type == "Polygon" and not p.is_empty]
 
 
+def _fill_holes(parts: list, min_area: float):
+    """Union of the polygons with their small holes filled (borders / labels crossing a stain)."""
+    out = []
+    for p in parts:
+        holes = [r for r in p.interiors if shapely.Polygon(r).area >= min_area]
+        out.append(shapely.Polygon(p.exterior, holes))
+    return shapely.union_all(out) if out else shapely.GeometryCollection()
+
+
 def _poly_only(g):
     """Only the polygonal part of a geometry as one geometry (empty if there is none)."""
     parts = []
@@ -135,6 +159,20 @@ def _poly_only(g):
 
 def _hex(c) -> str:
     return "#{:02x}{:02x}{:02x}".format(*(int(max(0, min(255, round(v)))) for v in c))
+
+
+def _lab(rgb: np.ndarray) -> np.ndarray:
+    """(N, 3) RGB 0..255 -> (N, 3) CIE Lab (D65)."""
+    c = rgb.astype(np.float32) / 255.0
+    c = np.where(c <= 0.04045, c / 12.92, ((c + 0.055) / 1.055) ** 2.4)
+    m = np.array(
+        [[0.4124, 0.3576, 0.1805], [0.2126, 0.7152, 0.0722], [0.0193, 0.1192, 0.9505]], np.float32
+    )
+    xyz = (c @ m.T) / np.array([0.95047, 1.0, 1.08883], np.float32)
+    f = np.where(xyz > 0.008856, np.cbrt(xyz), 7.787 * xyz + 16 / 116)
+    return np.column_stack(
+        [116 * f[:, 1] - 16, 500 * (f[:, 0] - f[:, 1]), 200 * (f[:, 1] - f[:, 2])]
+    )
 
 
 # ── projections ────────────────────────────────────────────────────────────
@@ -188,9 +226,11 @@ def _fast_len(n: int) -> int:
 # ── coarse search ──────────────────────────────────────────────────────────
 
 
-def _candidates(e_coarse: np.ndarray, f: int, uv, uvb) -> list[dict]:
-    """Best placement of the known lines at every scale. Returns [{lift, a, tx, ty}] in FULL-res
+def _candidates(e_coarse: np.ndarray, light_coarse: np.ndarray, f: int, uv, uvb) -> list[dict]:
+    """Best placement of the known lines at every scale. Returns [{score, a, tx, ty}] in FULL-res
     px for x = a*u + tx, y = -a*v + ty.
+
+    score = (line pixels on edges, above chance) x (how light the inside of the outline is).
     """
     hh, ww = e_coarse.shape
     ub = uv.bounds
@@ -198,14 +238,15 @@ def _candidates(e_coarse: np.ndarray, f: int, uv, uvb) -> list[dict]:
     if tw <= 0 or th <= 0:
         return []
     diag = math.hypot(tw, th)
-    samples = [shapely.get_coordinates(shapely.segmentize(uv, diag / 1500))]
+    samples = [shapely.get_coordinates(shapely.segmentize(uv, diag / 1000))]
     if uvb is not None:
-        samples.append(shapely.get_coordinates(shapely.segmentize(uvb, diag / 1500)))
+        samples.append(shapely.get_coordinates(shapely.segmentize(uvb, diag / 1000)))
     pts = np.concatenate(samples)
 
     b = _dilate(e_coarse, 1).astype(np.float32)
     sh = (_fast_len(hh), _fast_len(ww))
     fb = np.fft.rfft2(b, sh)
+    fl = np.fft.rfft2(light_coarse.astype(np.float32), sh)
     integ = np.zeros((hh + 1, ww + 1))
     integ[1:, 1:] = b.cumsum(0).cumsum(1)
 
@@ -221,20 +262,28 @@ def _candidates(e_coarse: np.ndarray, f: int, uv, uvb) -> list[dict]:
             t = np.zeros((h, w), np.float32)
             t[py, px] = 1
             n_t = float(t.sum())
-            corr = np.fft.irfft2(fb * np.conj(np.fft.rfft2(t, sh)), sh)[: hh - h + 1, : ww - w + 1]
+            sl = (slice(0, hh - h + 1), slice(0, ww - w + 1))
+            corr = np.fft.irfft2(fb * np.conj(np.fft.rfft2(t, sh)), sh)[sl]
             hit = corr / n_t
-            box = (
-                integ[h:, w:][: hh - h + 1, : ww - w + 1]
-                - integ[:-h, w:][: hh - h + 1, : ww - w + 1]
-                - integ[h:, :-w][: hh - h + 1, : ww - w + 1]
-                + integ[:-h, :-w][: hh - h + 1, : ww - w + 1]
-            )
+            box = integ[h:, w:][sl] - integ[:-h, w:][sl] - integ[h:, :-w][sl] + integ[:-h, :-w][sl]
             dens = box / (h * w)
             lift = (hit - dens) / (1 - dens + 0.05)
-            iy, ix = np.unravel_index(int(np.argmax(lift)), lift.shape)
+
+            # inside of the placed outline: is it light?
+            placed = shapely.transform(
+                uv, lambda c, a=a: np.column_stack([(c[:, 0] - ub[0]) * a, (ub[3] - c[:, 1]) * a])
+            )
+            fill = _raster(placed, (h, w)).astype(np.float32)
+            n_f = float(fill.sum())
+            if n_f > 0:
+                lf = np.fft.irfft2(fl * np.conj(np.fft.rfft2(fill, sh)), sh)[sl] / n_f
+                score = lift * (0.4 + 0.6 * np.clip(lf, 0, 1))
+            else:
+                score = lift
+            iy, ix = np.unravel_index(int(np.argmax(score)), score.shape)
             out.append(
                 {
-                    "lift": float(lift[iy, ix]),
+                    "score": float(score[iy, ix]),
                     "size": a * f * max(tw, th),
                     "a": a * f,
                     "tx": (ix - ub[0] * a) * f,
@@ -250,6 +299,9 @@ def _candidates(e_coarse: np.ndarray, f: int, uv, uvb) -> list[dict]:
 
 def _nearest(tree, xy: np.ndarray, q: np.ndarray):
     """For every point of q: the nearest point of xy (indexed by the tree). Returns (coords, distances)."""
+    if cKDTree is not None and isinstance(tree, cKDTree):
+        d, i = tree.query(q)
+        return xy[i], d
     ii, ti = tree.query_nearest(shapely.points(q), all_matches=False)
     near = np.zeros_like(q)
     d = np.full(len(q), np.inf)
@@ -267,10 +319,10 @@ def _refine(e: np.ndarray, e_dil: np.ndarray, uv, uvb, init: dict) -> dict:
     hgt, wid = e.shape
     ub = uv.bounds
     diag = math.hypot(ub[2] - ub[0], ub[3] - ub[1])
-    po = _subsample(shapely.get_coordinates(shapely.segmentize(uv, diag / 150)), 1500)
+    po = _subsample(shapely.get_coordinates(shapely.segmentize(uv, diag / 150)), 900)
     pb = None
     if uvb is not None:
-        pb = _subsample(shapely.get_coordinates(shapely.segmentize(uvb, diag / 200)), 1500)
+        pb = _subsample(shapely.get_coordinates(shapely.segmentize(uvb, diag / 200)), 900)
 
     a, tx, ty = init["a"], init["tx"], init["ty"]
     b = -a
@@ -283,12 +335,12 @@ def _refine(e: np.ndarray, e_dil: np.ndarray, uv, uvb, init: dict) -> dict:
     ey, ex = np.nonzero(e[ys0:ys1, xs0:xs1])
     if len(ex) < 50:
         return {"a": a, "b": b, "tx": tx, "ty": ty, "hit_o": 0.0, "hit_b": None, "lift": -1.0}
-    exy = _subsample(np.column_stack([ex + xs0 + 0.5, ey + ys0 + 0.5]), 30000)
-    tree = shapely.STRtree(shapely.points(exy))
+    exy = _subsample(np.column_stack([ex + xs0 + 0.5, ey + ys0 + 0.5]), 20000)
+    tree = cKDTree(exy) if cKDTree is not None else shapely.STRtree(shapely.points(exy))
     size = max(x1 - x0, y1 - y0)
 
     for i in range(ICP_ITERS):
-        maxd = size * max(0.01, 0.06 * 0.92**i)
+        maxd = size * max(0.01, 0.06 * 0.9**i)
         near_o, d_o = _nearest(tree, exy, np.column_stack([a * po[:, 0] + tx, b * po[:, 1] + ty]))
         ko = d_o <= min(maxd, np.quantile(d_o[np.isfinite(d_o)], 0.75))
         xs, ys, tx_t, ty_t, w = (
@@ -370,11 +422,17 @@ def register(sub: np.ndarray, outline, borders, projection: str) -> dict:
         if inner is not None and inner.is_empty:
             inner = None
 
+    # A drawn map sits on light colours: keep only the edges that touch a light pixel.
+    light = sub.min(2) >= LIGHT_MIN
     e = _edges(sub)
+    near_light = e & _dilate(light, 2)
+    if near_light.sum() >= 200:
+        e = near_light
     e_dil = _dilate(e, 2)
     f = max(1, math.ceil(max(hgt, wid) / COARSE_MAX))
     hc, wc = hgt // f, wid // f
     e_coarse = e[: hc * f, : wc * f].reshape(hc, f, wc, f).max((1, 3))
+    light_coarse = light[: hc * f, : wc * f].reshape(hc, f, wc, f).mean((1, 3)) >= 0.5
 
     names = ["equirect", "mercator"] if projection == "auto" else [projection]
     cands = []
@@ -383,14 +441,15 @@ def register(sub: np.ndarray, outline, borders, projection: str) -> dict:
         uv = shapely.transform(fit_outline, fwd)
         uvb = shapely.transform(inner, fwd) if inner is not None else None
         cands.extend(
-            {**c, "name": nm, "uv": uv, "uvb": uvb} for c in _candidates(e_coarse, f, uv, uvb)
+            {**c, "name": nm, "uv": uv, "uvb": uvb}
+            for c in _candidates(e_coarse, light_coarse, f, uv, uvb)
         )
     if not cands:
         msg = "The map doesn't fit in this crop. Use a bigger crop."
         raise StainError(msg)
 
     # best few placements, skipping near-duplicates (same projection, similar scale and spot)
-    cands.sort(key=lambda c: -c["lift"])
+    cands.sort(key=lambda c: -c["score"])
     chosen: list[dict] = []
     for c in cands:
         if all(
@@ -422,7 +481,7 @@ def register(sub: np.ndarray, outline, borders, projection: str) -> dict:
     }
 
 
-# ── colour classes (inside the matched shape only) ─────────────────────────
+# ── stains (inside the matched shape only) ─────────────────────────────────
 
 
 def _cluster(a: np.ndarray, mask: np.ndarray, tol: int = TOL, max_k: int = 14):
@@ -433,7 +492,7 @@ def _cluster(a: np.ndarray, mask: np.ndarray, tol: int = TOL, max_k: int = 14):
     labels = np.full(h * w, -1, np.int16)
     centers: list[np.ndarray] = []
     idx = np.arange(len(pix))
-    min_px = max(30, int(MIN_CLASS_SHARE * len(pix) * 0.5))
+    min_px = max(20, int(MIN_CLASS_SHARE * len(pix) * 0.5))
     for k in range(max_k):
         if len(idx) < min_px:
             break
@@ -466,6 +525,33 @@ def _raster(poly_geom, size: tuple[int, int]) -> np.ndarray:
     return np.asarray(im) > 0
 
 
+def _base_color(sub: np.ndarray, core: np.ndarray) -> np.ndarray:
+    """The base map colour: the most common flat colour inside the matched shape (only used to
+    measure contrast, it is never returned).
+    """
+    pix = sub[core].astype(np.int32)
+    key = ((pix[:, 0] >> 4) << 8) | ((pix[:, 1] >> 4) << 4) | (pix[:, 2] >> 4)
+    peak = int(np.bincount(key, minlength=4096).argmax())
+    c = pix[key == peak].mean(0)
+    near = np.abs(pix - c).sum(1) <= 30
+    return pix[near].mean(0) if near.any() else c
+
+
+def _stain_candidates(sub: np.ndarray, core: np.ndarray) -> np.ndarray:
+    """Pixels of `core` that stand out from the base colour, without lakes / rivers (bluish)."""
+    pix = sub[core]
+    lab = _lab(pix)
+    base = _lab(_base_color(sub, core)[None])[0]
+    dab = np.hypot(lab[:, 1] - base[1], lab[:, 2] - base[2])
+    de = np.hypot(lab[:, 0] - base[0], dab)
+    a, b = lab[:, 1], lab[:, 2]
+    water = (b < -3) & (a < -0.36 * b)  # light or dark blue, cyan: not a stain
+    ok = (((dab >= AB_MIN) & (de >= DE_MIN)) | (de >= DE_STRONG)) & ~water
+    cand = np.zeros(core.shape, bool)
+    cand[core] = ok
+    return cand
+
+
 # ── output helpers ─────────────────────────────────────────────────────────
 
 
@@ -496,7 +582,6 @@ def analyze(
     outline,
     crop: list[float] | None = None,
     projection: str = "auto",
-    clip: bool = True,
     tol: int = TOL,
     borders=None,
     smooth: float = SMOOTH,
@@ -505,9 +590,9 @@ def analyze(
     """arr: work-size RGB. outline: the country's lon/lat geometry. crop: fractions [x0, y0, x1, y1]
     that limit where the map is searched (None = whole image). borders: lon/lat lines of the
     first-level admin borders. cache: registrations are stored here (they are the slow part).
-    """
-    import json  # noqa: PLC0415
 
+    Only the stains are returned (clipped to the outline). The base map is never part of the result.
+    """
     h0, w0 = arr.shape[:2]
     fx0, fy0, fx1, fy1 = crop or (0.0, 0.0, 1.0, 1.0)
     x0 = int(np.clip(round(fx0 * w0), 0, max(0, w0 - MIN_CROP)))
@@ -537,51 +622,54 @@ def analyze(
     core = _erode(inside, 2)  # away from the drawn coast line
     band = inside & ~core
 
-    # 2. colour classes inside the map only
-    lab, centers = _cluster(sub, core, tol)
-    if not len(centers):
-        msg = "No flat colours found inside the matched area."
-        raise StainError(msg)
+    # 2. stains = contrast against the base colour. Thin things (borders, labels) are dropped by
+    #    opening; their anti-aliased fringes are handled by growing each stain back into `cand`.
+    cand = _stain_candidates(sub, core)
+    solid = _open(cand, 1)
+    lab, centers = _cluster(sub, solid, tol)
     n_core = int(core.sum())
-    stats = []
-    for k in range(len(centers)):
-        m = lab == k
-        n = int(m.sum())
-        if n >= MIN_CLASS_SHARE * n_core:
-            stats.append({"k": k, "n": n, "thin": bool(_erode(m, 1).sum() / n < 0.45)})
-    solid = [s for s in stats if not s["thin"]]
-    if not solid:
-        msg = "No filled areas found inside the matched area."
-        raise StainError(msg)
-    land = max(solid, key=operator.itemgetter("n"))
-    thin = [s["k"] for s in stats if s["thin"]]
-    allowed = [land["k"], *thin]
+    # Shades, darkest contrast first. A paler shade that only hugs a stronger one (a thin rim of
+    # anti-aliasing) is not a stain: it is dropped if it is thin once the stronger shades are taken out.
+    base_l = _lab(_base_color(sub, core)[None])[0]
+    contrast = [float(np.linalg.norm(_lab(c[None].astype(np.uint8))[0] - base_l)) for c in centers]
+    order = sorted(range(len(centers)), key=lambda k: -contrast[k])
     stains = []
-    for s in solid:
-        if s is land:
-            continue
-        m = lab == s["k"]
-        ring = _dilate(m, 4) & ~_dilate(m, 2)
-        if ring.any():
-            sup = float((np.isin(lab[ring], allowed) | ~inside[ring]).mean())
-            if sup >= RING_SUPPORT_MIN:
-                stains.append(s)
+    stronger = np.zeros_like(core)
+    for k in order:
+        m = _open(lab == k, 1)
+        rim = _dilate(stronger, 3) if stronger.any() else stronger
+        if rim.any():
+            far = m & ~rim  # the part of this shade that is not right next to a stronger one
+            if _open(far, 1).sum() < 0.35 * m.sum():
+                lab[lab == k] = -1
+                continue
+        lab[(lab == k) & ~m] = -1
+        n = int(m.sum())
+        if n >= max(15, MIN_CLASS_SHARE * n_core):
+            stains.append({"k": k, "n": n})
+            stronger |= m
+        else:
+            lab[lab == k] = -1
     stains.sort(key=lambda s: -s["n"])
 
-    # 3. polygons per class, in lon/lat
+    # 3. polygons per stain, in lon/lat
     classes, features = [], []
-    total = sum(s["n"] for s in [land, *stains]) or 1
-    for i, (s, is_land) in enumerate([(s, False) for s in stains] + [(land, True)]):
-        m = _close(lab == s["k"], 2)
+    kept = [lab == s["k"] for s in stains]
+    total = sum(s["n"] for s in stains) or 1
+    for i, (s, own) in enumerate(zip(stains, kept, strict=True)):
+        others = np.zeros_like(own)
+        for j, o in enumerate(kept):
+            if j != i:
+                others |= o
+        m = own | (_dilate(own, 1) & cand & ~others)  # take back the anti-aliased fringe
+        m = _close(m, 2)  # borders crossing the stain don't split it
         m |= _dilate(m, 3) & band  # reach the coast line that was eroded away
         g = _smooth_geom(m, smooth)
         parts = [p for p in _polys(g) if p.area >= 8]
         if not parts:
             continue
-        ll = shapely.make_valid(shapely.transform(shapely.union_all(parts), to_lonlat))
-        if clip:
-            ll = shapely.intersection(ll, reg["clip_outline"])
-        ll = _poly_only(ll)
+        ll = shapely.make_valid(shapely.transform(_fill_holes(parts, HOLE_MIN), to_lonlat))
+        ll = _poly_only(shapely.intersection(ll, reg["clip_outline"]))
         if ll.is_empty:
             continue
         try:
@@ -589,12 +677,12 @@ def analyze(
         except Exception:  # noqa: BLE001
             pass
         hx = _hex(centers[s["k"]])
-        tag = "Base map" if is_land else f"Stain {i + 1}"
-        classes.append({"hex": hx, "tag": tag, "land": is_land, "share": round(s["n"] / total, 4)})
+        tag = f"Stain {len(classes) + 1}"
+        classes.append({"hex": hx, "tag": tag, "share": round(s["n"] / total, 4)})
         features.append(
             {
                 "type": "Feature",
-                "properties": {"tag": tag, "color": hx, "hex": hx, "land": is_land},
+                "properties": {"tag": tag, "color": hx, "hex": hx},
                 "geometry": json.loads(shapely.to_geojson(ll)),
             }
         )
@@ -617,6 +705,13 @@ def analyze(
             "aspect": round(abs(a / b), 3),
         },
         "classes": classes,
+        # The base map for the preview: the country's own outline and borders (never from the image).
+        "base": {
+            "outline": json.loads(shapely.to_geojson(shapely.simplify(reg["clip_outline"], 0.005))),
+            "borders": None
+            if borders is None or borders.is_empty
+            else json.loads(shapely.to_geojson(borders)),
+        },
         "geojson": {"type": "FeatureCollection", "features": features},
         "overlay": {
             "outline": _path(reg["placed"], x0, y0),

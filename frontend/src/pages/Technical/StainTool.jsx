@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import ErrorBox from "../../components/ErrorBox.jsx";
 import Flag from "../../components/Flag.jsx";
 import { api, errorText } from "../../lib/api.js";
-import { loadCountryMap, loadWorld } from "../Explore/geo.js";
+import { loadWorld } from "../Explore/geo.js";
 import { alignedProjection, bboxOf, fitProjection, shapes } from "../Explore/clues/geoDraw.js";
 import { download, toGeoJSON } from "./export.js";
 import "./technical.css";
@@ -14,39 +14,20 @@ const memo = { country: "" }; // remembered while you move between pages
 
 const verdict = (c) => (c >= 0.6 ? ["good", "Map found"] : c >= 0.35 ? ["check", "Check the overlay"] : ["poor", "Not sure it's the map"]);
 
-// The blank map of the country (the app's own first-level map) with the polygons painted on it.
-function StainPreview({ mapId, fc }) {
-  const [map, setMap] = useState(null);
-  const [err, setErr] = useState("");
-  useEffect(() => {
-    let off = false;
-    setMap(null); setErr("");
-    loadCountryMap(mapId).then((d) => !off && setMap(d)).catch((e) => !off && setErr(e.message));
-    return () => { off = true; };
-  }, [mapId]);
-  if (err) return <p className="err">{err}</p>;
-  if (!map) return <p className="muted">Loading map…</p>;
-
-  // Same assumption as the clue maps: the map is a linear fit of `bbox` into w × h.
+// The country's own outline and borders (from the app's local maps) as the base, with only the stains on top.
+// Both use the same projection, so they always line up.
+function StainPreview({ base, name, fc }) {
   const feats = fc?.features ?? [];
-  const aligned = !!map.bbox;
-  let W = map.w, H = map.h, project = null;
-  if (aligned) project = alignedProjection(map.bbox, W, H);
-  else if (feats.length) {
-    const bb = bboxOf({ type: "GeometryCollection", geometries: feats.map((f) => f.geometry) });
-    W = 1000; H = 700;
-    if (bb) project = fitProjection(bb, W, H);
-  }
-  const pad = 8;
-  return <svg className="sp-svg" viewBox={`${-pad} ${-pad} ${W + pad * 2} ${H + pad * 2}`} role="img" aria-label={`Map of ${map.name} with the detected areas`}>
-    {aligned && map.regions.map((r) => <g key={r.name}>
-      <path className="sp-r" d={r.d} fillRule="evenodd" />
-      {(r.dots ?? []).map(([x, y], i) => <circle key={i} className="sp-r" cx={x} cy={y} r="11" />)}
-    </g>)}
-    {project && feats.map((f, i) => {
-      const s = shapes(f.geometry, project);
-      return <path key={i} className="sp-poly" d={s.polys} fill={f.properties.color} fillRule="evenodd"><title>{f.properties.tag}</title></path>;
-    })}
+  const bb = bboxOf(base.outline);
+  if (!bb) return null;
+  const W = 1000, H = 700, pad = 8;
+  const project = fitProjection(bb, W, H);
+  const land = shapes(base.outline, project).polys;
+  const lines = base.borders ? shapes(base.borders, project).lines : "";
+  return <svg className="sp-svg" viewBox={`${-pad} ${-pad} ${W + pad * 2} ${H + pad * 2}`} role="img" aria-label={`Map of ${name} with the detected stains`}>
+    <path className="sp-land" d={land} fillRule="evenodd" />
+    {lines && <path className="sp-line" d={lines} fill="none" />}
+    {feats.map((f, i) => <path key={i} className="sp-poly" d={shapes(f.geometry, project).polys} fill={f.properties.color} fillRule="evenodd"><title>{f.properties.tag}</title></path>)}
   </svg>;
 }
 
@@ -57,8 +38,6 @@ export default function StainTool() {
   const [up, setUp] = useState(null); // { token, width, height, crop }
   const [crop, setCrop] = useState(null);
   const [draft, setDraft] = useState(null);
-  const [projection, setProjection] = useState("auto");
-  const [clip, setClip] = useState(true);
   const [tol, setTol] = useState(40);
   const [smooth, setSmooth] = useState(1.5);
   const [res, setRes] = useState(null);
@@ -110,12 +89,12 @@ export default function StainTool() {
     let stale = false;
     setBusy(true);
     const t = setTimeout(() => {
-      api("/technical/stain/analyze", { method: "POST", body: { token: up.token, country, crop, projection, clip, tol, smooth } })
+      api("/technical/stain/analyze", { method: "POST", body: { token: up.token, country, crop, tol, smooth } })
         .then((r) => { if (!stale) { setRes(r); setErr(""); setBusy(false); } })
         .catch((e) => { if (!stale) { setErr(errorText(e)); setBusy(false); } });
     }, 300);
     return () => { stale = true; clearTimeout(t); };
-  }, [up, country, cropKey, projection, clip, tol, smooth]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [up, country, cropKey, tol, smooth]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── drawing the crop box on the image ──
   const frac = (e) => {
@@ -136,15 +115,17 @@ export default function StainTool() {
     if (d && d[2] - d[0] >= MIN_BOX && d[3] - d[1] >= MIN_BOX) setCrop(d);
   };
 
-  const on = (c) => off[c.hex] ?? !c.land;
+  // Only stains come back (the base map is the app's own). Every stain starts on.
+  const on = (hex) => off[hex] ?? true;
   const fc = useMemo(() => {
     if (!res) return null;
-    const keep = res.geojson.features.filter((f) => on({ hex: f.properties.hex, land: f.properties.land }));
+    const keep = res.geojson.features.filter((f) => on(f.properties.hex));
     return keep.length ? { type: "FeatureCollection", features: keep } : null;
   }, [res, off]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const box = draft ?? crop ?? res?.bbox ?? null;
   const [vk, vl] = res ? verdict(res.fit.confidence) : [];
+  const noStains = !!res && !res.classes.length;
 
   return <div className="tp st">
     <div className="tp-side">
@@ -167,61 +148,58 @@ export default function StainTool() {
       </div>
 
       <h3>Matching</h3>
-      <div className="tp-field"><label htmlFor="st-proj">Projection</label>
-        <select id="st-proj" value={projection} onChange={(e) => setProjection(e.target.value)}>
-          <option value="auto">Auto (best match)</option><option value="equirect">Equirectangular</option><option value="mercator">Mercator</option></select></div>
       <div className="tp-field">
-        <label htmlFor="st-tol">Color tolerance<span className="muted">{tol}</span></label>
+        <label htmlFor="st-tol" title="Shades closer than this are merged into one stain">Merge similar shades<span className="muted">{tol}</span></label>
         <input id="st-tol" type="range" min={10} max={100} step={5} value={tol} onChange={(e) => setTol(Number(e.target.value))} />
       </div>
       <div className="tp-field">
         <label htmlFor="st-smooth">Smoothness<span className="muted">{smooth}</span></label>
         <input id="st-smooth" type="range" min={0} max={4} step={0.5} value={smooth} onChange={(e) => setSmooth(Number(e.target.value))} />
       </div>
-      <label className="tp-chk" title="Cut the polygons to the country outline"><input type="checkbox" checked={clip} onChange={(e) => setClip(e.target.checked)} />Clip to country</label>
 
       {res && <>
-        <h3>Colors found</h3>
-        <div className="tp-tags">
+        <h3>Stains found</h3>
+        {noStains ? <p className="muted">No stained areas found inside the map.</p> : <div className="tp-tags">
           {res.classes.map((c) => <label className="tp-tag" key={c.hex} title={c.hex}>
-            <input type="checkbox" checked={on(c)} onChange={() => setOff((o) => ({ ...o, [c.hex]: !on(c) }))} />
+            <input type="checkbox" checked={on(c.hex)} onChange={() => setOff((o) => ({ ...o, [c.hex]: on(c.hex) }))} />
             <i style={{ background: c.hex }} /><span>{c.tag}</span><span className="muted">{Math.round(c.share * 100)}%</span>
           </label>)}
-        </div>
+        </div>}
         <h3>Export</h3>
         <div className="tp-row">
           <button type="button" className="btn ghost" disabled={!fc}
             onClick={() => download(new Blob([toGeoJSON(fc)], { type: "application/geo+json" }), `${country}-stain.geojson`)}>GeoJSON</button>
         </div>
-        <p className="muted">Drop the file into the Geometry slot of a regional clue.</p>
       </>}
     </div>
 
     <div className="tp-main">
       {err && <ErrorBox message={err} />}
       {!up && <p className="muted">Load a screenshot and pick the country. The map is found automatically; draw a box on the image only if it picks the wrong thing.</p>}
-      {up && url && <>
-        <div className="st-stage" ref={stage} onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp}>
-          <img src={url} alt="Uploaded map screenshot" draggable={false} />
-          {res && <svg className="st-ov" viewBox={`0 0 ${res.size[0]} ${res.size[1]}`} preserveAspectRatio="none" aria-hidden="true">
-            <path className="o" d={res.overlay.outline} /><path className="b" d={res.overlay.borders} />
-          </svg>}
-          {box && <div className="st-crop" style={{ left: `${box[0] * 100}%`, top: `${box[1] * 100}%`, width: `${(box[2] - box[0]) * 100}%`, height: `${(box[3] - box[1]) * 100}%` }} />}
+      {up && url && <div className="st-grid">
+        <div className="st-left">
+          <div className="st-stage" ref={stage} onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp}>
+            <img src={url} alt="Uploaded map screenshot" draggable={false} />
+            {res && <svg className="st-ov" viewBox={`0 0 ${res.size[0]} ${res.size[1]}`} preserveAspectRatio="none" aria-hidden="true">
+              <path className="o" d={res.overlay.outline} /><path className="b" d={res.overlay.borders} />
+            </svg>}
+            {box && <div className="st-crop" style={{ left: `${box[0] * 100}%`, top: `${box[1] * 100}%`, width: `${(box[2] - box[0]) * 100}%`, height: `${(box[3] - box[1]) * 100}%` }} />}
+          </div>
+          <div className="st-bar">
+            <button type="button" className="btn ghost" disabled={!crop} onClick={() => setCrop(null)}>Auto (search the whole image)</button>
+            {res && <span className="st-legend"><span><i />Country outline, placed</span>{res.fit.borders != null && <span><i className="b" />Known admin borders</span>}</span>}
+          </div>
+          <div className="st-status">
+            {!country ? <span className="muted">Pick the country to match against.</span>
+              : busy ? <span className="muted">Computing…</span>
+              : res ? <span><b className={vk}>{vl}</b> · confidence {Math.round(res.fit.confidence * 100)}% · {res.fit.projection} · aspect {res.fit.aspect.toFixed(2)}
+                {res.fit.borders != null && ` · borders matched ${Math.round(res.fit.borders * 100)}%`}
+                {res.fit.confidence < 0.35 && <span className="muted"> · draw a box around the map to help the search</span>}</span> : null}
+          </div>
         </div>
-        <div className="st-bar">
-          <button type="button" className="btn ghost" disabled={!crop} onClick={() => setCrop(null)}>Auto (search the whole image)</button>
-          {res && <span className="st-legend"><span><i />Country outline, placed</span>{res.fit.borders != null && <span><i className="b" />Known admin borders</span>}</span>}
-        </div>
-        <div className="st-status">
-          {!country ? <span className="muted">Pick the country to match against.</span>
-            : busy ? <span className="muted">Computing…</span>
-            : res ? <span><b className={vk}>{vl}</b> · confidence {Math.round(res.fit.confidence * 100)}% · {res.fit.projection} · aspect {res.fit.aspect.toFixed(2)}
-              {res.fit.borders != null && ` · borders matched ${Math.round(res.fit.borders * 100)}%`}
-              {res.fit.confidence < 0.35 && <span className="muted"> · draw a box around the map to help the search</span>}</span> : null}
-        </div>
-      </>}
-      {res && <div className="st-result">
-        <StainPreview mapId={countries.find((c) => c.code === country)?.id ?? country} fc={fc} />
+        {res && <div className="st-right">
+          <StainPreview base={res.base} name={countries.find((c) => c.code === country)?.name ?? country} fc={fc} />
+        </div>}
       </div>}
     </div>
   </div>;

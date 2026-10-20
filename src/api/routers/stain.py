@@ -1,8 +1,9 @@
 """stain.py — Technical tool: screenshot of a painted country map -> polygons.
 
 Flow:  POST /technical/stain/upload   -> raw image bytes; kept in memory, returns a token
-       POST /technical/stain/analyze  -> {token, country, crop, ...} -> georeferenced polygons per colour class
+       POST /technical/stain/analyze  -> {token, country, crop, ...} -> georeferenced stain polygons per colour
 Uploads live in memory only (last few); a server restart means loading the image again (410).
+Only the stains are returned: the base map is the app's own country map and is never extracted.
 The maths is in src/geo/stain_extract.py.
 """
 
@@ -98,8 +99,7 @@ class StainBody(BaseModel):
     country: str
     crop: list[float] | None = Field(None, min_length=4, max_length=4)
     projection: Literal["auto", "equirect", "mercator"] = "auto"
-    clip: bool = True
-    tol: int = Field(TOL, ge=8, le=120)
+    tol: int = Field(TOL, ge=8, le=120)  # shades closer than this are merged into one stain
     smooth: float = Field(SMOOTH, ge=0, le=6)  # blur (px) before vectorising: higher = rounder
 
 
@@ -125,7 +125,6 @@ async def stain_analyze(body: StainBody, request: Request):
             outline,
             body.crop,
             body.projection,
-            body.clip,
             body.tol,
             borders,
             body.smooth,
