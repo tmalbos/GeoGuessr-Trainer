@@ -1,28 +1,18 @@
 import { useEffect, useRef, useState } from "react";
-import { tileUrl } from "../../lib/googleTiles.js";
+import { TILE, createMapEngine, fx, fy } from "../../lib/googleMap.js";
 
-// A small map of our own: Google's roadmap tiles, drag to pan, wheel / buttons to zoom (fractional zoom, like Leaflet's
-// zoomSnap 0). Tiles and everything drawn on top (path, pins, searched area, highlight) live under ONE view state and are
-// moved in the same step, so they can never drift apart.
+// The replay report map. Tiles, panning, zooming and animation live in lib/googleMap.js (shared with the
+// polygonizer map). This file only draws what goes on top (path, pins, searched area, highlight).
+// The overlay is drawn at some zoom and then scaled/moved with the SAME view state the tiles use, on the same frame,
+// and it is redrawn exactly once the view settles, so it can never drift from the tiles.
 
 let seq = 0;
 
-const TILE = 256;
-const MIN_ZOOM = 2;
 const MAX_ZOOM = 21;
 const SINGLE_POINT_ZOOM = 15;
 const PATH = "#f2c14e";
 const HILITE = "#3fb97a"; // selection green (same as --ok)
-const SETTLE_MS = 120; // after the zoom stops, redraw the overlay at the exact zoom
 
-// ── Web Mercator in world fractions (0..1 across the whole world) ──
-const RAD = Math.PI / 180;
-const fx = (lng) => (lng + 180) / 360;
-const fy = (lat) => {
-  const s = Math.sin(Math.max(-85.0511, Math.min(85.0511, lat)) * RAD);
-  return 0.5 - Math.log((1 + s) / (1 - s)) / (4 * Math.PI);
-};
-const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 const f1 = (n) => n.toFixed(1);
 
 const boundsOf = (pts) => {
@@ -96,193 +86,33 @@ function overlayHtml(data, focus, z, ox, oy) {
   return `<svg class="rr-svg">${stat}${hl}</svg>${pins}`;
 }
 
-/** The map engine. `host` = { box, tiles, overlay } elements. */
+/** The report map engine: the shared engine + the overlay. `host` = { box, tiles, overlay } elements. */
 export function createEngine({ box, tiles, overlay }) {
-  const v = { z: MIN_ZOOM, cx: 0.5, cy: 0.5 }; // view: zoom (fractional) and center (world fractions)
-  const size = { w: 0, h: 0 };
-  const layers = new Map(); // tile zoom -> { el, ox, oy, imgs, pending }
   const ov = { z: null, ox: 0, oy: 0, dirty: true };
   let data = null;
   let focus = null;
-  let tileZoom = 0;
-  let timer = 0;
-  let relayout = null;
 
-  // ── Tiles: one layer per whole zoom; the previous one stays under the new one until it has loaded ──
-  const prune = () => {
-    const cur = layers.get(tileZoom);
-    if (!cur || cur.pending > 0) return;
-    for (const [z, L] of layers) if (z !== tileZoom) { L.el.remove(); layers.delete(z); }
-  };
-
-  const syncTiles = () => {
-    tileZoom = clamp(Math.round(v.z), 0, MAX_ZOOM);
-    let L = layers.get(tileZoom);
-    if (!L) {
-      const S = TILE * 2 ** tileZoom;
-      const el = document.createElement("div");
-      el.className = "rr-tl";
-      tiles.appendChild(el);
-      L = { el, ox: Math.floor((v.cx * S) / TILE) * TILE, oy: Math.floor((v.cy * S) / TILE) * TILE, imgs: new Map(), pending: 0 };
-      layers.set(tileZoom, L);
-      // Safety net: never keep an old zoom layer around because some tile never answered.
-      const mine = tileZoom;
-      setTimeout(() => { const M = layers.get(mine); if (M) { M.pending = 0; prune(); } }, 2500);
-    }
-    const n = 2 ** tileZoom;
-    const S = TILE * n;
-    const k = 2 ** (v.z - tileZoom);
-    const hw = size.w / 2 / k;
-    const hh = size.h / 2 / k;
-    const x0 = Math.floor((v.cx * S - hw) / TILE) - 1;
-    const x1 = Math.floor((v.cx * S + hw) / TILE) + 1;
-    const y0 = Math.max(0, Math.floor((v.cy * S - hh) / TILE) - 1);
-    const y1 = Math.min(n - 1, Math.floor((v.cy * S + hh) / TILE) + 1);
-    for (let x = x0; x <= x1; x++) {
-      for (let y = y0; y <= y1; y++) {
-        const key = `${x},${y}`;
-        if (L.imgs.has(key)) continue;
-        const img = document.createElement("img");
-        img.className = "rr-tile";
-        img.alt = "";
-        img.draggable = false;
-        img.style.left = `${x * TILE - L.ox}px`;
-        img.style.top = `${y * TILE - L.oy}px`;
-        L.pending++;
-        const done = () => { img.onload = img.onerror = null; L.pending--; prune(); };
-        img.onload = done;
-        img.onerror = done;
-        img.src = tileUrl(x, y, tileZoom);
-        L.el.appendChild(img);
-        L.imgs.set(key, img);
-      }
-    }
-    for (const [key, img] of L.imgs) { // drop tiles far from the view
-      const [x, y] = key.split(",").map(Number);
-      if (x < x0 - 2 || x > x1 + 2 || y < y0 - 2 || y > y1 + 2) {
-        if (img.onload) L.pending--;
-        img.onload = img.onerror = null;
-        img.removeAttribute("src");
-        img.remove();
-        L.imgs.delete(key);
-      }
-    }
-    // Every layer follows the view, so the old one stays in place while the new one loads.
-    for (const [z, M] of layers) {
-      const kk = 2 ** (v.z - z);
-      const SS = TILE * 2 ** z;
-      M.el.style.transform = `translate(${size.w / 2 - (v.cx * SS - M.ox) * kk}px,${size.h / 2 - (v.cy * SS - M.oy) * kk}px) scale(${kk})`;
-    }
-  };
-
-  // ── Overlay ──
-  const redraw = () => {
+  // Runs on every frame of the shared engine, right after the tiles moved.
+  const layer = (v, size, settled) => {
     if (!data) return;
-    ov.z = v.z;
-    ov.ox = v.cx * TILE * 2 ** v.z;
-    ov.oy = v.cy * TILE * 2 ** v.z;
-    overlay.innerHTML = overlayHtml(data, focus, ov.z, ov.ox, ov.oy);
-    ov.dirty = false;
-  };
-
-  const placeOverlay = (settleNow) => {
-    if (!data) return;
-    if (ov.dirty || ov.z === null || settleNow) redraw();
-    else if (Math.abs(v.z - ov.z) > 1e-6) { // zooming: scale what is drawn, redraw at the exact zoom once it settles
-      clearTimeout(timer);
-      timer = setTimeout(() => { redraw(); render(); }, SETTLE_MS);
+    if (ov.dirty || ov.z === null || settled) { // redraw at the exact zoom
+      ov.z = v.z;
+      ov.ox = v.cx * TILE * 2 ** v.z;
+      ov.oy = v.cy * TILE * 2 ** v.z;
+      overlay.innerHTML = overlayHtml(data, focus, ov.z, ov.ox, ov.oy);
+      ov.dirty = false;
     }
-    const k = 2 ** (v.z - ov.z);
+    const k = 2 ** (v.z - ov.z); // mid-zoom: scale what is drawn
     const S = TILE * 2 ** ov.z;
     overlay.style.setProperty("--ik", String(1 / k));
     overlay.style.transform = `translate(${size.w / 2 - (v.cx * S - ov.ox) * k}px,${size.h / 2 - (v.cy * S - ov.oy) * k}px) scale(${k})`;
   };
 
-  function render(settleNow = false) {
-    size.w = box.clientWidth;
-    size.h = box.clientHeight;
-    if (!size.w || !size.h) return;
-    v.cy = clamp(v.cy, 0, 1);
-    syncTiles();
-    placeOverlay(settleNow);
-  }
-
-  // ── View control ──
-  const fit = (b, pad, maxZoom) => {
-    const W = Math.max(box.clientWidth - 2 * pad, 1);
-    const H = Math.max(box.clientHeight - 2 * pad, 1);
-    const dx = Math.max((b.e - b.w) / 360, 1e-12);
-    const dy = Math.max(fy(b.s) - fy(b.n), 1e-12);
-    v.z = clamp(Math.log2(Math.min(W / (dx * TILE), H / (dy * TILE))), MIN_ZOOM, maxZoom);
-    v.cx = (fx(b.w) + fx(b.e)) / 2;
-    v.cy = (fy(b.s) + fy(b.n)) / 2;
-  };
-  const setView = (lat, lng, z) => { v.z = clamp(z, MIN_ZOOM, MAX_ZOOM); v.cx = fx(lng); v.cy = fy(lat); };
-  const zoomAt = (px, py, dz) => {
-    const z2 = clamp(v.z + dz, MIN_ZOOM, MAX_ZOOM);
-    const S1 = TILE * 2 ** v.z;
-    const S2 = TILE * 2 ** z2;
-    v.cx += (px - size.w / 2) / S1 - (px - size.w / 2) / S2;
-    v.cy += (py - size.h / 2) / S1 - (py - size.h / 2) / S2;
-    v.z = z2;
-    render();
-  };
-
-  // ── Input: drag to pan, wheel to zoom ──
-  let drag = null;
-  const onDown = (e) => {
-    if (e.target.closest?.(".rr-zoom")) return;
-    if (e.pointerType === "mouse" && e.button !== 0) return;
-    drag = { id: e.pointerId, x: e.clientX, y: e.clientY };
-    box.setPointerCapture?.(e.pointerId);
-    box.classList.add("moving");
-  };
-  const onMove = (e) => {
-    if (!drag || e.pointerId !== drag.id) return;
-    const S = TILE * 2 ** v.z;
-    v.cx -= (e.clientX - drag.x) / S;
-    v.cy -= (e.clientY - drag.y) / S;
-    drag.x = e.clientX;
-    drag.y = e.clientY;
-    render();
-  };
-  const onUp = (e) => {
-    if (drag && e.pointerId === drag.id) { drag = null; box.classList.remove("moving"); }
-  };
-  const onWheel = (e) => {
-    e.preventDefault();
-    const r = box.getBoundingClientRect();
-    const dy = e.deltaY * (e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? 400 : 1);
-    zoomAt(e.clientX - r.left, e.clientY - r.top, -dy * (e.ctrlKey ? 0.01 : 0.002) / Math.LN2);
-  };
-  box.addEventListener("pointerdown", onDown);
-  box.addEventListener("pointermove", onMove);
-  box.addEventListener("pointerup", onUp);
-  box.addEventListener("pointercancel", onUp);
-  box.addEventListener("wheel", onWheel, { passive: false });
-  const ro = typeof ResizeObserver === "function" ? new ResizeObserver(() => { if (relayout) relayout(); else render(); }) : null;
-  ro?.observe(box);
-
+  const eng = createMapEngine({ box, tiles, layer, tileClass: "rr-tile", layerClass: "rr-tl" });
   return {
-    view: v,
-    render,
-    fit,
-    setView,
-    zoomBy: (dz) => zoomAt(size.w / 2, size.h / 2, dz),
+    ...eng,
     setData(d) { data = d; ov.dirty = true; },
     setFocus(f) { focus = f; ov.dirty = true; },
-    onResize(fn) { relayout = fn; },
-    tileCount: () => [...layers.values()].reduce((a, L) => a + L.imgs.size, 0),
-    destroy() {
-      clearTimeout(timer);
-      ro?.disconnect();
-      box.removeEventListener("pointerdown", onDown);
-      box.removeEventListener("pointermove", onMove);
-      box.removeEventListener("pointerup", onUp);
-      box.removeEventListener("pointercancel", onUp);
-      box.removeEventListener("wheel", onWheel);
-      for (const L of layers.values()) for (const img of L.imgs.values()) { img.onload = img.onerror = null; img.removeAttribute("src"); }
-    },
   };
 }
 
@@ -292,11 +122,13 @@ export function createEngine({ box, tiles, overlay }) {
  *                                          arrow from where it started to where it ended, and the view fits the
  *                                          whole path walked in the round so the arrow is seen in context.
  *  null = the default view (real spot + guess). The map has the same aspect ratio as the minimap
- *  window used for the "seen" calculations (MAP_PX in replay_behavior.py), so a bbox fits it exactly. */
+ *  window used for the "seen" calculations (MAP_PX in replay_behavior.py), so a bbox fits it exactly.
+ *  Changing only the focus flies the view there (animated); a new round jumps. */
 export default function RoundMap({ real, guess, path, searched, focus }) {
   const box = useRef(null);
   const tiles = useRef(null);
   const overlay = useRef(null);
+  const prev = useRef(null);
   const [eng, setEng] = useState(null);
   const [err, setErr] = useState("");
   const avatarId = useRef(`rr-av-${++seq}`);
@@ -314,30 +146,31 @@ export default function RoundMap({ real, guess, path, searched, focus }) {
   // The selected event: where the view goes and what is highlighted.
   useEffect(() => {
     if (!eng) return undefined;
-    const apply = () => {
+    const same = !!prev.current && prev.current.real === real && prev.current.guess === guess && prev.current.path === path && prev.current.searched === searched;
+    prev.current = { real, guess, path, searched };
+    const apply = (animate) => {
       try {
         if (!box.current.clientWidth) return;
         const pts = focus?.points ?? [];
+        eng.setFocus(focus);
         if (!focus || (!focus.bbox && !pts.length)) {
           const all = [[real.lat, real.lng]];
           if (guess) all.push([guess.lat, guess.lng]);
-          if (all.length === 1) eng.setView(real.lat, real.lng, 18); else eng.fit(boundsOf(all), 56, 18);
+          if (all.length === 1) eng.setView(real.lat, real.lng, 18, animate); else eng.fit(boundsOf(all), 56, 18, animate);
         } else if (focus.bbox) {
           const [w, s, e, n] = focus.bbox;
-          eng.fit({ w, s, e, n }, 0, MAX_ZOOM);
+          eng.fit({ w, s, e, n }, 0, MAX_ZOOM, animate);
         } else if (focus.path) {
-          eng.fit(boundsOf([...path.segments.flat(), ...path.jumps.flat(), ...pts]), 40, 19); // everything walked in the round
+          eng.fit(boundsOf([...path.segments.flat(), ...path.jumps.flat(), ...pts]), 40, 19, animate); // everything walked in the round
         } else if (pts.length === 1) {
-          eng.setView(pts[0][0], pts[0][1], SINGLE_POINT_ZOOM);
+          eng.setView(pts[0][0], pts[0][1], SINGLE_POINT_ZOOM, animate);
         } else {
-          eng.fit(boundsOf(pts), 48, 19);
+          eng.fit(boundsOf(pts), 48, 19, animate);
         }
-        eng.setFocus(focus);
-        eng.render(true);
       } catch (e) { console.error("RoundMap:", e); setErr(`Map error: ${e?.message ?? e}`); }
     };
-    eng.onResize(apply); // the map is sized by CSS (fixed ratio): refit whenever its size changes
-    apply();
+    eng.onResize(() => apply(false)); // the map is sized by CSS (fixed ratio): refit whenever its size changes
+    apply(same);
     return () => eng.onResize(null);
   }, [eng, focus, real, guess, path, searched]);
 
