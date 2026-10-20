@@ -22,6 +22,7 @@ COUNTRIES_COLORS = {
     "Chile": {"water_color": "#74D3E7", "land_color": "#BAEBD6"},
     "Colombia": {"water_color": "#7CD5E9", "land_color": "#B0EACF"},
     "CostaRica": {"water_color": "#88D8EB", "land_color": "#C3F3D8"},
+    "Croatia": {"water_color": "#85D7EB", "land_color": "#CDF5DF"},
     "Cyprus": {"water_color": "#90D9ED", "land_color": "#F4EFE3"},
     "Czechia": {"water_color": "#87D7EB", "land_color": "#CFF6DF"},
     "Denmark": {"water_color": "#84D7EB", "land_color": "#CDF5DF"},

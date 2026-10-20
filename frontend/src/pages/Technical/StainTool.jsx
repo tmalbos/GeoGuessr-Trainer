@@ -39,7 +39,6 @@ export default function StainTool() {
   const [crop, setCrop] = useState(null);
   const [draft, setDraft] = useState(null);
   const [tol, setTol] = useState(40);
-  const [smooth, setSmooth] = useState(1.5);
   const [res, setRes] = useState(null);
   const [off, setOff] = useState({}); // hex -> bool, the user's own picks
   const [loading, setLoading] = useState(false);
@@ -89,12 +88,12 @@ export default function StainTool() {
     let stale = false;
     setBusy(true);
     const t = setTimeout(() => {
-      api("/technical/stain/analyze", { method: "POST", body: { token: up.token, country, crop, tol, smooth } })
+      api("/technical/stain/analyze", { method: "POST", body: { token: up.token, country, crop, tol } })
         .then((r) => { if (!stale) { setRes(r); setErr(""); setBusy(false); } })
         .catch((e) => { if (!stale) { setErr(errorText(e)); setBusy(false); } });
     }, 300);
     return () => { stale = true; clearTimeout(t); };
-  }, [up, country, cropKey, tol, smooth]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [up, country, cropKey, tol]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── drawing the crop box on the image ──
   const frac = (e) => {
@@ -133,7 +132,7 @@ export default function StainTool() {
         onDragOver={(e) => { e.preventDefault(); setOver(true); }} onDragLeave={() => setOver(false)}
         onDrop={(e) => { e.preventDefault(); setOver(false); upload(e.dataTransfer.files[0]); }}>
         <b>Map screenshot</b>
-        <span className="muted">{loading ? "Reading…" : up ? `${up.width}×${up.height} working size` : "Drop an image, or press Ctrl+V"}</span>
+        <span className="muted">{loading ? "Reading…" : up ? `${up.width}×${up.height} px` : "Drop an image, or press Ctrl+V"}</span>
         <button type="button" className="btn ghost" disabled={loading} onClick={() => input.current.click()}>{up ? "Load another" : "Choose file"}</button>
         <input ref={input} type="file" accept="image/*" hidden onChange={(e) => { upload(e.target.files[0]); e.target.value = ""; }} />
       </div>
@@ -151,10 +150,6 @@ export default function StainTool() {
       <div className="tp-field">
         <label htmlFor="st-tol" title="Shades closer than this are merged into one stain">Merge similar shades<span className="muted">{tol}</span></label>
         <input id="st-tol" type="range" min={10} max={100} step={5} value={tol} onChange={(e) => setTol(Number(e.target.value))} />
-      </div>
-      <div className="tp-field">
-        <label htmlFor="st-smooth">Smoothness<span className="muted">{smooth}</span></label>
-        <input id="st-smooth" type="range" min={0} max={4} step={0.5} value={smooth} onChange={(e) => setSmooth(Number(e.target.value))} />
       </div>
 
       {res && <>

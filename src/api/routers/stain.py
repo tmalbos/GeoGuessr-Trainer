@@ -19,7 +19,7 @@ from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 
 from src.api.deps import get_ctx
-from src.geo.stain_extract import SMOOTH, TOL, StainError, analyze, load_image
+from src.geo.stain_extract import TOL, StainError, analyze, load_image
 
 router = APIRouter()
 
@@ -71,8 +71,10 @@ def _borders(local, code: str):
 
 
 def _prepare(data: bytes) -> dict:
+    # "full" = the image the stains are read from; "arr" = small copy used to find the map.
     # "reg" caches the (slow) map registration per country / crop / projection
-    return {"arr": load_image(data), "reg": {}}
+    full, work = load_image(data)
+    return {"full": full, "arr": work, "reg": {}}
 
 
 @router.post("/technical/stain/upload")
@@ -90,7 +92,7 @@ async def stain_upload(request: Request):
         _UPLOADS[token] = up
         while len(_UPLOADS) > MAX_UPLOADS:
             _UPLOADS.popitem(last=False)
-    h, w = up["arr"].shape[:2]
+    h, w = up["full"].shape[:2]
     return {"token": token, "width": w, "height": h}
 
 
@@ -100,7 +102,6 @@ class StainBody(BaseModel):
     crop: list[float] | None = Field(None, min_length=4, max_length=4)
     projection: Literal["auto", "equirect", "mercator"] = "auto"
     tol: int = Field(TOL, ge=8, le=120)  # shades closer than this are merged into one stain
-    smooth: float = Field(SMOOTH, ge=0, le=6)  # blur (px) before vectorising: higher = rounder
 
 
 @router.post("/technical/stain/analyze")
@@ -122,12 +123,12 @@ async def stain_analyze(body: StainBody, request: Request):
         return await run_in_threadpool(
             analyze,
             up["arr"],
+            up["full"],
             outline,
             body.crop,
             body.projection,
             body.tol,
             borders,
-            body.smooth,
             up["reg"].setdefault(code, {}),
         )
     except StainError as e:
