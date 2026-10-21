@@ -22,4 +22,6 @@
 .sp-svg { display: block; width: 100%; height: auto; max-height: calc(100vh - 80px); }
 .sp-land { fill: #f6f4e4; stroke: #8b98a8; stroke-width: 1px; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
 .sp-line { stroke: #8b98a8; stroke-width: .8px; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
-.sp-poly { fill-opacity: 1; stroke: #1a1a1a; stroke-opacity: .55; stroke-width: 1px; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
+/* The stroke is the fill colour, not black: it only seals anti-aliasing seams between touching
+   classes. A dark 1 px stroke outlined every pixel step and exaggerated the staircase. */
+.sp-poly { fill-opacity: 1; stroke-opacity: 1; stroke-width: 1px; stroke-linejoin: round; vector-effect: non-scaling-stroke; }

@@ -27,7 +27,7 @@ function StainPreview({ base, name, fc }) {
   return <svg className="sp-svg" viewBox={`${-pad} ${-pad} ${W + pad * 2} ${H + pad * 2}`} role="img" aria-label={`Map of ${name} with the detected stains`}>
     <path className="sp-land" d={land} fillRule="evenodd" />
     {lines && <path className="sp-line" d={lines} fill="none" />}
-    {feats.map((f, i) => <path key={i} className="sp-poly" d={shapes(f.geometry, project).polys} fill={f.properties.color} fillRule="evenodd"><title>{f.properties.tag}</title></path>)}
+    {feats.map((f, i) => <path key={i} className="sp-poly" d={shapes(f.geometry, project).polys} fill={f.properties.color} stroke={f.properties.color} fillRule="evenodd"><title>{f.properties.tag}</title></path>)}
   </svg>;
 }
 

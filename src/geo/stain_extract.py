@@ -186,26 +186,84 @@ def _lab(rgb: np.ndarray) -> np.ndarray:
 
 # ── projections ────────────────────────────────────────────────────────────
 
-
-def _fwd(name: str, lat0: float):
-    if name == "equirect":
-        k = math.cos(math.radians(lat0))
-        return lambda xy: np.column_stack([xy[:, 0] * k, xy[:, 1]])
-    return lambda xy: np.column_stack(
-        [
-            np.radians(xy[:, 0]),
-            np.log(np.tan(np.pi / 4 + np.radians(np.clip(xy[:, 1], -85, 85)) / 2)),
-        ]
-    )
+PROJECTIONS = ("equirect", "plate", "mercator", "lcc", "albers")
 
 
-def _inv(name: str, lat0: float):
+def _projection(name: str, bounds):
+    """(forward, inverse) of a projection fitted to the country's lon/lat bounds, or None when it makes
+    no sense for that country (conics for small / equatorial countries). forward: (N, 2) lon/lat ->
+    plane, inverse: the other way.
+    """
+    west, south, east, north = bounds
+    lon0, lat0 = (west + east) / 2, (south + north) / 2
+
+    if name == "plate":
+        return (lambda xy: np.array(xy, float)), (lambda uv: np.array(uv, float))
     if name == "equirect":
         k = math.cos(math.radians(lat0)) or 1e-6
-        return lambda uv: np.column_stack([uv[:, 0] / k, uv[:, 1]])
-    return lambda uv: np.column_stack(
-        [np.degrees(uv[:, 0]), np.degrees(2 * np.arctan(np.exp(uv[:, 1])) - np.pi / 2)]
-    )
+        return (
+            lambda xy: np.column_stack([xy[:, 0] * k, xy[:, 1]]),
+            lambda uv: np.column_stack([uv[:, 0] / k, uv[:, 1]]),
+        )
+    if name == "mercator":
+        return (
+            lambda xy: np.column_stack(
+                [
+                    np.radians(xy[:, 0]),
+                    np.log(np.tan(np.pi / 4 + np.radians(np.clip(xy[:, 1], -85, 85)) / 2)),
+                ]
+            ),
+            lambda uv: np.column_stack(
+                [np.degrees(uv[:, 0]), np.degrees(2 * np.arctan(np.exp(uv[:, 1])) - np.pi / 2)]
+            ),
+        )
+    if name not in {"lcc", "albers"}:
+        return None
+
+    # Conics. Southern countries are mirrored so the maths is always the northern one.
+    if north - south < 4 or south * north <= 0 or abs(lat0) > 75:
+        return None
+    sgn = 1 if lat0 >= 0 else -1
+    lo, hi = sorted((sgn * south, sgn * north))
+    p1 = math.radians(lo + (hi - lo) / 6)
+    p2 = math.radians(hi - (hi - lo) / 6)
+    p0 = math.radians((lo + hi) / 2)
+
+    if name == "lcc":
+        t = lambda p: np.tan(np.pi / 4 + p / 2)  # noqa: E731
+        n = math.log(math.cos(p1) / math.cos(p2)) / math.log(t(p2) / t(p1))
+        big_f = math.cos(p1) * t(p1) ** n / n
+        rho0 = big_f / t(p0) ** n
+
+        def rho(phi):
+            return big_f / t(np.clip(phi, -1.5, 1.5)) ** n
+
+        def phi_of(r):
+            return 2 * np.arctan((big_f / np.maximum(r, 1e-9)) ** (1 / n)) - np.pi / 2
+    else:
+        n = (math.sin(p1) + math.sin(p2)) / 2
+        c = math.cos(p1) ** 2 + 2 * n * math.sin(p1)
+        rho0 = math.sqrt(c - 2 * n * math.sin(p0)) / n
+
+        def rho(phi):
+            return np.sqrt(np.maximum(c - 2 * n * np.sin(phi), 0)) / n
+
+        def phi_of(r):
+            return np.arcsin(np.clip((c - (r * n) ** 2) / (2 * n), -1, 1))
+
+    def fwd(xy):
+        lam = np.radians(xy[:, 0] - lon0)
+        r = rho(sgn * np.radians(xy[:, 1]))
+        return np.column_stack([r * np.sin(n * lam), sgn * (rho0 - r * np.cos(n * lam))])
+
+    def inv(uv):
+        dy = rho0 - sgn * uv[:, 1]
+        r = np.hypot(uv[:, 0], dy)
+        lam = np.arctan2(uv[:, 0], dy) / n
+        out = np.column_stack([lon0 + np.degrees(lam), sgn * np.degrees(phi_of(r))])
+        return np.nan_to_num(out)
+
+    return fwd, inv
 
 
 # ── edges ──────────────────────────────────────────────────────────────────
@@ -416,10 +474,15 @@ def _prep_outline(outline):
 
 
 def register(sub: np.ndarray, outline, borders, projection: str) -> dict:
-    """Find where the country is in `sub` and the pixel <-> lon/lat transform. Crop-local."""
+    """Find where the country is in `sub` and the plane <-> image transform. Crop-local.
+
+    The coarse search runs for every projection that makes sense for the country's bounds
+    (equirectangular, plain lon/lat, mercator, and the two conics for mid-latitude countries);
+    the best placement wins.
+    """
     hgt, wid = sub.shape[:2]
     fit_outline, clip_outline = _prep_outline(outline)
-    lat0 = fit_outline.centroid.y
+    bounds = fit_outline.bounds
     inner = None
     if borders is not None and not borders.is_empty:
         ob = fit_outline.bounds
@@ -443,14 +506,19 @@ def register(sub: np.ndarray, outline, borders, projection: str) -> dict:
     e_coarse = e[: hc * f, : wc * f].reshape(hc, f, wc, f).max((1, 3))
     light_coarse = light[: hc * f, : wc * f].reshape(hc, f, wc, f).mean((1, 3)) >= 0.5
 
-    names = ["equirect", "mercator"] if projection == "auto" else [projection]
+    names = list(PROJECTIONS) if projection == "auto" else [projection]
     cands = []
     for nm in names:
-        fwd = _fwd(nm, lat0)
+        pr = _projection(nm, bounds) or (
+            _projection("equirect", bounds) if projection != "auto" else None
+        )
+        if pr is None:
+            continue
+        fwd, inv = pr
         uv = shapely.transform(fit_outline, fwd)
         uvb = shapely.transform(inner, fwd) if inner is not None else None
         cands.extend(
-            {**c, "name": nm, "uv": uv, "uvb": uvb}
+            {**c, "name": nm, "uv": uv, "uvb": uvb, "inv": inv}
             for c in _candidates(e_coarse, light_coarse, f, uv, uvb)
         )
     if not cands:
@@ -478,11 +546,11 @@ def register(sub: np.ndarray, outline, borders, projection: str) -> dict:
     for c in chosen:
         r = _refine(e, e_dil, c["uv"], c["uvb"], c)
         if best is None or r["lift"] > best["lift"]:
-            best = {**r, "name": c["name"], "uv": c["uv"], "uvb": c["uvb"]}
+            best = {**r, "name": c["name"], "uv": c["uv"], "uvb": c["uvb"], "inv": c["inv"]}
     m = [best["a"], 0, 0, best["b"], best["tx"], best["ty"]]
     return {
         **{k: best[k] for k in ("a", "b", "tx", "ty", "hit_o", "hit_b", "lift", "name")},
-        "lat0": lat0,
+        "inv": best["inv"],
         "placed": affine_transform(best["uv"], m),
         "placed_b": affine_transform(best["uvb"], m) if best["uvb"] is not None else None,
         "clip_outline": clip_outline,
@@ -715,7 +783,7 @@ def analyze(
         if cache is not None:
             cache[key] = reg
     a, b, tx, ty = reg["a"], reg["b"], reg["tx"], reg["ty"]
-    inv = _inv(reg["name"], reg["lat0"])
+    inv = reg["inv"]
 
     # 2. move everything to the full-resolution crop
     big_h, big_w = full.shape[:2]

@@ -100,7 +100,7 @@ class StainBody(BaseModel):
     token: str
     country: str
     crop: list[float] | None = Field(None, min_length=4, max_length=4)
-    projection: Literal["auto", "equirect", "mercator"] = "auto"
+    projection: Literal["auto", "equirect", "plate", "mercator", "lcc", "albers"] = "auto"
     tol: int = Field(TOL, ge=8, le=120)  # shades closer than this are merged into one stain
 
 
