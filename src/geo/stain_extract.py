@@ -17,11 +17,23 @@ outline and first-level borders are known:
                    what chance gives" times "how light the inside of the placed outline is"
                    times the hint prior.
   3. _refine       the best few placements are refined with annealed ICP against the edge pixels.
-                   (The coarse search runs on a SMALL copy; the refinement and the match metric run
-                   on the WORK image, which is close to the screenshot's native resolution.)
-  3b. _line_match  the displayed match is a DISTANCE-based measure: the share of the projected
-                   outline / borders that lies within MATCH_TOL_PX of a drawn edge, plus the median
-                   and p90 distance. The refined candidate with the best match (nudged by the hint
+                   (The coarse search runs on a SMALL copy; the refinement runs on the WORK image,
+                   which is close to the screenshot's native resolution.)
+  3b. _polish      EDGE-ONLY final fit. The placement is refined with a FULL AFFINE (scale x/y,
+                   rotation, shear, shift) by maximising how well the known lines sit on image
+                   edges, at three scales (coarse to fine):
+                     - edges come from Lab colour gradients (no "near light" restriction, so pale
+                       maps on pale sky and borders between painted regions both count);
+                     - an edge only counts when its DIRECTION matches the direction of the line
+                       at that point (trees, rivers and stain borders crossing the line don't vote);
+                     - the cost is a blurred, oriented edge field sampled at sub-pixel positions,
+                       so a 1-2 px error is visible to the optimiser and a drawn stroke (two edges
+                       a pixel apart) is centred on instead of snapped to one side.
+  3c. _honest      the displayed match. Per outline / border sample: distance (px) to the nearest
+                   edge of matching direction. Reported as the share within MATCH_TOL_PX, the
+                   median and p90, next to the SAME numbers for the outline shifted by a few px
+                   (the chance level) and the share of nearby image edges that our line explains.
+                   The refined candidate with the best chance-corrected match (nudged by the hint
                    prior) is the one kept.
   4. stains        everything below runs on the FULL-resolution image, pixel by pixel:
                      - the base colour is the most common flat colour inside the matched shape;
@@ -37,6 +49,9 @@ outline and first-level borders are known:
                    exact same boundary. No blur, no per-stain growing: the only change is an
                    optional gap-free simplification (sub-pixel tolerance) when the polygons form a
                    valid coverage. Then lon/lat, clipped to the outline.
+
+The registration is a 2x3 affine in the projected plane: px = A @ (u, v) + t. A is a full 2x2 matrix
+(it may rotate / shear), so every consumer uses A and t, never separate scale factors.
 """
 
 import io
@@ -58,12 +73,22 @@ try:  # distance to the nearest drawn edge (for the match metric)
 except ImportError:  # pragma: no cover
     distance_transform_edt = None
 
+try:  # blurred edge fields for the affine polish
+    from scipy.ndimage import gaussian_filter
+except ImportError:  # pragma: no cover
+    gaussian_filter = None
+
+try:  # optimiser of the affine polish
+    from scipy.optimize import minimize
+except ImportError:  # pragma: no cover
+    minimize = None
+
 WORK_MAX = 1600  # longest side of the image used to find the map, px (near native for a screenshot)
 FULL_MAX = 2400  # longest side of the image the stains are read from, px
 TOL = 40  # L1 colour distance (sum over R,G,B) under which two shades are merged into one stain
 MIN_CROP = 32  # smallest crop side (in work px)
 MIN_CLASS_SHARE = 0.0015  # a stain smaller than this share of the map is ignored
-EDGE_T = 40.0  # gradient magnitude (sum over channels) that counts as an edge
+EDGE_T = 40.0  # gradient magnitude (sum over channels) that counts as an edge (coarse search / ICP)
 LIGHT_MIN = 170  # a pixel is "light" when its darkest channel is at least this
 COARSE_MAX = 300  # longest side of the image used by the coarse search
 SCALE_STEP = 1.05  # ratio between two scales of the coarse search
@@ -81,10 +106,31 @@ HINT_SIZE_FLOOR = (
 HINT_SIZE_SLACK = 1.5  # a placement whose overlap is >= 1/this of its area gets no size penalty
 HINT_FINAL_WEIGHT = 0.15  # how much the prior nudges the final choice among refined candidates
 
-# Match metric: a projected line sample "matches" when a drawn edge is this close (work px).
+# Match metric: a projected line sample "matches" when a drawn edge of matching direction is this
+# close (work px).
 MATCH_TOL_PX = 1.5
-MATCH_STEP_PX = 0.5  # spacing of the samples along a projected line
-MATCH_LIFT_KEEP = 0.6  # only candidates with at least this share of the best lift compete
+MATCH_STEP_PX = 0.5  # spacing of the samples along a projected line (old metric, fallback only)
+MATCH_LIFT_KEEP = (
+    0.6  # only candidates with at least this share of the best lift compete (fallback)
+)
+
+# ── Affine polish (edge-only) ──────────────────────────────────────────────
+N_BINS = 12  # line directions are bucketed in this many bins over 180 degrees
+EDGE_LAB_LO = 3.0  # Lab gradient (central difference) below this is not an edge
+EDGE_LAB_HI = 12.0  # ...and from this on it is a full-strength edge (strong ones don't dominate)
+EDGE_PRE_SIGMA = 0.7  # light blur before the gradient: JPEG noise is not an edge
+ALIGN_POWER = 2  # how sharply an edge must match the line direction (cos(2*angle) ** power)
+STRONG_W = 0.5  # edge strength that counts as "an edge is here" in the metrics
+ALIGN_COS = 0.5  # cos(2*angle) >= this: edge within 30 degrees of the line direction
+POLISH_SIGMA_FRAC = (0.015, 0.0075, 0.0035)  # blur of each polish level, as a share of the map size
+POLISH_SIGMA_CAP = (8.0, 4.0, 2.0)  # ...never more than this (px)
+POLISH_SIGMA_MIN = 0.9  # ...and never less
+POLISH_BORDER_W = 0.5  # inner borders count half as much as the outline
+POLISH_REG = 0.02  # tiny pull towards "no change" (keeps clutter from stretching the map)
+SAMPLES_PER_DIAG = 700  # line samples: one per this fraction of the map diagonal
+BAND_PX = 5.0  # "edges near the line" for the reverse check
+CHANCE_SHIFT_FRAC = 0.04  # chance level = line shifted by this share of the map size...
+CHANCE_SHIFT_MIN, CHANCE_SHIFT_MAX = 4.0, 12.0  # ...limited to this range (px)
 
 # Stain contrast (CIE Lab, distance to the base colour)
 AB_MIN = 8.0  # colour (chroma) difference needed...
@@ -344,7 +390,16 @@ def _hint_prior(px0, py0, pw, ph, hint):
     )
 
 
-# ── match metric ───────────────────────────────────────────────────────────
+def _placed_box(uv, amat, tvec) -> tuple[float, float, float, float]:
+    """Axis-aligned box (x, y, width, height) of a plane geometry placed by px = A @ uv + t."""
+    b = uv.bounds
+    corners = np.array([[b[0], b[1]], [b[0], b[3]], [b[2], b[1]], [b[2], b[3]]], float)
+    xy = corners @ np.asarray(amat, float).T + np.asarray(tvec, float)
+    lo, hi = xy.min(0), xy.max(0)
+    return float(lo[0]), float(lo[1]), float(hi[0] - lo[0]), float(hi[1] - lo[1])
+
+
+# ── match metric (old, distance to ANY edge; only the fallback without scipy) ──
 
 
 def _line_match(geom, dt: np.ndarray | None, tol: float = MATCH_TOL_PX) -> dict | None:
@@ -375,8 +430,8 @@ def _line_match(geom, dt: np.ndarray | None, tol: float = MATCH_TOL_PX) -> dict 
 
 
 def _match_key(r: dict) -> tuple[float, float]:
-    """Sort key of a refined candidate: the displayed match first (nudged by the hint prior, which
-    only breaks near-ties), the chance-corrected lift second.
+    """Sort key of a refined candidate (fallback): the displayed match first (nudged by the hint
+    prior, which only breaks near-ties), the chance-corrected lift second.
     """
     prior = r.get("prior", 1.0)
     nudge = 1 - HINT_FINAL_WEIGHT + HINT_FINAL_WEIGHT * prior
@@ -497,7 +552,10 @@ def _subsample(c: np.ndarray, n: int) -> np.ndarray:
 
 
 def _refine(e: np.ndarray, e_dil: np.ndarray, uv, uvb, init: dict) -> dict:
-    """Annealed ICP of the outline (+ border) samples onto the edge pixels. x = a*u+tx, y = b*v+ty."""
+    """Annealed ICP of the outline (+ border) samples onto the edge pixels. x = a*u+tx, y = b*v+ty.
+
+    This is only the rough placement now: _polish does the precise fit.
+    """
     hgt, wid = e.shape
     ub = uv.bounds
     diag = math.hypot(ub[2] - ub[0], ub[3] - ub[1])
@@ -577,6 +635,314 @@ def _refine(e: np.ndarray, e_dil: np.ndarray, uv, uvb, init: dict) -> dict:
     }
 
 
+# ── polish: edge-only affine fit ───────────────────────────────────────────
+
+
+def _edge_field(win: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """Edge strength (0..1) and edge-LINE angle (radians, image axes: x right, y down) per pixel.
+
+    Uses Lab colour so a pale map on pale sky still has an edge, and the structure tensor over the
+    three channels so the direction is that of the strongest colour change. No "near light"
+    restriction: borders between two painted regions count as well.
+    """
+    h, w = win.shape[:2]
+    lab = _lab(win.reshape(-1, 3)).reshape(h, w, 3).astype(np.float32)
+    if gaussian_filter is not None:
+        lab = gaussian_filter(lab, (EDGE_PRE_SIGMA, EDGE_PRE_SIGMA, 0))
+    gx = np.zeros_like(lab)
+    gy = np.zeros_like(lab)
+    gx[:, 1:-1] = lab[:, 2:] - lab[:, :-2]
+    gy[1:-1] = lab[2:] - lab[:-2]
+    jxx = (gx * gx).sum(2)
+    jyy = (gy * gy).sum(2)
+    jxy = (gx * gy).sum(2)
+    root = np.sqrt((0.5 * (jxx - jyy)) ** 2 + jxy**2)
+    mag = np.sqrt(0.5 * (jxx + jyy) + root)
+    grad_angle = 0.5 * np.arctan2(2 * jxy, jxx - jyy)  # direction of the colour change
+    strength = np.clip((mag - EDGE_LAB_LO) / (EDGE_LAB_HI - EDGE_LAB_LO), 0, 1)
+    return strength.astype(np.float32), (grad_angle + np.pi / 2).astype(np.float32)
+
+
+def _bin_fields(strength: np.ndarray, phi: np.ndarray, sigma: float) -> np.ndarray:
+    """(N_BINS, h, w): for each line direction, the blurred strength of the edges that run that way."""
+    out = np.empty((N_BINS, *strength.shape), np.float32)
+    step = np.pi / N_BINS
+    norm = sigma * math.sqrt(2 * math.pi)  # a 1 px ridge then peaks at about 1
+    for k in range(N_BINS):
+        compat = np.maximum(0.0, np.cos(2 * (phi - k * step))) ** ALIGN_POWER
+        out[k] = gaussian_filter(strength * compat, sigma, mode="constant") * norm
+    return out
+
+
+def _line_parts(g) -> list:
+    out = []
+    stack = [g]
+    while stack:
+        x = stack.pop()
+        if x is None or x.is_empty:
+            continue
+        kind = x.geom_type
+        if kind in {"LineString", "LinearRing"}:
+            out.append(x)
+        elif kind == "Polygon":
+            out.append(shapely.LineString(x.exterior.coords))
+            out.extend(shapely.LineString(r.coords) for r in x.interiors)
+        elif hasattr(x, "geoms"):
+            stack.extend(x.geoms)
+    return out
+
+
+def _samples(geom, spacing: float) -> tuple[np.ndarray, np.ndarray]:
+    """Evenly spaced points along the lines of a plane geometry, with the unit tangent at each."""
+    pts: list[np.ndarray] = []
+    tans: list[np.ndarray] = []
+    if geom is not None:
+        for ln in _line_parts(geom):
+            length = ln.length
+            if length < spacing * 3:
+                continue
+            closed = ln.is_closed
+            n = max(8, int(length / spacing))
+            d = np.linspace(0.0, length, n, endpoint=not closed)
+
+            def at(dd, ln=ln, length=length, closed=closed):
+                dd = dd % length if closed else np.clip(dd, 0.0, length)
+                return shapely.get_coordinates(shapely.line_interpolate_point(ln, dd))
+
+            p, a, b = at(d), at(d - spacing), at(d + spacing)
+            t = b - a
+            nrm = np.hypot(t[:, 0], t[:, 1])
+            ok = nrm > 1e-12
+            pts.append(p[ok])
+            tans.append(t[ok] / nrm[ok, None])
+    if not pts:
+        return np.empty((0, 2)), np.empty((0, 2))
+    return np.vstack(pts), np.vstack(tans)
+
+
+def _compose(p: np.ndarray, ctx: dict) -> tuple[np.ndarray, np.ndarray]:
+    """P = (dx, dy, log sx, log sy, rotation, shear): a correction applied in px space, around the
+    centre of the current placement. Returns the full transform plane -> px: px = A @ uv + t.
+    """
+    dx, dy, ls, lt, th, sh = p
+    c, s = math.cos(th), math.sin(th)
+    m = np.array([[c, -s], [s, c]]) @ np.array([[math.exp(ls), sh], [0.0, math.exp(lt)]])
+    a = m @ ctx["A0"]
+    t = m @ (ctx["t0"] - ctx["c"]) + ctx["c"] + np.array([dx, dy])
+    return a, t
+
+
+def _place(pts: np.ndarray, tans: np.ndarray, a: np.ndarray, t: np.ndarray):
+    """Sample positions in px and the direction bin of the line at each."""
+    xy = pts @ a.T + t
+    tv = tans @ a.T
+    ang = np.arctan2(tv[:, 1], tv[:, 0]) % np.pi
+    return xy, np.rint(ang / (np.pi / N_BINS)).astype(int) % N_BINS
+
+
+def _bilinear(f: np.ndarray, k: np.ndarray, x: np.ndarray, y: np.ndarray) -> np.ndarray:
+    """f[k] sampled at window coordinates (pixel centres at index + 0.5). Outside the window: 0."""
+    _nk, h, w = f.shape
+    fx, fy = x - 0.5, y - 0.5
+    x0, y0 = np.floor(fx).astype(int), np.floor(fy).astype(int)
+    ax, ay = fx - x0, fy - y0
+
+    def at(xi, yi):
+        ok = (xi >= 0) & (xi < w) & (yi >= 0) & (yi < h)
+        out = np.zeros(len(xi), np.float32)
+        out[ok] = f[k[ok], yi[ok], xi[ok]]
+        return out
+
+    return (
+        at(x0, y0) * (1 - ax) * (1 - ay)
+        + at(x0 + 1, y0) * ax * (1 - ay)
+        + at(x0, y0 + 1) * (1 - ax) * ay
+        + at(x0 + 1, y0 + 1) * ax * ay
+    )
+
+
+_PARAM_SCALE = np.array([1.0, 1.0, 0.01, 0.01, 0.005, 0.005])  # optimiser units -> px / log / rad
+
+
+def _objective(z: np.ndarray, f: np.ndarray, ctx: dict) -> float:
+    p = z * _PARAM_SCALE
+    lim = ctx["lim"]
+    over = np.maximum(0.0, np.abs(p) / lim - 1.0)
+    wall = 1e3 * float((over**2).sum())
+    a, t = _compose(p, ctx)
+    xy, k = _place(ctx["P"], ctx["T"], a, t)
+    v = _bilinear(f, k, xy[:, 0] - ctx["ox"], xy[:, 1] - ctx["oy"])
+    score = float((ctx["W"] * v).sum() / ctx["Wsum"])
+    return -score + POLISH_REG * float(((p / lim) ** 2).sum()) + wall
+
+
+def _honest(strength: np.ndarray, phi: np.ndarray, ctx: dict, a: np.ndarray, t: np.ndarray) -> dict:
+    """The displayed match for a placement. Per line sample: distance (px) to the nearest strong edge
+    whose direction matches the line. Compared with the same measure for the line shifted a few px.
+    """
+    h, w = strength.shape
+    xy, k = _place(ctx["P"], ctx["T"], a, t)
+    xy -= np.array([ctx["ox"], ctx["oy"]])
+    step = np.pi / N_BINS
+    strong = strength >= STRONG_W
+    dist: dict[int, np.ndarray] = {}
+    for kk in np.unique(k):
+        m = strong & (np.cos(2 * (phi - int(kk) * step)) >= ALIGN_COS)
+        dist[int(kk)] = (
+            distance_transform_edt(~m).astype(np.float32)
+            if m.any()
+            else np.full((h, w), 99.0, np.float32)
+        )
+
+    def lookup(pts: np.ndarray) -> np.ndarray:
+        ix = np.rint(pts[:, 0] - 0.5).astype(int)
+        iy = np.rint(pts[:, 1] - 0.5).astype(int)
+        ok = (ix >= 0) & (ix < w) & (iy >= 0) & (iy < h)
+        d = np.full(len(pts), np.nan, np.float32)
+        for kk, grid in dist.items():
+            sel = ok & (k == kk)
+            d[sel] = np.minimum(grid[iy[sel], ix[sel]], 99.0)
+        return d
+
+    shift = float(np.clip(CHANCE_SHIFT_FRAC * ctx["size"], CHANCE_SHIFT_MIN, CHANCE_SHIFT_MAX))
+    shifts = [
+        np.array([shift * math.cos(ang), shift * math.sin(ang)])
+        for ang in np.arange(8) * math.pi / 4
+    ]
+    d0 = lookup(xy)
+    ds = [lookup(xy + s) for s in shifts]
+    wgt, grp = ctx["W"], ctx["G"]
+    tol = MATCH_TOL_PX
+
+    def stat(d: np.ndarray, mask: np.ndarray):
+        ok = mask & np.isfinite(d)
+        if ok.sum() < 10:
+            return None
+        dv = d[ok]
+        return (
+            float(np.average(dv <= tol, weights=wgt[ok])),
+            float(np.median(dv)),
+            float(np.quantile(dv, 0.9)),
+        )
+
+    def reverse(pts: np.ndarray):
+        """Share of the strong image edges next to our line that our line explains."""
+        ix = np.rint(pts[:, 0] - 0.5).astype(int)
+        iy = np.rint(pts[:, 1] - 0.5).astype(int)
+        ok = (ix >= 0) & (ix < w) & (iy >= 0) & (iy < h)
+        if ok.sum() < 10:
+            return None
+        line = np.zeros((h, w), bool)
+        line[iy[ok], ix[ok]] = True
+        dl = distance_transform_edt(~line)
+        band = strong & (dl <= BAND_PX)
+        if band.sum() < 10:
+            return None
+        return float(np.mean(dl[band] <= tol))
+
+    def group(mask: np.ndarray, with_reverse: bool):
+        base = stat(d0, mask)
+        if base is None:
+            return None
+        chance = [c for c in (stat(d, mask) for d in ds) if c is not None]
+        out = {
+            "precision": base[0],
+            "median": base[1],
+            "p90": base[2],
+            "tol": tol,
+            "chance_precision": float(np.mean([c[0] for c in chance])) if chance else 0.0,
+            "chance_median": float(np.median([c[1] for c in chance])) if chance else None,
+        }
+        if with_reverse:
+            out["reverse"] = reverse(xy[mask])
+        return out
+
+    def lift(g: dict | None) -> float:
+        if g is None:
+            return -1.0
+        c = g["chance_precision"]
+        return (g["precision"] - c) / (1 - c + 0.05)
+
+    o = group(~grp, True)
+    b = group(grp, True) if grp.any() else None
+    pooled = group(np.ones(len(grp), bool), False)
+    return {"o": o, "b": b, "lift": lift(o), "score": lift(pooled)}
+
+
+def _polish(sub: np.ndarray, uv, uvb, r: dict) -> dict | None:
+    """Full-affine refinement of a rough placement (r: a, b, tx, ty from ICP). Edge-only.
+
+    Returns {A, t, honest}: the better (by the honest, chance-corrected match) of the rough
+    placement and the polished one, or None when it can't run (no scipy, map too small).
+    """
+    if gaussian_filter is None or distance_transform_edt is None or minimize is None:
+        return None
+    hgt, wid = sub.shape[:2]
+    a0, b0, tx, ty = r["a"], r["b"], r["tx"], r["ty"]
+    ub = uv.bounds
+    xs = sorted((tx + a0 * ub[0], tx + a0 * ub[2]))
+    ys = sorted((ty + b0 * ub[1], ty + b0 * ub[3]))
+    size = max(xs[1] - xs[0], ys[1] - ys[0])
+    if size < 24:
+        return None
+    sigmas = [
+        min(cap, max(POLISH_SIGMA_MIN, frac * size))
+        for frac, cap in zip(POLISH_SIGMA_FRAC, POLISH_SIGMA_CAP, strict=True)
+    ]
+    pad = int(0.12 * size + 3 * sigmas[0]) + 4
+    wx0, wx1 = max(0, int(xs[0] - pad)), min(wid, int(xs[1] + pad) + 1)
+    wy0, wy1 = max(0, int(ys[0] - pad)), min(hgt, int(ys[1] + pad) + 1)
+    if wx1 - wx0 < 16 or wy1 - wy0 < 16:
+        return None
+    strength, phi = _edge_field(sub[wy0:wy1, wx0:wx1])
+
+    spacing = math.hypot(ub[2] - ub[0], ub[3] - ub[1]) / SAMPLES_PER_DIAG
+    p_o, t_o = _samples(uv, spacing)
+    p_b, t_b = _samples(uvb, spacing)
+    if len(p_o) < 50:
+        return None
+    pts = np.vstack([p_o, p_b])
+    tans = np.vstack([t_o, t_b])
+    weight = np.concatenate([np.ones(len(p_o)), np.full(len(p_b), POLISH_BORDER_W)])
+    is_border = np.concatenate([np.zeros(len(p_o), bool), np.ones(len(p_b), bool)])
+    ctx = {
+        "P": pts,
+        "T": tans,
+        "W": weight,
+        "Wsum": float(weight.sum()),
+        "G": is_border,
+        "A0": np.diag([a0, b0]),
+        "t0": np.array([tx, ty]),
+        "c": np.array([(xs[0] + xs[1]) / 2, (ys[0] + ys[1]) / 2]),
+        "ox": wx0,
+        "oy": wy0,
+        "size": size,
+        "lim": np.array([0.06 * size, 0.06 * size, 0.08, 0.08, 0.06, 0.06]),
+    }
+
+    z = np.zeros(6)
+    for li, sg in enumerate(sigmas):
+        field = _bin_fields(strength, phi, sg)
+        steps = np.array([max(0.7, 0.8 * sg)] * 2 + [1.0] * 4)
+        for _ in range(2 if li == len(sigmas) - 1 else 1):
+            simplex = np.vstack([z, *(z + np.eye(6)[i] * steps[i] for i in range(6))])
+            res = minimize(
+                _objective,
+                z,
+                args=(field, ctx),
+                method="Nelder-Mead",
+                options={"initial_simplex": simplex, "maxiter": 600, "xatol": 0.02, "fatol": 1e-6},
+            )
+            z = res.x
+
+    a_new, t_new = _compose(z * _PARAM_SCALE, ctx)
+    before = _honest(strength, phi, ctx, ctx["A0"], ctx["t0"])
+    after = _honest(strength, phi, ctx, a_new, t_new)
+    if after["score"] >= before["score"]:
+        return {"A": a_new, "t": t_new, "honest": after}
+    return {"A": ctx["A0"], "t": ctx["t0"], "honest": before}
+
+
 def _prep_outline(outline):
     parts = _polys(shapely.make_valid(outline))
     if not parts:
@@ -593,7 +959,10 @@ def register(sub: np.ndarray, outline, borders, projection: str, hint=None) -> d
 
     The coarse search runs for every projection that makes sense for the country's bounds
     (equirectangular, plain lon/lat, mercator, and the two conics for mid-latitude countries);
-    the refined candidate with the best distance-based match wins.
+    the best few placements are refined (ICP, then the edge-only affine polish) and the one with
+    the best chance-corrected edge match wins.
+
+    The transform is px = A @ (u, v) + t with a full 2x2 A.
 
     hint = (x0, y0, x1, y1) in `sub` px: a rough box of where a map was seen. It biases the coarse
     search and nudges the final choice; it never excludes a placement.
@@ -613,13 +982,14 @@ def register(sub: np.ndarray, outline, borders, projection: str, hint=None) -> d
             inner = None
 
     # A drawn map sits on light colours: keep only the edges that touch a light pixel.
+    # (Only for the coarse search and ICP; the polish uses Lab edges without this restriction.)
     light = sub.min(2) >= LIGHT_MIN
     e = _edges(sub)
     near_light = e & _dilate(light, 2)
     if near_light.sum() >= 200:
         e = near_light
     e_dil = _dilate(e, 2)
-    # distance (px) from every pixel to the nearest drawn edge: the base of the match metric
+    # distance (px) from every pixel to the nearest drawn edge: only used by the fallback metric
     dt = distance_transform_edt(~e) if distance_transform_edt is not None and e.any() else None
     f = max(1, math.ceil(max(hgt, wid) / COARSE_MAX))
     hc, wc = hgt // f, wid // f
@@ -666,33 +1036,46 @@ def register(sub: np.ndarray, outline, borders, projection: str, hint=None) -> d
     refined = []
     for c in chosen:
         r = _refine(e, e_dil, c["uv"], c["uvb"], c)
-        m = [r["a"], 0, 0, r["b"], r["tx"], r["ty"]]
-        r["m_o"] = _line_match(affine_transform(c["uv"], m), dt)
-        r["m_b"] = _line_match(affine_transform(c["uvb"], m), dt) if c["uvb"] is not None else None
-        ub = c["uv"].bounds
-        r["prior"] = float(
-            _hint_prior(
-                r["tx"] + r["a"] * ub[0],
-                r["ty"] + r["b"] * ub[3],
-                r["a"] * (ub[2] - ub[0]),
-                -r["b"] * (ub[3] - ub[1]),
-                hint,
+        pol = _polish(sub, c["uv"], c["uvb"], r)
+        if pol is not None:
+            h = pol["honest"]
+            r["A"], r["t"], r["honest"] = pol["A"], pol["t"], h
+            r["m_o"], r["m_b"] = h["o"], h["b"]
+            r["lift"], r["score"] = h["lift"], h["score"]
+            r["hit_o"] = h["o"]["precision"] if h["o"] else 0.0
+            r["hit_b"] = h["b"]["precision"] if h["b"] else None
+        else:
+            r["A"] = np.diag([r["a"], r["b"]])
+            r["t"] = np.array([r["tx"], r["ty"]])
+            m = [r["a"], 0, 0, r["b"], r["tx"], r["ty"]]
+            r["m_o"] = _line_match(affine_transform(c["uv"], m), dt)
+            r["m_b"] = (
+                _line_match(affine_transform(c["uvb"], m), dt) if c["uvb"] is not None else None
             )
-        )
+            r["score"] = r["lift"]
+        bx0, by0, bw, bh = _placed_box(c["uv"], r["A"], r["t"])
+        r["prior"] = float(_hint_prior(bx0, by0, bw, bh, hint))
         refined.append({**r, "name": c["name"], "uv": c["uv"], "uvb": c["uvb"], "inv": c["inv"]})
 
-    # The displayed match is what we optimise. The chance-corrected lift only guards against a
-    # busy photo scoring well by accident: candidates far below the best lift don't compete.
-    top_lift = max(r["lift"] for r in refined)
-    pool = [r for r in refined if r["lift"] >= MATCH_LIFT_KEEP * top_lift] or refined
-    best = max(pool, key=_match_key)
+    def hint_nudge(r: dict) -> float:
+        return 1 - HINT_FINAL_WEIGHT + HINT_FINAL_WEIGHT * r.get("prior", 1.0)
 
-    m = [best["a"], 0, 0, best["b"], best["tx"], best["ty"]]
+    if any(r.get("honest") for r in refined):
+        # The honest, chance-corrected edge match decides; the hint only breaks near-ties.
+        best = max(refined, key=lambda r: (r["score"] if r.get("honest") else -9.0) * hint_nudge(r))
+    else:
+        # No scipy: the old rule. The displayed match is what we optimise; the chance-corrected
+        # lift only guards against a busy photo scoring well by accident.
+        top_lift = max(r["lift"] for r in refined)
+        pool = [r for r in refined if r["lift"] >= MATCH_LIFT_KEEP * top_lift] or refined
+        best = max(pool, key=_match_key)
+
+    amat, tvec = np.asarray(best["A"], float), np.asarray(best["t"], float)
+    m = [amat[0, 0], amat[0, 1], amat[1, 0], amat[1, 1], tvec[0], tvec[1]]
     return {
-        **{
-            k: best[k]
-            for k in ("a", "b", "tx", "ty", "hit_o", "hit_b", "lift", "name", "m_o", "m_b", "prior")
-        },
+        **{k: best[k] for k in ("hit_o", "hit_b", "lift", "name", "m_o", "m_b", "prior")},
+        "A": amat,
+        "t": tvec,
         "inv": best["inv"],
         "placed": affine_transform(best["uv"], m),
         "placed_b": affine_transform(best["uvb"], m) if best["uvb"] is not None else None,
@@ -892,14 +1275,28 @@ def _line_path(geom, dx: float = 0.0, dy: float = 0.0) -> str:
 
 
 def _match_out(m: dict | None) -> dict | None:
-    """Rounded match numbers for the API: precision (0..1), median / p90 distance and tolerance (px)."""
+    """Rounded match numbers for the API.
+
+    precision: share of line samples within `tol` px of an image edge that runs the same way (0..1).
+    median / p90: distance (px) of those samples to that edge.
+    chance_median / chance_precision: the same measures with the line shifted a few px.
+    reverse: share of the strong image edges next to the line that the line explains (0..1).
+    """
     if m is None:
         return None
+
+    def rnd(key: str, nd: int):
+        v = m.get(key)
+        return None if v is None else round(v, nd)
+
     return {
         "precision": round(m["precision"], 3),
         "median": round(m["median"], 2),
         "p90": round(m["p90"], 2),
         "tol": m["tol"],
+        "chance_median": rnd("chance_median", 2),
+        "chance_precision": rnd("chance_precision", 3),
+        "reverse": rnd("reverse", 3),
     }
 
 
@@ -969,7 +1366,7 @@ def evaluate_warp(
 ) -> dict:
     """Score a manual warp of the fitted outline and borders (no stains are recomputed).
 
-    The transform is the same family the algorithm fits: independent X/Y scale plus
+    The warp is applied on top of the fitted affine: an extra independent X/Y scale plus
     translation. `pivot` and the offsets are in work-image px.
     """
     h0, w0 = arr.shape[:2]
@@ -995,6 +1392,9 @@ def evaluate_warp(
     m_o = _line_match(placed, dt)
     m_b = _line_match(placed_b, dt) if placed_b is not None else None
     bx0, by0, bx1, by1 = placed.bounds
+    amat = np.asarray(reg["A"], float)
+    len_x = float(np.hypot(*amat[:, 0]))
+    len_y = float(np.hypot(*amat[:, 1]))
     return {
         "fit": {
             "outline": 0.0 if m_o is None else round(m_o["precision"], 3),
@@ -1003,7 +1403,7 @@ def evaluate_warp(
             "borders_match": _match_out(m_b),
             "regions": _region_stats(placed, dt),
             "projection": reg["name"],
-            "aspect": round(abs(reg["a"] * sx / (reg["b"] * sy)), 3),
+            "aspect": round(sx * len_x / ((sy * len_y) or 1.0), 3),
             "box": [x0 + bx0, y0 + by0, x0 + bx1, y0 + by1],
         },
         "warp": {
@@ -1059,7 +1459,8 @@ def analyze(
         reg = register(sub, outline, borders, projection, hint_px)
         if cache is not None:
             cache[key] = reg
-    a, b, tx, ty = reg["a"], reg["b"], reg["tx"], reg["ty"]
+    amat, tvec = reg["A"], reg["t"]
+    ainv_t = np.linalg.inv(amat).T
     inv = reg["inv"]
 
     # 2. move everything to the full-resolution crop
@@ -1077,7 +1478,8 @@ def analyze(
     def to_lonlat(xy):
         sx = (xy[:, 0] + fx_0) / kx - x0  # back to crop-local work-image px
         sy = (xy[:, 1] + fy_0) / ky - y0
-        return inv(np.column_stack([(sx - tx) / a, (sy - ty) / b]))
+        uv = (np.column_stack([sx, sy]) - tvec) @ ainv_t  # undo px = A @ uv + t
+        return inv(uv)
 
     def rad(n: int) -> int:  # a radius that is n px on the work image, in full-res px
         return max(1, round(n * scale))
@@ -1164,6 +1566,11 @@ def analyze(
 
     bx0, by0, bx1, by1 = reg["placed"].bounds
     padx, pady = 0.03 * (bx1 - bx0), 0.03 * (by1 - by0)
+    col_x, col_y = amat[:, 0], amat[:, 1]  # where the plane's x / y axes go in the image
+    len_x, len_y = float(np.hypot(*col_x)), float(np.hypot(*col_y))
+    skew = math.degrees(
+        math.acos(max(-1.0, min(1.0, float(col_x @ col_y) / ((len_x * len_y) or 1.0))))
+    )
     return {
         "size": [w0, h0],
         "bbox": [
@@ -1173,21 +1580,25 @@ def analyze(
             min(1.0, (y0 + by1 + pady) / h0),
         ],
         "fit": {
-            # `confidence` is the chance-corrected lift: only used for the verdict, not a match %.
+            # `confidence` is the chance-corrected outline match: how much better the line sits
+            # on matching edges than the same line shifted a few px. Only used for the verdict.
             "confidence": round(float(max(0.0, min(1.0, reg["lift"]))), 3),
             "outline": round(reg["hit_o"], 3),
             "borders": None if reg["hit_b"] is None else round(reg["hit_b"], 3),
-            # The real match: share of the projected line on a drawn edge (within `tol` px),
-            # with median / p90 distance. None when it can't be measured (no scipy).
+            # The real match: share of the line within `tol` px of an edge running the same way,
+            # with median / p90 distance, the shifted-line chance level and the reverse check.
+            # None when it can't be measured (no scipy).
             "outline_match": _match_out(reg.get("m_o")),
             "borders_match": _match_out(reg.get("m_b")),
             "regions": _region_stats(reg["placed"], reg.get("dt")),
             "projection": reg["name"],
-            "aspect": round(abs(a / b), 3),
+            "aspect": round(len_x / (len_y or 1.0), 3),
             # The placed outline in work-image px: pivot for the manual warp.
             "box": [x0 + bx0, y0 + by0, x0 + bx1, y0 + by1],
             # How well the chosen placement agrees with the detected map box (1 = fully, None = no hint).
-            "hint_prior": None if hint is None else round(float(reg["prior"]), 3),
+            "hint_prior": None if hint is None else round(float(reg.get("prior", 1.0)), 3),
+            "rotation_deg": round(math.degrees(math.atan2(amat[1, 0], amat[0, 0])), 2),
+            "skew_deg": round(skew - 90.0, 2),
         },
         "classes": classes,
         # The base map for the preview: the country's own outline and borders (never from the image).

@@ -1,6 +1,6 @@
 """Grid scan for the manual stain warp.
 
-The automatic fit and the manual warp use the same four degrees of freedom:
+The manual warp adds four degrees of freedom on top of the fitted affine:
 independent X/Y scale plus translation. This module scores a dense grid around one
 configuration and writes a CSV plus a short Markdown summary. It is diagnostic only:
 nothing here feeds the registration or the stain polygons.
@@ -135,6 +135,9 @@ def scan_warps(
         raise se.StainError(msg)
 
     px, py = float(pivot[0]) - x0, float(pivot[1]) - y0
+    amat = np.asarray(reg["A"], float)
+    len_x = float(np.hypot(*amat[:, 0]))
+    len_y = float(np.hypot(*amat[:, 1]))
     op = _sample(reg["placed"], dt)
     bp = _sample(reg["placed_b"], dt) if reg["placed_b"] is not None else None
     if op is None:
@@ -203,7 +206,7 @@ def scan_warps(
                         "ne_median_px": None if rg["ne"] is None else round(rg["ne"]["median"], 2),
                         "sw_median_px": None if rg["sw"] is None else round(rg["sw"]["median"], 2),
                         "se_median_px": None if rg["se"] is None else round(rg["se"]["median"], 2),
-                        "aspect": round(abs(reg["a"] * nsx / (reg["b"] * nsy)), 3),
+                        "aspect": round(nsx * len_x / ((nsy * len_y) or 1.0), 3),
                     }
                     rows.append(row)
 

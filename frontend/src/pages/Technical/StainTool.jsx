@@ -62,8 +62,16 @@ function ViewBar({ view, onZoom, onReset }) {
 
 const verdict = (c) => (c >= 0.6 ? ["good", "Map found"] : c >= 0.35 ? ["check", "Check the overlay"] : ["poor", "Not sure it's the map"]);
 
-// "Outline 95% (median 0.4 px, within 1.5 px)": share of the projected line that sits on a drawn edge.
-const matchText = (label, m) => `${label} ${Math.round(m.precision * 100)}% (median ${m.median} px, within ${m.tol} px)`;
+// "Outline 95% on an edge (median 0.4 px, p90 1.1 px; 6.2 px if shifted; 63% of nearby edges explained)":
+// share of the line within `tol` px of an image edge that runs the same way, how far the line is from it,
+// the same distance for the line shifted a few px (chance level), and the share of edges next to the line it explains.
+const matchText = (label, m) => {
+  let t = `${label} ${Math.round(m.precision * 100)}% on an edge (median ${m.median} px, p90 ${m.p90} px`;
+  if (m.chance_median != null) t += `; ${m.chance_median} px if shifted`;
+  t += ")";
+  if (m.reverse != null) t += ` · ${Math.round(m.reverse * 100)}% of nearby edges explained`;
+  return t;
+};
 
 const pct = (v) => (typeof v === "number" ? `${Math.round(v * 100)}%` : "—");
 const px = (v) => (typeof v === "number" ? `${v.toFixed(2)} px` : "—");
@@ -405,6 +413,8 @@ export default function StainTool() {
                   ? <> · {matchText("Outline", res.fit.outline_match)}{res.fit.borders_match && <> · {matchText("Regions", res.fit.borders_match)}</>}</>
                   : <> · outline {Math.round(res.fit.outline * 100)}%{res.fit.borders != null && ` · borders ${Math.round(res.fit.borders * 100)}%`}</>}
                 {" "}· {res.fit.projection} · aspect {res.fit.aspect.toFixed(2)}
+                {Math.abs(res.fit.rotation_deg) >= 0.1 && ` · rotated ${res.fit.rotation_deg}°`}
+                {Math.abs(res.fit.skew_deg) >= 0.1 && ` · skew ${res.fit.skew_deg}°`}
                 {res.fit.confidence < 0.35 && <span className="muted"> · draw a box around the map to help the search</span>}</span> : null}
           </div>
 
@@ -414,8 +424,8 @@ export default function StainTool() {
               <button type="button" className="btn ghost" aria-pressed={warpMode} onClick={toggleWarp}>
                 {warpMode ? "Warp on" : "Try a manual warp"}</button>
             </div>
-            {!warpMode && <p className="muted">Move and scale the placed outline by hand. It uses the same independent X/Y scale and
-              translation as the algorithm, and rescoring tells us whether the search or the metric is at fault.</p>}
+            {!warpMode && <p className="muted">Move and scale the placed outline by hand. It applies an extra independent X/Y scale and
+              translation on top of the automatic fit, and rescoring tells us whether the search or the metric is at fault.</p>}
             {warpMode && <>
               <div className="st-warp-grid">
                 <label>
