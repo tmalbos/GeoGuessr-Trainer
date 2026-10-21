@@ -12,7 +12,11 @@ outline and first-level borders are known:
                    scales, per projection. The score is "line pixels that land on an edge, above
                    what chance gives" times "how light the inside of the placed outline is".
   3. _refine       the best few placements are refined with annealed ICP against the edge pixels.
-                   (Steps 1-3 run on a SMALL copy of the image: they only need to find the placement.)
+                   (The coarse search runs on a SMALL copy; the refinement and the match metric run
+                   on the WORK image, which is close to the screenshot's native resolution.)
+  3b. _line_match  the displayed match is a DISTANCE-based measure: the share of the projected
+                   outline / borders that lies within MATCH_TOL_PX of a drawn edge, plus the median
+                   and p90 distance. The refined candidate with the best match is the one kept.
   4. stains        everything below runs on the FULL-resolution image, pixel by pixel:
                      - the base colour is the most common flat colour inside the matched shape;
                      - a pixel is a stain candidate when it differs from it in CONTRAST (Lab,
@@ -43,7 +47,12 @@ try:  # much faster nearest-neighbour search when scipy is around
 except ImportError:  # pragma: no cover
     cKDTree = None
 
-WORK_MAX = 800  # longest side of the SMALL image used to find the map, px
+try:  # distance to the nearest drawn edge (for the match metric)
+    from scipy.ndimage import distance_transform_edt
+except ImportError:  # pragma: no cover
+    distance_transform_edt = None
+
+WORK_MAX = 1600  # longest side of the image used to find the map, px (near native for a screenshot)
 FULL_MAX = 2400  # longest side of the image the stains are read from, px
 TOL = 40  # L1 colour distance (sum over R,G,B) under which two shades are merged into one stain
 MIN_CROP = 32  # smallest crop side (in work px)
@@ -57,6 +66,11 @@ TOP_K = 3  # coarse candidates that get refined
 ICP_ITERS = 45
 CENTER_SAMPLE = 300_000  # pixels used to find the stain colours (the assignment uses every pixel)
 SIMPLIFY_PX = 0.7  # gap-free simplification tolerance, in full-res px (sub-pixel)
+
+# Match metric: a projected line sample "matches" when a drawn edge is this close (work px).
+MATCH_TOL_PX = 1.5
+MATCH_STEP_PX = 0.5  # spacing of the samples along a projected line
+MATCH_LIFT_KEEP = 0.6  # only candidates with at least this share of the best lift compete
 
 # Stain contrast (CIE Lab, distance to the base colour)
 AB_MIN = 8.0  # colour (chroma) difference needed...
@@ -290,6 +304,47 @@ def _fast_len(n: int) -> int:
         n += 1
 
 
+# ── match metric ───────────────────────────────────────────────────────────
+
+
+def _line_match(geom, dt: np.ndarray | None, tol: float = MATCH_TOL_PX) -> dict | None:
+    """How much of a projected line (placed in crop-local px) lies on a drawn edge.
+
+    dt = distance (px) from every pixel to the nearest edge pixel. The line is sampled every
+    MATCH_STEP_PX; samples outside the crop are ignored.
+    Returns {precision, median, p90, tol} or None when it can't be measured.
+    """
+    if dt is None or geom is None or geom.is_empty:
+        return None
+    pts = shapely.get_coordinates(shapely.segmentize(geom, MATCH_STEP_PX))
+    if not len(pts):
+        return None
+    hh, ww = dt.shape
+    xs = np.rint(pts[:, 0] - 0.5).astype(int)  # pixel centres sit at +0.5
+    ys = np.rint(pts[:, 1] - 0.5).astype(int)
+    ok = (xs >= 0) & (xs < ww) & (ys >= 0) & (ys < hh)
+    if ok.sum() < 10:
+        return None
+    d = dt[ys[ok], xs[ok]]
+    return {
+        "precision": float(np.mean(d <= tol)),
+        "median": float(np.median(d)),
+        "p90": float(np.quantile(d, 0.9)),
+        "tol": tol,
+    }
+
+
+def _match_key(r: dict) -> tuple[float, float]:
+    """Sort key of a refined candidate: the displayed match first, the chance-corrected lift second."""
+    m_o, m_b = r.get("m_o"), r.get("m_b")
+    if m_o is None:
+        return (0.0, r["lift"])
+    p = m_o["precision"]
+    if m_b is not None:
+        p = 0.5 * (p + m_b["precision"])
+    return (p, r["lift"])
+
+
 # ── coarse search ──────────────────────────────────────────────────────────
 
 
@@ -478,7 +533,7 @@ def register(sub: np.ndarray, outline, borders, projection: str) -> dict:
 
     The coarse search runs for every projection that makes sense for the country's bounds
     (equirectangular, plain lon/lat, mercator, and the two conics for mid-latitude countries);
-    the best placement wins.
+    the refined candidate with the best distance-based match wins.
     """
     hgt, wid = sub.shape[:2]
     fit_outline, clip_outline = _prep_outline(outline)
@@ -501,6 +556,8 @@ def register(sub: np.ndarray, outline, borders, projection: str) -> dict:
     if near_light.sum() >= 200:
         e = near_light
     e_dil = _dilate(e, 2)
+    # distance (px) from every pixel to the nearest drawn edge: the base of the match metric
+    dt = distance_transform_edt(~e) if distance_transform_edt is not None and e.any() else None
     f = max(1, math.ceil(max(hgt, wid) / COARSE_MAX))
     hc, wc = hgt // f, wid // f
     e_coarse = e[: hc * f, : wc * f].reshape(hc, f, wc, f).max((1, 3))
@@ -542,14 +599,26 @@ def register(sub: np.ndarray, outline, borders, projection: str) -> dict:
         if len(chosen) >= TOP_K:
             break
 
-    best = None
+    refined = []
     for c in chosen:
         r = _refine(e, e_dil, c["uv"], c["uvb"], c)
-        if best is None or r["lift"] > best["lift"]:
-            best = {**r, "name": c["name"], "uv": c["uv"], "uvb": c["uvb"], "inv": c["inv"]}
+        m = [r["a"], 0, 0, r["b"], r["tx"], r["ty"]]
+        r["m_o"] = _line_match(affine_transform(c["uv"], m), dt)
+        r["m_b"] = _line_match(affine_transform(c["uvb"], m), dt) if c["uvb"] is not None else None
+        refined.append({**r, "name": c["name"], "uv": c["uv"], "uvb": c["uvb"], "inv": c["inv"]})
+
+    # The displayed match is what we optimise. The chance-corrected lift only guards against a
+    # busy photo scoring well by accident: candidates far below the best lift don't compete.
+    top_lift = max(r["lift"] for r in refined)
+    pool = [r for r in refined if r["lift"] >= MATCH_LIFT_KEEP * top_lift] or refined
+    best = max(pool, key=_match_key)
+
     m = [best["a"], 0, 0, best["b"], best["tx"], best["ty"]]
     return {
-        **{k: best[k] for k in ("a", "b", "tx", "ty", "hit_o", "hit_b", "lift", "name")},
+        **{
+            k: best[k]
+            for k in ("a", "b", "tx", "ty", "hit_o", "hit_b", "lift", "name", "m_o", "m_b")
+        },
         "inv": best["inv"],
         "placed": affine_transform(best["uv"], m),
         "placed_b": affine_transform(best["uvb"], m) if best["uvb"] is not None else None,
@@ -747,6 +816,18 @@ def _line_path(geom, dx: float = 0.0, dy: float = 0.0) -> str:
     return "".join(d)
 
 
+def _match_out(m: dict | None) -> dict | None:
+    """Rounded match numbers for the API: precision (0..1), median / p90 distance and tolerance (px)."""
+    if m is None:
+        return None
+    return {
+        "precision": round(m["precision"], 3),
+        "median": round(m["median"], 2),
+        "p90": round(m["p90"], 2),
+        "tol": m["tol"],
+    }
+
+
 # ── main entry ─────────────────────────────────────────────────────────────
 
 
@@ -775,7 +856,7 @@ def analyze(
     y1 = int(np.clip(round(fy1 * h0), min(h0, y0 + MIN_CROP), h0))
     sub = arr[y0:y1, x0:x1]
 
-    # 1. where is the map (on the small image), and which pixel is which lon/lat
+    # 1. where is the map (on the work image), and which pixel is which lon/lat
     key = (x0, y0, x1, y1, projection)
     reg = cache.get(key) if cache is not None else None
     if reg is None:
@@ -788,7 +869,7 @@ def analyze(
     # 2. move everything to the full-resolution crop
     big_h, big_w = full.shape[:2]
     kx, ky = big_w / w0, big_h / h0
-    scale = max(1.0, (kx + ky) / 2)  # how much bigger the full image is than the small one
+    scale = max(1.0, (kx + ky) / 2)  # how much bigger the full image is than the work one
     fx_0 = min(big_w - 1, round(x0 * kx))
     fx_1 = max(fx_0 + 1, min(big_w, round(x1 * kx)))
     fy_0 = min(big_h - 1, round(y0 * ky))
@@ -798,11 +879,11 @@ def analyze(
     placed = affine_transform(reg["placed"], [kx, 0, 0, ky, x0 * kx - fx_0, y0 * ky - fy_0])
 
     def to_lonlat(xy):
-        sx = (xy[:, 0] + fx_0) / kx - x0  # back to crop-local small-image px
+        sx = (xy[:, 0] + fx_0) / kx - x0  # back to crop-local work-image px
         sy = (xy[:, 1] + fy_0) / ky - y0
         return inv(np.column_stack([(sx - tx) / a, (sy - ty) / b]))
 
-    def rad(n: int) -> int:  # a radius that is n px on the small image, in full-res px
+    def rad(n: int) -> int:  # a radius that is n px on the work image, in full-res px
         return max(1, round(n * scale))
 
     r_edge, r_thin, r_gap = rad(2), rad(1), rad(2)
@@ -896,9 +977,14 @@ def analyze(
             min(1.0, (y0 + by1 + pady) / h0),
         ],
         "fit": {
+            # `confidence` is the chance-corrected lift: only used for the verdict, not a match %.
             "confidence": round(float(max(0.0, min(1.0, reg["lift"]))), 3),
             "outline": round(reg["hit_o"], 3),
             "borders": None if reg["hit_b"] is None else round(reg["hit_b"], 3),
+            # The real match: share of the projected line on a drawn edge (within `tol` px),
+            # with median / p90 distance. None when it can't be measured (no scipy).
+            "outline_match": _match_out(reg.get("m_o")),
+            "borders_match": _match_out(reg.get("m_b")),
             "projection": reg["name"],
             "aspect": round(abs(a / b), 3),
         },

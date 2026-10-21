@@ -14,6 +14,9 @@ const memo = { country: "" }; // remembered while you move between pages
 
 const verdict = (c) => (c >= 0.6 ? ["good", "Map found"] : c >= 0.35 ? ["check", "Check the overlay"] : ["poor", "Not sure it's the map"]);
 
+// "Outline 95% (median 0.4 px, within 1.5 px)": share of the projected line that sits on a drawn edge.
+const matchText = (label, m) => `${label} ${Math.round(m.precision * 100)}% (median ${m.median} px, within ${m.tol} px)`;
+
 // The country's own outline and borders (from the app's local maps) as the base, with only the stains on top.
 // Both use the same projection, so they always line up.
 function StainPreview({ base, name, fc }) {
@@ -187,8 +190,11 @@ export default function StainTool() {
           <div className="st-status">
             {!country ? <span className="muted">Pick the country to match against.</span>
               : busy ? <span className="muted">Computing…</span>
-              : res ? <span><b className={vk}>{vl}</b> · confidence {Math.round(res.fit.confidence * 100)}% · {res.fit.projection} · aspect {res.fit.aspect.toFixed(2)}
-                {res.fit.borders != null && ` · borders matched ${Math.round(res.fit.borders * 100)}%`}
+              : res ? <span><b className={vk}>{vl}</b>
+                {res.fit.outline_match
+                  ? <> · {matchText("Outline", res.fit.outline_match)}{res.fit.borders_match && <> · {matchText("Regions", res.fit.borders_match)}</>}</>
+                  : <> · outline {Math.round(res.fit.outline * 100)}%{res.fit.borders != null && ` · borders ${Math.round(res.fit.borders * 100)}%`}</>}
+                {" "}· {res.fit.projection} · aspect {res.fit.aspect.toFixed(2)}
                 {res.fit.confidence < 0.35 && <span className="muted"> · draw a box around the map to help the search</span>}</span> : null}
           </div>
         </div>
