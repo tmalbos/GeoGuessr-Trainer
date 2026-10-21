@@ -6,22 +6,55 @@
 @media (max-width: 1200px) { .st-grid { grid-template-columns: 1fr; } .st-right { position: static; } }
 .st-stage { position: relative; display: block; width: fit-content; max-width: 100%; user-select: none; -webkit-user-select: none;
   touch-action: none; cursor: crosshair; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: var(--raise); }
+.st-stage.warp { cursor: move; }
+.st-zoom { position: relative; display: inline-block; max-width: 100%; transform-origin: 0 0; }
 .st-stage img { display: block; max-width: 100%; max-height: 62vh; width: auto; height: auto; pointer-events: none; -webkit-user-drag: none; }
 .st-ov { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
 .st-ov path { fill: none; stroke-width: 2; vector-effect: non-scaling-stroke; }
 .st-ov .o { stroke: #6cc0e5; }
 .st-ov .b { stroke: #ff7357; stroke-width: 1.5; }
 .st-crop { position: absolute; outline: 1.5px solid #fff; box-shadow: 0 0 0 9999px rgba(8, 12, 17, .55); pointer-events: none; }
-.st-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; margin: 10px 0; }
+.st-detect { font-size: 13px; margin: 8px 0 0; }
+.st-detect b.yes { color: var(--ok); } .st-detect b.no { color: var(--coral); }
+.st-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; margin: 10px 0 6px; }
 .st-bar .btn { padding: 6px 12px; }
+.st-view { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; }
+.st-view .btn { padding: 4px 8px; }
+.st-view .muted { min-width: 38px; text-align: center; }
+.st-hint { margin: 0 0 8px; font-size: 12px; }
 .st-legend { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 12px; }
 .st-legend i { display: inline-block; width: 18px; height: 0; margin-right: 6px; vertical-align: middle; border-top: 2px solid #6cc0e5; }
 .st-legend i.b { border-top: 2px solid #ff7357; }
 .st-status { font-size: 13px; }
 .st-status b.good { color: var(--ok); } .st-status b.check { color: #e6b84a; } .st-status b.poor { color: var(--coral); }
-.sp-svg { display: block; width: 100%; height: auto; max-height: calc(100vh - 80px); }
+.sp-wrap { min-width: 0; }
+.sp-bar { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; font-size: 12px; }
+.sp-viewport { position: relative; overflow: hidden; touch-action: none; cursor: grab; }
+.sp-viewport:active { cursor: grabbing; }
+.sp-zoom { transform-origin: 0 0; }
+.sp-svg { display: block; width: 100%; height: auto; max-height: calc(100vh - 120px); }
 .sp-land { fill: #f6f4e4; stroke: #8b98a8; stroke-width: 1px; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
 .sp-line { stroke: #8b98a8; stroke-width: .8px; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
 /* The stroke is the fill colour, not black: it only seals anti-aliasing seams between touching
    classes. A dark 1 px stroke outlined every pixel step and exaggerated the staircase. */
 .sp-poly { fill-opacity: 1; stroke-opacity: 1; stroke-width: 1px; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
+/* Manual warp: the same 4 DOF as the fit, with a before/after score table. */
+.st-warp { margin-top: 12px; padding: 12px 14px; background: var(--card); border: 1px solid var(--line); border-radius: 8px; }
+.st-warp-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.st-warp-head h3 { margin: 0; font-size: 14px; }
+.st-warp-head .btn { padding: 5px 10px; }
+.st-warp p { margin: 8px 0 0; font-size: 12px; line-height: 1.5; }
+.st-warp-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 8px 16px; margin-top: 10px; }
+.st-warp-grid label { display: grid; grid-template-columns: 1fr auto; gap: 4px; font-size: 12px; align-items: center; }
+.st-warp-grid label b { font-weight: 600; color: var(--mute); }
+.st-warp-grid input { grid-column: 1 / -1; width: 100%; }
+.st-step { display: inline-flex; align-items: center; gap: 3px; }
+.st-step b { min-width: 54px; text-align: right; }
+.st-step .btn { width: 22px; height: 22px; padding: 0; line-height: 1; font-size: 14px; }
+.st-warp-actions { display: flex; align-items: center; gap: 12px; margin-top: 10px; font-size: 12px; }
+.st-warp .st-warn { color: var(--coral); }
+.st-cmp { width: 100%; margin-top: 10px; border-collapse: collapse; font-size: 12px; }
+.st-cmp th, .st-cmp td { padding: 4px 6px; border-bottom: 1px solid var(--line); text-align: right; }
+.st-cmp th:first-child, .st-cmp td:first-child { text-align: left; }
+.st-cmp th { color: var(--mute); font-weight: 600; }
+.st-cmp tr:last-child td { border-bottom: 0; }

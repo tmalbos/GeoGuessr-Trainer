@@ -6,17 +6,23 @@ Only the stains (painted areas) are returned, as polygons in lon/lat.
 The map is found by REGISTRATION, not by guessing from colours. The country is given, so its
 outline and first-level borders are known:
 
+  0. hint          (optional) a rough box of where a map was detected in the image (map_detect.py,
+                   run on upload). It is only a PRIOR: placements that cover it and are not far
+                   bigger than it are favoured, the others are not forbidden (the box can be too
+                   small, shifted or wrong).
   1. _edges        crisp edges of the image, kept only next to LIGHT pixels (a drawn map sits on a
                    light base; trees, roofs and shadows of a photo mostly don't).
   2. _candidates   coarse search: slide the known outline + borders over the edge map at several
                    scales, per projection. The score is "line pixels that land on an edge, above
-                   what chance gives" times "how light the inside of the placed outline is".
+                   what chance gives" times "how light the inside of the placed outline is"
+                   times the hint prior.
   3. _refine       the best few placements are refined with annealed ICP against the edge pixels.
                    (The coarse search runs on a SMALL copy; the refinement and the match metric run
                    on the WORK image, which is close to the screenshot's native resolution.)
   3b. _line_match  the displayed match is a DISTANCE-based measure: the share of the projected
                    outline / borders that lies within MATCH_TOL_PX of a drawn edge, plus the median
-                   and p90 distance. The refined candidate with the best match is the one kept.
+                   and p90 distance. The refined candidate with the best match (nudged by the hint
+                   prior) is the one kept.
   4. stains        everything below runs on the FULL-resolution image, pixel by pixel:
                      - the base colour is the most common flat colour inside the matched shape;
                      - a pixel is a stain candidate when it differs from it in CONTRAST (Lab,
@@ -66,6 +72,14 @@ TOP_K = 3  # coarse candidates that get refined
 ICP_ITERS = 45
 CENTER_SAMPLE = 300_000  # pixels used to find the stain colours (the assignment uses every pixel)
 SIMPLIFY_PX = 0.7  # gap-free simplification tolerance, in full-res px (sub-pixel)
+
+# Hint prior (the detected map box). All soft: the weakest placement still keeps HINT_FLOOR of its score.
+HINT_FLOOR = 0.3  # prior of a placement that does not touch the hint at all
+HINT_SIZE_FLOOR = (
+    0.5  # extra factor of a placement much bigger than the hint (the hint may be too small)
+)
+HINT_SIZE_SLACK = 1.5  # a placement whose overlap is >= 1/this of its area gets no size penalty
+HINT_FINAL_WEIGHT = 0.15  # how much the prior nudges the final choice among refined candidates
 
 # Match metric: a projected line sample "matches" when a drawn edge is this close (work px).
 MATCH_TOL_PX = 1.5
@@ -304,6 +318,32 @@ def _fast_len(n: int) -> int:
         n += 1
 
 
+# ── hint prior ─────────────────────────────────────────────────────────────
+
+
+def _hint_prior(px0, py0, pw, ph, hint):
+    """How well a placed map box (px0, py0, pw, ph) agrees with the hint box (x0, y0, x1, y1), 0..1.
+
+    The hint is a rough guess of where the map is, often too small (parts of the map that are not
+    the main fill colour are missed) and sometimes shifted, so this is a soft preference only:
+      coverage  share of the hint that the placed box covers (the map should include what was seen)
+      size      a placed box much bigger than its overlap with the hint is slightly less likely
+    Works on scalars or broadcastable arrays. With no hint it is 1 everywhere.
+    """
+    if hint is None:
+        return 1.0
+    hx0, hy0, hx1, hy1 = hint
+    area = max((hx1 - hx0) * (hy1 - hy0), 1e-9)
+    ox = np.maximum(0.0, np.minimum(px0 + pw, hx1) - np.maximum(px0, hx0))
+    oy = np.maximum(0.0, np.minimum(py0 + ph, hy1) - np.maximum(py0, hy0))
+    inter = ox * oy
+    cover = np.clip(inter / area, 0.0, 1.0)
+    inside = np.clip(inter / np.maximum(pw * ph, 1e-9) * HINT_SIZE_SLACK, 0.0, 1.0)
+    return (HINT_FLOOR + (1 - HINT_FLOOR) * cover) * (
+        HINT_SIZE_FLOOR + (1 - HINT_SIZE_FLOOR) * inside
+    )
+
+
 # ── match metric ───────────────────────────────────────────────────────────
 
 
@@ -335,24 +375,31 @@ def _line_match(geom, dt: np.ndarray | None, tol: float = MATCH_TOL_PX) -> dict 
 
 
 def _match_key(r: dict) -> tuple[float, float]:
-    """Sort key of a refined candidate: the displayed match first, the chance-corrected lift second."""
+    """Sort key of a refined candidate: the displayed match first (nudged by the hint prior, which
+    only breaks near-ties), the chance-corrected lift second.
+    """
+    prior = r.get("prior", 1.0)
+    nudge = 1 - HINT_FINAL_WEIGHT + HINT_FINAL_WEIGHT * prior
     m_o, m_b = r.get("m_o"), r.get("m_b")
     if m_o is None:
-        return (0.0, r["lift"])
+        return (0.0, r["lift"] * nudge)
     p = m_o["precision"]
     if m_b is not None:
         p = 0.5 * (p + m_b["precision"])
-    return (p, r["lift"])
+    return (p * nudge, r["lift"])
 
 
 # ── coarse search ──────────────────────────────────────────────────────────
 
 
-def _candidates(e_coarse: np.ndarray, light_coarse: np.ndarray, f: int, uv, uvb) -> list[dict]:
+def _candidates(
+    e_coarse: np.ndarray, light_coarse: np.ndarray, f: int, uv, uvb, hint=None
+) -> list[dict]:
     """Best placement of the known lines at every scale. Returns [{score, a, tx, ty}] in FULL-res
     px for x = a*u + tx, y = -a*v + ty.
 
-    score = (line pixels on edges, above chance) x (how light the inside of the outline is).
+    score = (line pixels on edges, above chance) x (how light the inside of the outline is)
+            x (hint prior). `hint` is the hint box in COARSE px (or None).
     """
     hh, ww = e_coarse.shape
     ub = uv.bounds
@@ -402,6 +449,19 @@ def _candidates(e_coarse: np.ndarray, light_coarse: np.ndarray, f: int, uv, uvb)
                 score = lift * (0.4 + 0.6 * np.clip(lf, 0, 1))
             else:
                 score = lift
+
+            if hint is not None:
+                # bias towards where the map was seen (a negative score is left as it is)
+                gy_, gx_ = score.shape
+                prior = _hint_prior(
+                    np.arange(gx_, dtype=float)[None, :],
+                    np.arange(gy_, dtype=float)[:, None],
+                    w,
+                    h,
+                    hint,
+                )
+                score = np.where(score > 0, score * prior, score)
+
             iy, ix = np.unravel_index(int(np.argmax(score)), score.shape)
             out.append(
                 {
@@ -528,12 +588,15 @@ def _prep_outline(outline):
     return fit, clip
 
 
-def register(sub: np.ndarray, outline, borders, projection: str) -> dict:
+def register(sub: np.ndarray, outline, borders, projection: str, hint=None) -> dict:
     """Find where the country is in `sub` and the plane <-> image transform. Crop-local.
 
     The coarse search runs for every projection that makes sense for the country's bounds
     (equirectangular, plain lon/lat, mercator, and the two conics for mid-latitude countries);
     the refined candidate with the best distance-based match wins.
+
+    hint = (x0, y0, x1, y1) in `sub` px: a rough box of where a map was seen. It biases the coarse
+    search and nudges the final choice; it never excludes a placement.
     """
     hgt, wid = sub.shape[:2]
     fit_outline, clip_outline = _prep_outline(outline)
@@ -562,6 +625,7 @@ def register(sub: np.ndarray, outline, borders, projection: str) -> dict:
     hc, wc = hgt // f, wid // f
     e_coarse = e[: hc * f, : wc * f].reshape(hc, f, wc, f).max((1, 3))
     light_coarse = light[: hc * f, : wc * f].reshape(hc, f, wc, f).mean((1, 3)) >= 0.5
+    hint_coarse = None if hint is None else tuple(v / f for v in hint)
 
     names = list(PROJECTIONS) if projection == "auto" else [projection]
     cands = []
@@ -576,7 +640,7 @@ def register(sub: np.ndarray, outline, borders, projection: str) -> dict:
         uvb = shapely.transform(inner, fwd) if inner is not None else None
         cands.extend(
             {**c, "name": nm, "uv": uv, "uvb": uvb, "inv": inv}
-            for c in _candidates(e_coarse, light_coarse, f, uv, uvb)
+            for c in _candidates(e_coarse, light_coarse, f, uv, uvb, hint_coarse)
         )
     if not cands:
         msg = "The map doesn't fit in this crop. Use a bigger crop."
@@ -605,6 +669,16 @@ def register(sub: np.ndarray, outline, borders, projection: str) -> dict:
         m = [r["a"], 0, 0, r["b"], r["tx"], r["ty"]]
         r["m_o"] = _line_match(affine_transform(c["uv"], m), dt)
         r["m_b"] = _line_match(affine_transform(c["uvb"], m), dt) if c["uvb"] is not None else None
+        ub = c["uv"].bounds
+        r["prior"] = float(
+            _hint_prior(
+                r["tx"] + r["a"] * ub[0],
+                r["ty"] + r["b"] * ub[3],
+                r["a"] * (ub[2] - ub[0]),
+                -r["b"] * (ub[3] - ub[1]),
+                hint,
+            )
+        )
         refined.append({**r, "name": c["name"], "uv": c["uv"], "uvb": c["uvb"], "inv": c["inv"]})
 
     # The displayed match is what we optimise. The chance-corrected lift only guards against a
@@ -617,13 +691,14 @@ def register(sub: np.ndarray, outline, borders, projection: str) -> dict:
     return {
         **{
             k: best[k]
-            for k in ("a", "b", "tx", "ty", "hit_o", "hit_b", "lift", "name", "m_o", "m_b")
+            for k in ("a", "b", "tx", "ty", "hit_o", "hit_b", "lift", "name", "m_o", "m_b", "prior")
         },
         "inv": best["inv"],
         "placed": affine_transform(best["uv"], m),
         "placed_b": affine_transform(best["uvb"], m) if best["uvb"] is not None else None,
         "clip_outline": clip_outline,
         "fit_outline": fit_outline,
+        "dt": dt,
     }
 
 
@@ -828,6 +903,119 @@ def _match_out(m: dict | None) -> dict | None:
     }
 
 
+def _region_stats(geom, dt: np.ndarray | None) -> dict | None:
+    """Edge match split by quadrant of the placed outline (NW / NE / SW / SE).
+
+    A single percentage can hide one side of the country being completely off. The split is
+    only a diagnostic: it does not change the registration.
+    """
+    if dt is None or geom is None or geom.is_empty:
+        return None
+    pts = shapely.get_coordinates(shapely.segmentize(geom, MATCH_STEP_PX))
+    if not len(pts):
+        return None
+    hh, ww = dt.shape
+    xs = np.rint(pts[:, 0] - 0.5).astype(int)
+    ys = np.rint(pts[:, 1] - 0.5).astype(int)
+    ok = (xs >= 0) & (xs < ww) & (ys >= 0) & (ys < hh)
+    if ok.sum() < 10:
+        return None
+    x, y = pts[ok, 0], pts[ok, 1]
+    d = dt[ys[ok], xs[ok]]
+    bx0, by0, bx1, by1 = geom.bounds
+    cx, cy = (bx0 + bx1) / 2, (by0 + by1) / 2
+    out = {}
+    for name, mask in (
+        ("NW", (x < cx) & (y < cy)),
+        ("NE", (x >= cx) & (y < cy)),
+        ("SW", (x < cx) & (y >= cy)),
+        ("SE", (x >= cx) & (y >= cy)),
+    ):
+        if int(mask.sum()) < 5:
+            out[name] = None
+        else:
+            out[name] = {
+                "precision": round(float(np.mean(d[mask] <= MATCH_TOL_PX)), 3),
+                "median": round(float(np.median(d[mask])), 2),
+                "samples": int(mask.sum()),
+            }
+    return out
+
+
+def _warp_geom(
+    geom, x0: int, y0: int, sx: float, sy: float, dx: float, dy: float, pivot: list[float]
+):
+    """Scale around `pivot` (work px) then translate, keeping the result crop-local."""
+    if geom is None or geom.is_empty:
+        return geom
+    px, py = float(pivot[0]), float(pivot[1])
+    work = affine_transform(geom, [1, 0, 0, 1, x0, y0])
+    m = [sx, 0, 0, sy, px + dx - sx * px, py + dy - sy * py]
+    return affine_transform(affine_transform(work, m), [1, 0, 0, 1, -x0, -y0])
+
+
+def evaluate_warp(
+    arr: np.ndarray,
+    outline,
+    borders,
+    crop: list[float] | None,
+    projection: str,
+    cache: dict | None,
+    sx: float,
+    sy: float,
+    dx: float,
+    dy: float,
+    pivot: list[float],
+) -> dict:
+    """Score a manual warp of the fitted outline and borders (no stains are recomputed).
+
+    The transform is the same family the algorithm fits: independent X/Y scale plus
+    translation. `pivot` and the offsets are in work-image px.
+    """
+    h0, w0 = arr.shape[:2]
+    fx0, fy0, fx1, fy1 = crop or (0.0, 0.0, 1.0, 1.0)
+    x0 = int(np.clip(round(fx0 * w0), 0, max(0, w0 - MIN_CROP)))
+    x1 = int(np.clip(round(fx1 * w0), min(w0, x0 + MIN_CROP), w0))
+    y0 = int(np.clip(round(fy0 * h0), 0, max(0, h0 - MIN_CROP)))
+    y1 = int(np.clip(round(fy1 * h0), min(h0, y0 + MIN_CROP), h0))
+    sub = arr[y0:y1, x0:x1]
+
+    key = (x0, y0, x1, y1, projection)
+    reg = cache.get(key) if cache is not None else None
+    if reg is None:
+        reg = register(sub, outline, borders, projection)
+        if cache is not None:
+            cache[key] = reg
+
+    placed = _warp_geom(reg["placed"], x0, y0, sx, sy, dx, dy, pivot)
+    placed_b = None
+    if reg["placed_b"] is not None:
+        placed_b = _warp_geom(reg["placed_b"], x0, y0, sx, sy, dx, dy, pivot)
+    dt = reg.get("dt")
+    m_o = _line_match(placed, dt)
+    m_b = _line_match(placed_b, dt) if placed_b is not None else None
+    bx0, by0, bx1, by1 = placed.bounds
+    return {
+        "fit": {
+            "outline": 0.0 if m_o is None else round(m_o["precision"], 3),
+            "borders": None if m_b is None else round(m_b["precision"], 3),
+            "outline_match": _match_out(m_o),
+            "borders_match": _match_out(m_b),
+            "regions": _region_stats(placed, dt),
+            "projection": reg["name"],
+            "aspect": round(abs(reg["a"] * sx / (reg["b"] * sy)), 3),
+            "box": [x0 + bx0, y0 + by0, x0 + bx1, y0 + by1],
+        },
+        "warp": {
+            "sx": round(float(sx), 4),
+            "sy": round(float(sy), 4),
+            "dx": round(float(dx), 2),
+            "dy": round(float(dy), 2),
+            "pivot": [round(float(pivot[0]), 2), round(float(pivot[1]), 2)],
+        },
+    }
+
+
 # ── main entry ─────────────────────────────────────────────────────────────
 
 
@@ -840,11 +1028,14 @@ def analyze(
     tol: int = TOL,
     borders=None,
     cache: dict | None = None,
+    hint: list[float] | None = None,
 ) -> dict:
     """arr: work-size RGB (used to find the map). full: the same image at full resolution (used to
     read the stains). outline: the country's lon/lat geometry. crop: fractions [x0, y0, x1, y1]
     that limit where the map is searched (None = whole image). borders: lon/lat lines of the
     first-level admin borders. cache: registrations are stored here (they are the slow part).
+    hint: fractions [x0, y0, x1, y1] of the image where a map was detected (a rough guess that
+    biases the search; may be too small or off).
 
     Only the stains are returned (clipped to the outline). The base map is never part of the result.
     """
@@ -856,11 +1047,16 @@ def analyze(
     y1 = int(np.clip(round(fy1 * h0), min(h0, y0 + MIN_CROP), h0))
     sub = arr[y0:y1, x0:x1]
 
+    # the hint in crop-local work px (it stays the same for the life of an upload, so it is part of no cache key)
+    hint_px = None
+    if hint is not None:
+        hint_px = (hint[0] * w0 - x0, hint[1] * h0 - y0, hint[2] * w0 - x0, hint[3] * h0 - y0)
+
     # 1. where is the map (on the work image), and which pixel is which lon/lat
     key = (x0, y0, x1, y1, projection)
     reg = cache.get(key) if cache is not None else None
     if reg is None:
-        reg = register(sub, outline, borders, projection)
+        reg = register(sub, outline, borders, projection, hint_px)
         if cache is not None:
             cache[key] = reg
     a, b, tx, ty = reg["a"], reg["b"], reg["tx"], reg["ty"]
@@ -985,8 +1181,13 @@ def analyze(
             # with median / p90 distance. None when it can't be measured (no scipy).
             "outline_match": _match_out(reg.get("m_o")),
             "borders_match": _match_out(reg.get("m_b")),
+            "regions": _region_stats(reg["placed"], reg.get("dt")),
             "projection": reg["name"],
             "aspect": round(abs(a / b), 3),
+            # The placed outline in work-image px: pivot for the manual warp.
+            "box": [x0 + bx0, y0 + by0, x0 + bx1, y0 + by1],
+            # How well the chosen placement agrees with the detected map box (1 = fully, None = no hint).
+            "hint_prior": None if hint is None else round(float(reg["prior"]), 3),
         },
         "classes": classes,
         # The base map for the preview: the country's own outline and borders (never from the image).
