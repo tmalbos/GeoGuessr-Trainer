@@ -6,7 +6,8 @@ Flow:  POST /technical/stain/upload   -> raw image bytes; kept in memory, return
                                          Nothing runs when no map was detected (unless the user drew a crop box);
                                          otherwise the detected box biases the search for the map.
 Uploads live in memory only (last few); a server restart means loading the image again (410).
-Only the stains are returned: the base map is the app's own country map and is never extracted.
+All colours inside the map are returned, with the biggest one flagged `base`; the app's own
+country map is drawn underneath, so the UI leaves the base unselected and exports only the stains.
 The maths is in src/geo/stain_extract.py; the "is there a map?" check is in src/geo/map_detect.py.
 """
 
@@ -112,7 +113,7 @@ class StainBody(BaseModel):
     country: str
     crop: list[float] | None = Field(None, min_length=4, max_length=4)
     projection: Literal["auto", "equirect", "plate", "mercator", "lcc", "albers"] = "auto"
-    tol: int = Field(TOL, ge=8, le=120)  # shades closer than this are merged into one stain
+    tol: int = Field(TOL, ge=8, le=120)  # shades closer than this are merged into one colour
 
 
 @router.post("/technical/stain/analyze")

@@ -1,7 +1,8 @@
 """stain_extract.py — Turn a screenshot of a country map with painted areas ("stains") into polygons.
 
-The base map is NEVER extracted: the app already has the country's own map and draws it underneath.
-Only the stains (painted areas) are returned, as polygons in lon/lat.
+Every colour found inside the map is returned as a polygon, with the biggest one flagged `base`.
+The app already has the country's own map and draws it underneath, so the UI leaves the base
+unselected and only the stains are exported by default.
 
 The map is found by REGISTRATION, not by guessing from colours. The country is given, so its
 outline and first-level borders are known:
@@ -35,16 +36,17 @@ outline and first-level borders are known:
                    (the chance level) and the share of nearby image edges that our line explains.
                    The refined candidate with the best chance-corrected match (nudged by the hint
                    prior) is the one kept.
-  4. stains        everything below runs on the FULL-resolution image, pixel by pixel:
-                     - the base colour is the most common flat colour inside the matched shape;
-                     - a pixel is a stain candidate when it differs from it in CONTRAST (Lab,
-                       chroma-aware), except bluish pixels (lakes / rivers);
-                     - the stain colours are found by peak clustering;
-                     - ONE label map is built: each candidate pixel goes to the nearest stain colour
-                       (the base colour competes too, so the edge falls halfway through anti-aliased
-                       pixels). A pixel has exactly one label, so stains can never overlap;
-                     - thin things (borders, labels) are removed from the label map, and the thin
-                       gaps they leave are filled from the neighbouring labels.
+  4. colours       everything below runs on the FULL-resolution image, pixel by pixel. There is no
+                   "base colour" guess and no "is this pixel different enough" test: the colours of
+                   the map are the peaks of the FLAT pixels inside the placed outline (at most
+                   MAX_CLASSES; borders, text and anti-aliasing are not flat, so they never become a
+                   colour). The most common colour is simply the base map: it is returned too, as a
+                   stain flagged `base`, for the UI to leave unselected.
+  4b. labels       ONE label map covering the whole inside of the map: every pixel close to a colour
+                   takes the nearest one, thin things (borders, labels, rims) and tiny blobs are
+                   removed, and every pixel left without a label takes the label of the nearest
+                   labelled pixel. A pixel has exactly one label, so stains can never overlap and
+                   nothing inside the map is left "unclassified".
   5. polygons      each label -> polygon straight from its pixels, so neighbouring stains share the
                    exact same boundary. No blur, no per-stain growing: the only change is an
                    optional gap-free simplification (sub-pixel tolerance) when the polygons form a
@@ -95,7 +97,7 @@ SCALE_STEP = 1.05  # ratio between two scales of the coarse search
 MIN_MAP_FRACTION = 0.2  # smallest map considered, relative to the largest that fits the image
 TOP_K = 3  # coarse candidates that get refined
 ICP_ITERS = 45
-CENTER_SAMPLE = 300_000  # pixels used to find the stain colours (the assignment uses every pixel)
+CENTER_SAMPLE = 300_000  # pixels used to find the map colours (the assignment uses every pixel)
 SIMPLIFY_PX = 0.7  # gap-free simplification tolerance, in full-res px (sub-pixel)
 
 # Hint prior (the detected map box). All soft: the weakest placement still keeps HINT_FLOOR of its score.
@@ -132,10 +134,10 @@ BAND_PX = 5.0  # "edges near the line" for the reverse check
 CHANCE_SHIFT_FRAC = 0.04  # chance level = line shifted by this share of the map size...
 CHANCE_SHIFT_MIN, CHANCE_SHIFT_MAX = 4.0, 12.0  # ...limited to this range (px)
 
-# Stain contrast (CIE Lab, distance to the base colour)
-AB_MIN = 8.0  # colour (chroma) difference needed...
-DE_MIN = 9.0  # ...together with this much overall difference
-DE_STRONG = 28.0  # or this much overall difference alone (dark / very different fills)
+# Colours / labels
+MAX_CLASSES = 7  # colours kept inside the map (base map included)
+FLAT_T = 24.0  # gradient magnitude (sum over channels) under which a pixel is "flat"
+CAP = 1.5  # a pixel takes a colour only within CAP * tol of it; the rest is filled from neighbours
 HOLE_MIN = 30.0  # holes in a stain smaller than this (px² at work size) are filled
 MIN_POLY = 8.0  # polygons smaller than this (px² at work size) are dropped
 
@@ -190,10 +192,6 @@ def _dilate(m: np.ndarray, r: int) -> np.ndarray:
 def _erode(m: np.ndarray, r: int) -> np.ndarray:
     """Square erosion of radius r (the outside of the image counts as full, so edges don't erode)."""
     return ~_dilate(~m, r)
-
-
-def _close(m: np.ndarray, r: int) -> np.ndarray:
-    return _erode(_dilate(m, r), r)
 
 
 def _open(m: np.ndarray, r: int) -> np.ndarray:
@@ -343,14 +341,19 @@ def _projection(name: str, bounds):
 # ── edges ──────────────────────────────────────────────────────────────────
 
 
-def _edges(a: np.ndarray) -> np.ndarray:
-    """Boolean edge map: central-difference gradient magnitude over all channels."""
+def _grad(a: np.ndarray) -> np.ndarray:
+    """Central-difference gradient magnitude over all channels."""
     f = a.astype(np.float32)
     gx = np.zeros_like(f)
     gy = np.zeros_like(f)
     gx[:, 1:-1] = f[:, 2:] - f[:, :-2]
     gy[1:-1] = f[2:] - f[:-2]
-    return np.sqrt((gx**2 + gy**2).sum(2)) > EDGE_T
+    return np.sqrt((gx**2 + gy**2).sum(2))
+
+
+def _edges(a: np.ndarray) -> np.ndarray:
+    """Boolean edge map."""
+    return _grad(a) > EDGE_T
 
 
 def _fast_len(n: int) -> int:
@@ -1089,7 +1092,7 @@ def register(sub: np.ndarray, outline, borders, projection: str, hint=None) -> d
 
 
 def _find_centers(pix: np.ndarray, tol: int = TOL, max_k: int = 14) -> np.ndarray:
-    """Peak-based colour clustering of (N, 3) pixels. Returns the stain colours, (K, 3)."""
+    """Peak-based colour clustering of (N, 3) pixels. Returns the map colours, (K, 3)."""
     pix = pix.astype(np.int16)
     centers: list[np.ndarray] = []
     idx = np.arange(len(pix))
@@ -1112,20 +1115,19 @@ def _find_centers(pix: np.ndarray, tol: int = TOL, max_k: int = 14) -> np.ndarra
     return np.array(centers).reshape(-1, 3)
 
 
-def _assign(img: np.ndarray, cand: np.ndarray, centers, base_rgb, tol: int) -> np.ndarray:
-    """ONE label per pixel (-1 = none). Every candidate pixel goes to its nearest stain colour,
-    with the base colour competing: the edge between a stain and the base (or between two stains)
-    falls halfway between their colours, so anti-aliased pixels are split fairly. A pixel that is
-    far from every stain colour (text, lines, photo clutter) gets no label.
+def _assign(img: np.ndarray, region: np.ndarray, centers, cap: float) -> np.ndarray:
+    """ONE label per pixel of `region` (-1 = none). Every pixel goes to its nearest colour, as long
+    as it is within `cap` of it (L1 over R, G, B): the edge between two colours falls halfway
+    between them, so anti-aliased pixels are split fairly. A pixel far from every colour (text,
+    lines, photo clutter) gets no label here and is filled from its neighbours later.
     """
-    h, w = cand.shape
+    h, w = region.shape
     lab = np.full(h * w, -1, np.int16)
-    idx = np.flatnonzero(cand.ravel())
+    idx = np.flatnonzero(region.ravel())
     if not len(centers) or not len(idx):
         return lab.reshape(h, w)
     pix = img.reshape(-1, 3)[idx].astype(np.int16)
     ci = np.rint(centers).astype(np.int16)
-    bi = np.rint(base_rgb).astype(np.int16)
     best = np.full(len(idx), np.iinfo(np.int32).max, np.int32)
     which = np.zeros(len(idx), np.int16)
     for k, c in enumerate(ci):
@@ -1133,9 +1135,7 @@ def _assign(img: np.ndarray, cand: np.ndarray, centers, base_rgb, tol: int) -> n
         better = d < best
         best[better] = d[better]
         which[better] = k
-    d_base = np.abs(pix - bi).sum(1, dtype=np.int32)
-    cap = np.maximum(tol, 0.6 * np.abs(ci - bi).sum(1))  # how far from its colour a pixel may be
-    ok = (best <= cap[which]) & (best < d_base)
+    ok = best <= cap
     lab[idx[ok]] = which[ok]
     return lab.reshape(h, w)
 
@@ -1168,6 +1168,19 @@ def _propagate(lab: np.ndarray, allowed: np.ndarray, iters: int) -> np.ndarray:
     return lab
 
 
+def _fill_nearest(lab: np.ndarray, region: np.ndarray) -> np.ndarray:
+    """Every pixel of `region` without a label takes the label of the nearest labelled pixel."""
+    todo = region & (lab < 0)
+    if not todo.any() or not (lab >= 0).any():
+        return lab
+    if distance_transform_edt is None:  # pragma: no cover
+        return _propagate(lab, region, max(lab.shape))
+    iy, ix = distance_transform_edt(lab < 0, return_distances=False, return_indices=True)
+    out = lab.copy()
+    out[todo] = lab[iy[todo], ix[todo]]
+    return out
+
+
 def _raster(poly_geom, size: tuple[int, int]) -> np.ndarray:
     """Filled polygon(s) -> boolean mask of `size` = (h, w)."""
     im = Image.new("L", (size[1], size[0]), 0)
@@ -1179,35 +1192,6 @@ def _raster(poly_geom, size: tuple[int, int]) -> np.ndarray:
         for ring in p.interiors:
             dr.polygon([tuple(c) for c in ring.coords], fill=0)
     return np.asarray(im) > 0
-
-
-def _base_color(sub: np.ndarray, core: np.ndarray) -> np.ndarray:
-    """The base map colour: the most common flat colour inside the matched shape (only used to
-    measure contrast, it is never returned).
-    """
-    pix = _subsample(sub[core], 400_000).astype(np.int32)
-    key = ((pix[:, 0] >> 4) << 8) | ((pix[:, 1] >> 4) << 4) | (pix[:, 2] >> 4)
-    peak = int(np.bincount(key, minlength=4096).argmax())
-    c = pix[key == peak].mean(0)
-    near = np.abs(pix - c).sum(1) <= 30
-    return pix[near].mean(0) if near.any() else c
-
-
-def _stain_candidates(sub: np.ndarray, core: np.ndarray, base_rgb: np.ndarray) -> np.ndarray:
-    """Pixels of `core` that stand out from the base colour, without lakes / rivers (bluish)."""
-    pix = sub[core]
-    base = _lab(base_rgb[None])[0]
-    ok = np.empty(len(pix), bool)
-    for s in range(0, len(pix), 400_000):
-        lab = _lab(pix[s : s + 400_000])
-        dab = np.hypot(lab[:, 1] - base[1], lab[:, 2] - base[2])
-        de = np.hypot(lab[:, 0] - base[0], dab)
-        a, b = lab[:, 1], lab[:, 2]
-        water = (b < -3) & (a < -0.36 * b)  # light or dark blue, cyan: not a stain
-        ok[s : s + 400_000] = (((dab >= AB_MIN) & (de >= DE_MIN)) | (de >= DE_STRONG)) & ~water
-    cand = np.zeros(core.shape, bool)
-    cand[core] = ok
-    return cand
 
 
 def _fill_small_holes(geoms: list, min_area: float) -> list:
@@ -1437,7 +1421,8 @@ def analyze(
     hint: fractions [x0, y0, x1, y1] of the image where a map was detected (a rough guess that
     biases the search; may be too small or off).
 
-    Only the stains are returned (clipped to the outline). The base map is never part of the result.
+    Every colour found inside the map is returned (clipped to the outline), the biggest one flagged
+    `base`. The app's own country map is drawn underneath, so the UI leaves the base unselected.
     """
     h0, w0 = arr.shape[:2]
     fx0, fy0, fx1, fy1 = crop or (0.0, 0.0, 1.0, 1.0)
@@ -1484,7 +1469,7 @@ def analyze(
     def rad(n: int) -> int:  # a radius that is n px on the work image, in full-res px
         return max(1, round(n * scale))
 
-    r_edge, r_thin, r_gap = rad(2), rad(1), rad(2)
+    r_edge, r_thin = rad(2), rad(1)
 
     inside = _raster(placed, (hgt, wid))
     if inside.sum() < 100:
@@ -1494,40 +1479,30 @@ def analyze(
     if core.sum() < 100:
         msg = "The map was placed outside the crop. Try a bigger crop."
         raise StainError(msg)
-    band = inside & ~core
     n_core = int(core.sum())
 
-    # 3. ONE label per pixel: nearest stain colour, decided pixel by pixel
-    base_rgb = _base_color(img, core)
-    cand = _stain_candidates(img, core, base_rgb)
-    solid = _open(cand, r_thin)  # thin things (borders, labels) don't define a stain colour
-    centers = _find_centers(_subsample(img[solid], CENTER_SAMPLE), tol)
-    lab = _assign(img, cand, centers, base_rgb, tol)
+    # 3. the colours of the map: peaks of the FLAT pixels inside it (the base map is one of them)
+    flat = _open((_grad(img) <= FLAT_T) & core, r_thin)  # borders, text and rims are not flat
+    pool = img[flat] if flat.sum() >= 100 else img[core]
+    centers = _find_centers(_subsample(pool, CENTER_SAMPLE), tol, MAX_CLASSES)
+    if not len(centers):
+        msg = "No colours were found inside the map."
+        raise StainError(msg)
 
-    # Strongest contrast first. A paler shade that only hugs a stronger one (a thin rim of
-    # anti-aliasing) is not a stain. Thin parts and tiny stains are removed from the label map.
-    base_l = _lab(base_rgb[None])[0]
-    contrast = [float(np.linalg.norm(_lab(c[None])[0] - base_l)) for c in centers]
-    stronger = np.zeros_like(core)
-    for k in sorted(range(len(centers)), key=lambda i: -contrast[i]):
+    # 3b. ONE label per pixel, over the whole inside of the map
+    lab = _assign(img, core, centers, CAP * tol)
+    raw = lab.copy()
+    min_blob = max(15 * scale * scale, MIN_CLASS_SHARE * n_core)
+    for k in range(len(centers)):
+        # thin parts (borders, labels, rims) and tiny blobs are not a colour
         own = lab == k
         m = _open(own, r_thin)
-        if stronger.any():
-            far = m & ~_dilate(stronger, rad(3))
-            if _open(far, r_thin).sum() < 0.35 * m.sum():
-                lab[own] = -1
-                continue
         lab[own & ~m] = -1
-        if m.sum() >= max(15 * scale * scale, MIN_CLASS_SHARE * n_core):
-            stronger |= m
-        else:
+        if m.sum() < min_blob:
             lab[own] = -1
-
-    # Thin gaps (borders crossing a stain, a line between two stains) take the label of the
-    # pixels around them; the stains also reach the coast line that was eroded away.
-    gaps = _close(lab >= 0, r_gap) & (lab < 0) & core
-    lab = _propagate(lab, gaps, r_gap)
-    lab = _propagate(lab, band, r_edge + 1)
+    if not (lab >= 0).any():  # nothing survived: keep the raw labels rather than return nothing
+        lab = raw
+    lab = _fill_nearest(lab, inside)  # whatever is still unlabelled takes its nearest neighbour
 
     # 4. polygons straight from the label map: disjoint pixels -> disjoint polygons
     counts = np.bincount(lab[lab >= 0], minlength=max(1, len(centers)))
@@ -1544,6 +1519,8 @@ def analyze(
 
     classes, features = [], []
     total = sum(int(counts[i]) for i in ids) or 1
+    base_id = ids[0] if ids else -1  # ids are sorted by size: the biggest colour is the base map
+    stain_n = 0
     for g, i in zip(geoms, ids, strict=True):
         ll = shapely.make_valid(shapely.transform(g, to_lonlat))
         ll = _poly_only(shapely.intersection(ll, reg["clip_outline"]))
@@ -1554,12 +1531,19 @@ def analyze(
         except Exception:  # noqa: BLE001
             pass
         hx = _hex(centers[i])
-        tag = f"Stain {len(classes) + 1}"
-        classes.append({"hex": hx, "tag": tag, "share": round(int(counts[i]) / total, 4)})
+        is_base = i == base_id
+        if is_base:
+            tag = "Base"
+        else:
+            stain_n += 1
+            tag = f"Stain {stain_n}"
+        classes.append(
+            {"hex": hx, "tag": tag, "share": round(int(counts[i]) / total, 4), "base": is_base}
+        )
         features.append(
             {
                 "type": "Feature",
-                "properties": {"tag": tag, "color": hx, "hex": hx},
+                "properties": {"tag": tag, "color": hx, "hex": hx, "base": is_base},
                 "geometry": json.loads(shapely.to_geojson(ll)),
             }
         )

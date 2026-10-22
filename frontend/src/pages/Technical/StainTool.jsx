@@ -76,7 +76,7 @@ const matchText = (label, m) => {
 const pct = (v) => (typeof v === "number" ? `${Math.round(v * 100)}%` : "—");
 const px = (v) => (typeof v === "number" ? `${v.toFixed(2)} px` : "—");
 
-// The country's own outline and borders (from the app's local maps) as the base, with only the stains on top.
+// The country's own outline and borders (from the app's local maps) as the base, with only the selected colours on top.
 // Both use the same projection, so they always line up. Wheel zooms, left-drag pans.
 function StainPreview({ base, name, fc }) {
   const vp = useRef(null);
@@ -127,7 +127,7 @@ export default function StainTool() {
   const [draft, setDraft] = useState(null);
   const [tol, setTol] = useState(40);
   const [res, setRes] = useState(null);
-  const [off, setOff] = useState({}); // hex -> bool, the user's own picks
+  const [pick, setPick] = useState({}); // hex -> bool, the user's own picks (the base map starts unselected)
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
   const [over, setOver] = useState(false);
@@ -164,7 +164,7 @@ export default function StainTool() {
       if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || r.statusText);
       const d = await r.json();
       setUrl((old) => { if (old) URL.revokeObjectURL(old); return URL.createObjectURL(file); });
-      setUp(d); setCrop(null); setOff({}); setRes(null);
+      setUp(d); setCrop(null); setPick({}); setRes(null);
       setWarpMode(false); setWarp({ sx: 1, sy: 1, dx: 0, dy: 0 }); setWarpRes(null); setWarpErr("");
       setScanBusy(false); setScanErr("");
       resetView();
@@ -292,19 +292,20 @@ export default function StainTool() {
     } catch (e) { setScanErr(errorText(e)); } finally { setScanBusy(false); }
   };
 
-  // Only stains come back (the base map is the app's own). Every stain starts on.
-  const on = (hex) => off[hex] ?? true;
+  // Every colour of the map comes back as a polygon. The base map is flagged `base` and starts unselected.
+  const baseHex = res?.classes.find((c) => c.base)?.hex;
+  const on = (hex) => pick[hex] ?? hex !== baseHex;
   const fc = useMemo(() => {
     if (!res) return null;
     const keep = res.geojson.features.filter((f) => on(f.properties.hex));
     return keep.length ? { type: "FeatureCollection", features: keep } : null;
-  }, [res, off]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [res, pick]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // What is outlined on the image: the box being drawn, the user's crop, the placed country, or (right after the
   // upload) the map the detector found.
   const box = draft ?? crop ?? res?.bbox ?? (det?.found ? det.boxes[0].box : null);
   const [vk, vl] = res ? verdict(res.fit.confidence) : [];
-  const noStains = !!res && !res.classes.length;
+  const noColours = !!res && !res.classes.length;
   const fitBox = res?.fit?.box;
   const pivot = fitBox ? [(fitBox[0] + fitBox[2]) / 2, (fitBox[1] + fitBox[3]) / 2] : [0, 0];
   const warpXf = warpMode && fitBox
@@ -354,15 +355,15 @@ export default function StainTool() {
 
       <h3>Matching</h3>
       <div className="tp-field">
-        <label htmlFor="st-tol" title="Shades closer than this are merged into one stain">Merge similar shades<span className="muted">{tol}</span></label>
+        <label htmlFor="st-tol" title="Shades closer than this are merged into one colour">Merge similar shades<span className="muted">{tol}</span></label>
         <input id="st-tol" type="range" min={10} max={100} step={5} value={tol} onChange={(e) => setTol(Number(e.target.value))} />
       </div>
 
       {res && <>
-        <h3>Stains found</h3>
-        {noStains ? <p className="muted">No stained areas found inside the map.</p> : <div className="tp-tags">
+        <h3>Colours found</h3>
+        {noColours ? <p className="muted">No colours found inside the map.</p> : <div className="tp-tags">
           {res.classes.map((c) => <label className="tp-tag" key={c.hex} title={c.hex}>
-            <input type="checkbox" checked={on(c.hex)} onChange={() => setOff((o) => ({ ...o, [c.hex]: on(c.hex) }))} />
+            <input type="checkbox" checked={on(c.hex)} onChange={() => setPick((o) => ({ ...o, [c.hex]: !on(c.hex) }))} />
             <i style={{ background: c.hex }} /><span>{c.tag}</span><span className="muted">{Math.round(c.share * 100)}%</span>
           </label>)}
         </div>}
