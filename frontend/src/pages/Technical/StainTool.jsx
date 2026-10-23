@@ -125,13 +125,13 @@ export default function StainTool() {
   const [up, setUp] = useState(null); // { token, width, height, map: { found, boxes, ms } }
   const [crop, setCrop] = useState(null);
   const [draft, setDraft] = useState(null);
-  const [tol, setTol] = useState(40);
   const [res, setRes] = useState(null);
   const [pick, setPick] = useState({}); // hex -> bool, the user's own picks (the base map starts unselected)
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
   const [over, setOver] = useState(false);
   const [err, setErr] = useState("");
+  const [dbg, setDbg] = useState(false); // debug: show the edges the fit looks at
   const [warpMode, setWarpMode] = useState(false);
   const [warp, setWarp] = useState({ sx: 1, sy: 1, dx: 0, dy: 0 });
   const [warpRes, setWarpRes] = useState(null);
@@ -193,12 +193,12 @@ export default function StainTool() {
     let stale = false;
     setBusy(true);
     const t = setTimeout(() => {
-      api("/technical/stain/analyze", { method: "POST", body: { token: up.token, country, crop, tol } })
+      api("/technical/stain/analyze", { method: "POST", body: { token: up.token, country, crop, debug: dbg } })
         .then((r) => { if (!stale) { setRes(r); setErr(""); setBusy(false); } })
         .catch((e) => { if (!stale) { setErr(errorText(e)); setBusy(false); } });
     }, 300);
     return () => { stale = true; clearTimeout(t); };
-  }, [up, country, cropKey, tol, noMap]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [up, country, cropKey, noMap, dbg]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // A new image/country/crop invalidates a manual fit.
   useEffect(() => {
@@ -353,13 +353,10 @@ export default function StainTool() {
         </select>
       </div>
 
-      <h3>Matching</h3>
-      <div className="tp-field">
-        <label htmlFor="st-tol" title="Shades closer than this are merged into one colour">Merge similar shades<span className="muted">{tol}</span></label>
-        <input id="st-tol" type="range" min={10} max={100} step={5} value={tol} onChange={(e) => setTol(Number(e.target.value))} />
-      </div>
-
       {res && <>
+        <h3>Debug</h3>
+        <label className="tp-chk"><input type="checkbox" checked={dbg} onChange={(e) => setDbg(e.target.checked)} />
+          <i className="st-sw" style={{ background: "#00e5ff" }} />Show the edges the fit sees</label>
         <h3>Colours found</h3>
         {noColours ? <p className="muted">No colours found inside the map.</p> : <div className="tp-tags">
           {res.classes.map((c) => <label className="tp-tag" key={c.hex} title={c.hex}>
@@ -384,6 +381,7 @@ export default function StainTool() {
             onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp} onContextMenu={(e) => e.preventDefault()}>
             <div className="st-zoom" style={viewStyle(view)}>
               <img src={url} alt="Uploaded map screenshot" draggable={false} />
+              {dbg && res?.debug && <img className="st-dbg" src={res.debug.edges} alt="" draggable={false} />}
               {res && <svg className="st-ov" viewBox={`0 0 ${res.size[0]} ${res.size[1]}`} preserveAspectRatio="none" aria-hidden="true">
                 <g transform={warpXf}>
                   <path className="o" d={res.overlay.outline} /><path className="b" d={res.overlay.borders} />

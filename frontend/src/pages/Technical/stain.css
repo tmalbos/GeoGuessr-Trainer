@@ -13,6 +13,9 @@
 .st-ov path { fill: none; stroke-width: 2; vector-effect: non-scaling-stroke; }
 .st-ov .o { stroke: #6cc0e5; }
 .st-ov .b { stroke: #ff7357; stroke-width: 1.5; }
+/* Debug: edge pixels, drawn 1:1 over the screenshot (pixelated so single pixels stay visible when zoomed). */
+.st-dbg { position: absolute !important; inset: 0; width: 100% !important; height: 100% !important; max-width: none !important; max-height: none !important; image-rendering: pixelated; pointer-events: none; }
+.st-sw { display: inline-block; width: 12px; height: 12px; border-radius: 3px; border: 1px solid #ffffff59; flex-shrink: 0; }
 .st-crop { position: absolute; outline: 1.5px solid #fff; box-shadow: 0 0 0 9999px rgba(8, 12, 17, .55); pointer-events: none; }
 .st-detect { font-size: 13px; margin: 8px 0 0; }
 .st-detect b.yes { color: var(--ok); } .st-detect b.no { color: var(--coral); }

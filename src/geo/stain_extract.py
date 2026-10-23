@@ -42,11 +42,12 @@ outline and first-level borders are known:
                    MAX_CLASSES; borders, text and anti-aliasing are not flat, so they never become a
                    colour). The most common colour is simply the base map: it is returned too, as a
                    stain flagged `base`, for the UI to leave unselected.
-  4b. labels       ONE label map covering the whole inside of the map: every pixel close to a colour
-                   takes the nearest one, thin things (borders, labels, rims) and tiny blobs are
-                   removed, and every pixel left without a label takes the label of the nearest
-                   labelled pixel. A pixel has exactly one label, so stains can never overlap and
-                   nothing inside the map is left "unclassified".
+  4b. labels       ONE label map covering the whole inside of the map (and a few px beyond the fitted
+                   outline, which can sit inside the drawn coast). A pixel that is one of the colours,
+                   or an anti-aliased blend of two of them, takes the nearest colour. NOTHING is eroded,
+                   opened or dropped, so a painted pixel always ends up in its stain, however thin it
+                   is. Only text and thin lines (neither a colour nor a blend) are filled from the
+                   nearest labelled pixel. A pixel has exactly one label, so stains never overlap.
   5. polygons      each label -> polygon straight from its pixels, so neighbouring stains share the
                    exact same boundary. No blur, no per-stain growing: the only change is an
                    optional gap-free simplification (sub-pixel tolerance) when the polygons form a
@@ -56,6 +57,7 @@ The registration is a 2x3 affine in the projected plane: px = A @ (u, v) + t. A 
 (it may rotate / shear), so every consumer uses A and t, never separate scale factors.
 """
 
+import base64
 import io
 import json
 import math
@@ -139,7 +141,12 @@ MAX_CLASSES = 7  # colours kept inside the map (base map included)
 FLAT_T = 24.0  # gradient magnitude (sum over channels) under which a pixel is "flat"
 CAP = 1.5  # a pixel takes a colour only within CAP * tol of it; the rest is filled from neighbours
 HOLE_MIN = 30.0  # holes in a stain smaller than this (px² at work size) are filled
-MIN_POLY = 8.0  # polygons smaller than this (px² at work size) are dropped
+MIN_POLY = 4.0  # polygons smaller than this (px² at work size) are dropped
+GROW_PX = (
+    3  # colours are read this many px beyond the fitted outline (it can sit inside the drawn coast)
+)
+SEG_TOL = 20.0  # a pixel this close (L1) to the line between two colours is a blend of them
+CLIP_PX = 3  # the stains may reach this many px past the app's own country outline
 
 
 class StainError(Exception):
@@ -1115,11 +1122,17 @@ def _find_centers(pix: np.ndarray, tol: int = TOL, max_k: int = 14) -> np.ndarra
     return np.array(centers).reshape(-1, 3)
 
 
-def _assign(img: np.ndarray, region: np.ndarray, centers, cap: float) -> np.ndarray:
-    """ONE label per pixel of `region` (-1 = none). Every pixel goes to its nearest colour, as long
-    as it is within `cap` of it (L1 over R, G, B): the edge between two colours falls halfway
-    between them, so anti-aliased pixels are split fairly. A pixel far from every colour (text,
-    lines, photo clutter) gets no label here and is filled from its neighbours later.
+def _assign(
+    img: np.ndarray, region: np.ndarray, centers, cap: float, seg_tol: float = 20.0
+) -> np.ndarray:
+    """ONE label per pixel of `region` (-1 = none). A pixel gets a label when it IS one of the colours
+    or a blend of two of them:
+      - within `cap` of a colour (L1 over R, G, B): it takes the nearest one;
+      - otherwise, if it lies on the straight line between two colours (within `seg_tol`), it is an
+        anti-aliased pixel of the edge between them and takes the nearer of the two.
+    The edge between two colours therefore falls halfway through the blended pixels, and a thin stain
+    keeps its pixels even when anti-aliasing has mixed them with the base. Only pixels that are neither
+    (text, thin lines, photo clutter) stay unlabelled; they are filled from their neighbours later.
     """
     h, w = region.shape
     lab = np.full(h * w, -1, np.int16)
@@ -1137,6 +1150,28 @@ def _assign(img: np.ndarray, region: np.ndarray, centers, cap: float) -> np.ndar
         which[better] = k
     ok = best <= cap
     lab[idx[ok]] = which[ok]
+
+    rest = np.flatnonzero(~ok)
+    if (
+        len(rest) and len(ci) > 1
+    ):  # blends of two colours (only the pixels not placed above are tested)
+        p = pix[rest].astype(np.float32)
+        cf = ci.astype(np.float32)
+        bd = np.full(len(rest), np.inf, np.float32)
+        bw = np.full(len(rest), -1, np.int16)
+        for i in range(len(cf)):
+            for j in range(i + 1, len(cf)):
+                v = cf[j] - cf[i]
+                vv = float(v @ v)
+                if vv < 1.0:
+                    continue
+                t = np.clip(((p - cf[i]) @ v) / vv, 0.0, 1.0)
+                d = np.abs(p - (cf[i] + t[:, None] * v)).sum(1)
+                better = d < bd
+                bd[better] = d[better]
+                bw[better] = np.where(t[better] < 0.5, i, j)
+        on = bd <= seg_tol
+        lab[idx[rest[on]]] = bw[on]
     return lab.reshape(h, w)
 
 
@@ -1400,6 +1435,17 @@ def evaluate_warp(
     }
 
 
+def _mask_png(mask: np.ndarray, size: tuple[int, int], offset: tuple[int, int], rgb) -> str:
+    """Boolean crop-local mask -> transparent PNG (data URL) the size of the work image."""
+    h0, w0 = size
+    oy, ox = offset
+    out = np.zeros((h0, w0, 4), np.uint8)
+    out[oy : oy + mask.shape[0], ox : ox + mask.shape[1]][mask] = (*rgb, 255)
+    buf = io.BytesIO()
+    Image.fromarray(out, "RGBA").save(buf, "PNG")
+    return "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode()
+
+
 # ── main entry ─────────────────────────────────────────────────────────────
 
 
@@ -1413,6 +1459,7 @@ def analyze(
     borders=None,
     cache: dict | None = None,
     hint: list[float] | None = None,
+    debug: bool = False,
 ) -> dict:
     """arr: work-size RGB (used to find the map). full: the same image at full resolution (used to
     read the stains). outline: the country's lon/lat geometry. crop: fractions [x0, y0, x1, y1]
@@ -1420,6 +1467,7 @@ def analyze(
     first-level admin borders. cache: registrations are stored here (they are the slow part).
     hint: fractions [x0, y0, x1, y1] of the image where a map was detected (a rough guess that
     biases the search; may be too small or off).
+    debug: also return the edge pixels the final fit looks at (see "debug" in the result).
 
     Every colour found inside the map is returned (clipped to the outline), the biggest one flagged
     `base`. The app's own country map is drawn underneath, so the UI leaves the base unselected.
@@ -1469,40 +1517,34 @@ def analyze(
     def rad(n: int) -> int:  # a radius that is n px on the work image, in full-res px
         return max(1, round(n * scale))
 
-    r_edge, r_thin = rad(2), rad(1)
-
     inside = _raster(placed, (hgt, wid))
     if inside.sum() < 100:
         msg = "The map was placed outside the crop. Try a bigger crop."
         raise StainError(msg)
-    core = _erode(inside, r_edge)  # away from the drawn coast line
-    if core.sum() < 100:
-        msg = "The map was placed outside the crop. Try a bigger crop."
-        raise StainError(msg)
-    n_core = int(core.sum())
+    # The fitted outline can sit a pixel or two inside the drawn coast, so colours are read a little
+    # beyond it. What ends up outside the country is cut away at the end.
+    region = _dilate(inside, rad(GROW_PX))
 
     # 3. the colours of the map: peaks of the FLAT pixels inside it (the base map is one of them)
-    flat = _open((_grad(img) <= FLAT_T) & core, r_thin)  # borders, text and rims are not flat
-    pool = img[flat] if flat.sum() >= 100 else img[core]
+    # Borders, text and the coast stroke are thin, so they never define a colour. A stain that is thin in one
+    # place still has its colour: it is wide somewhere else, and every thin pixel is matched to it below.
+    flat = _open((_grad(img) <= FLAT_T) & inside, rad(1))
+    pool = img[flat] if flat.sum() >= 100 else img[inside]
     centers = _find_centers(_subsample(pool, CENTER_SAMPLE), tol, MAX_CLASSES)
     if not len(centers):
         msg = "No colours were found inside the map."
         raise StainError(msg)
 
-    # 3b. ONE label per pixel, over the whole inside of the map
-    lab = _assign(img, core, centers, CAP * tol)
-    raw = lab.copy()
-    min_blob = max(15 * scale * scale, MIN_CLASS_SHARE * n_core)
-    for k in range(len(centers)):
-        # thin parts (borders, labels, rims) and tiny blobs are not a colour
-        own = lab == k
-        m = _open(own, r_thin)
-        lab[own & ~m] = -1
-        if m.sum() < min_blob:
-            lab[own] = -1
-    if not (lab >= 0).any():  # nothing survived: keep the raw labels rather than return nothing
-        lab = raw
-    lab = _fill_nearest(lab, inside)  # whatever is still unlabelled takes its nearest neighbour
+    # 3b. ONE label per pixel. Every pixel that is one of the colours (or a blend of two) takes it: nothing
+    # is eroded, opened or dropped, so a painted pixel always ends up in its stain, however thin the stain.
+    lab = _assign(img, region, centers, CAP * tol, SEG_TOL)
+    lab = _fill_nearest(
+        lab, inside
+    )  # only text / thin lines are left: they take their nearest neighbour
+
+    # the app's own country outline, a few px wider: the drawn coast and the fitted one never agree exactly
+    p0, p1 = to_lonlat(np.array([[wid / 2, hgt / 2], [wid / 2 + 1, hgt / 2]], float))
+    clip = reg["clip_outline"].buffer(rad(CLIP_PX) * float(np.hypot(*(p1 - p0))))
 
     # 4. polygons straight from the label map: disjoint pixels -> disjoint polygons
     counts = np.bincount(lab[lab >= 0], minlength=max(1, len(centers)))
@@ -1523,7 +1565,7 @@ def analyze(
     stain_n = 0
     for g, i in zip(geoms, ids, strict=True):
         ll = shapely.make_valid(shapely.transform(g, to_lonlat))
-        ll = _poly_only(shapely.intersection(ll, reg["clip_outline"]))
+        ll = _poly_only(shapely.intersection(ll, clip))
         if ll.is_empty:
             continue
         try:
@@ -1593,6 +1635,13 @@ def analyze(
             else json.loads(shapely.to_geojson(borders)),
         },
         "geojson": {"type": "FeatureCollection", "features": features},
+        # Debug view: the strong edges (Lab gradient) the final fit sees, as a transparent PNG the size
+        # of the work image.
+        "debug": None
+        if not debug
+        else {
+            "edges": _mask_png(_edge_field(sub)[0] >= STRONG_W, (h0, w0), (y0, x0), (0, 229, 255)),
+        },
         "overlay": {
             "outline": _path(reg["placed"], x0, y0),
             "borders": _line_path(reg["placed_b"], x0, y0),

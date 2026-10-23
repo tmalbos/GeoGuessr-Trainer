@@ -114,6 +114,7 @@ class StainBody(BaseModel):
     crop: list[float] | None = Field(None, min_length=4, max_length=4)
     projection: Literal["auto", "equirect", "plate", "mercator", "lcc", "albers"] = "auto"
     tol: int = Field(TOL, ge=8, le=120)  # shades closer than this are merged into one colour
+    debug: bool = False  # also return the edge pixels the fit looks at
 
 
 @router.post("/technical/stain/analyze")
@@ -153,6 +154,7 @@ async def stain_analyze(body: StainBody, request: Request):
             borders,
             up["reg"].setdefault(code, {}),
             hint,
+            body.debug,
         )
     except StainError as e:
         raise HTTPException(422, str(e)) from e
