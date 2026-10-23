@@ -146,6 +146,11 @@ GROW_PX = (
     3  # colours are read this many px beyond the fitted outline (it can sit inside the drawn coast)
 )
 SEG_TOL = 20.0  # a pixel this close (L1) to the line between two colours is a blend of them
+BLEND_CENTRE_TOL = (
+    30.0  # a colour this close (L1) to the line between two other colours is a "blend colour"
+)
+BLEND_T_MIN, BLEND_T_MAX = 0.15, 0.85  # ...and it must lie between them, not near an end
+NEAR_PX = 3  # edge pixels may only take colours that exist this many work px around them
 CLIP_PX = 3  # the stains may reach this many px past the app's own country outline
 
 
@@ -1122,17 +1127,45 @@ def _find_centers(pix: np.ndarray, tol: int = TOL, max_k: int = 14) -> np.ndarra
     return np.array(centers).reshape(-1, 3)
 
 
+def _blend_centres(ci: np.ndarray, tol: float) -> np.ndarray:
+    """Bool per centre: True when it lies on the straight RGB segment between two OTHER centres."""
+    n = len(ci)
+    cf = ci.astype(np.float32)
+    out = np.zeros(n, bool)
+    for k in range(n):
+        for i in range(n):
+            for j in range(i + 1, n):
+                if k in {i, j}:
+                    continue
+                v = cf[j] - cf[i]
+                vv = float(v @ v)
+                if vv < 1.0:
+                    continue
+                t = float((cf[k] - cf[i]) @ v) / vv
+                if not (BLEND_T_MIN <= t <= BLEND_T_MAX):
+                    continue
+                if float(np.abs(cf[k] - (cf[i] + t * v)).sum()) <= tol:
+                    out[k] = True
+    return out
+
+
 def _assign(
-    img: np.ndarray, region: np.ndarray, centers, cap: float, seg_tol: float = 20.0
+    img: np.ndarray,
+    region: np.ndarray,
+    centers,
+    cap: float,
+    seg_tol: float,
+    flat: np.ndarray,
+    near_r: int,
 ) -> np.ndarray:
-    """ONE label per pixel of `region` (-1 = none). A pixel gets a label when it IS one of the colours
-    or a blend of two of them:
-      - within `cap` of a colour (L1 over R, G, B): it takes the nearest one;
-      - otherwise, if it lies on the straight line between two colours (within `seg_tol`), it is an
-        anti-aliased pixel of the edge between them and takes the nearer of the two.
-    The edge between two colours therefore falls halfway through the blended pixels, and a thin stain
-    keeps its pixels even when anti-aliasing has mixed them with the base. Only pixels that are neither
-    (text, thin lines, photo clutter) stay unlabelled; they are filled from their neighbours later.
+    """ONE label per pixel of `region` (-1 = none).
+
+    Pass 1: nearest colour within `cap`. A colour that is itself a blend of two others
+            (see _blend_centres) is only given to pixels in a FLAT area (`flat`), because an
+            anti-aliased edge between two colours looks exactly like it.
+    Pass 2: the remaining pixels may only take colours that already exist within `near_r` px
+            around them: either one of them (within `cap`) or the nearer of two of them when the
+            pixel lies on the line between them (within `seg_tol`).
     """
     h, w = region.shape
     lab = np.full(h * w, -1, np.int16)
@@ -1141,37 +1174,46 @@ def _assign(
         return lab.reshape(h, w)
     pix = img.reshape(-1, 3)[idx].astype(np.int16)
     ci = np.rint(centers).astype(np.int16)
-    best = np.full(len(idx), np.iinfo(np.int32).max, np.int32)
-    which = np.zeros(len(idx), np.int16)
-    for k, c in enumerate(ci):
-        d = np.abs(pix - c).sum(1, dtype=np.int32)
-        better = d < best
-        best[better] = d[better]
-        which[better] = k
-    ok = best <= cap
-    lab[idx[ok]] = which[ok]
+    k_n = len(ci)
 
-    rest = np.flatnonzero(~ok)
-    if (
-        len(rest) and len(ci) > 1
-    ):  # blends of two colours (only the pixels not placed above are tested)
+    dists = np.stack([np.abs(pix - c).sum(1, dtype=np.int32) for c in ci])  # (K, N)
+    which = dists.argmin(0).astype(np.int16)
+    best = dists.min(0)
+    blend = _blend_centres(ci, BLEND_CENTRE_TOL)
+    take = (best <= cap) & (~blend[which] | flat.ravel()[idx])
+    lab[idx[take]] = which[take]
+
+    rest = np.flatnonzero(~take)
+    if len(rest) and k_n > 1:
+        lab2 = lab.reshape(h, w)
+        cand = np.stack(
+            [_dilate(lab2 == k, near_r).ravel()[idx[rest]] for k in range(k_n)]
+        )  # (K, R)
         p = pix[rest].astype(np.float32)
         cf = ci.astype(np.float32)
         bd = np.full(len(rest), np.inf, np.float32)
-        bw = np.full(len(rest), -1, np.int16)
-        for i in range(len(cf)):
-            for j in range(i + 1, len(cf)):
+        bl = np.full(len(rest), -1, np.int16)
+        for k in range(k_n):  # a single nearby colour
+            d = dists[k][rest].astype(np.float32)
+            use = cand[k] & (d <= cap) & (d < bd)
+            bd[use] = d[use]
+            bl[use] = k
+        for i in range(k_n):  # a blend of two nearby colours
+            for j in range(i + 1, k_n):
+                both = cand[i] & cand[j]
+                if not both.any():
+                    continue
                 v = cf[j] - cf[i]
                 vv = float(v @ v)
                 if vv < 1.0:
                     continue
                 t = np.clip(((p - cf[i]) @ v) / vv, 0.0, 1.0)
                 d = np.abs(p - (cf[i] + t[:, None] * v)).sum(1)
-                better = d < bd
-                bd[better] = d[better]
-                bw[better] = np.where(t[better] < 0.5, i, j)
-        on = bd <= seg_tol
-        lab[idx[rest[on]]] = bw[on]
+                use = both & (d <= seg_tol) & (d < bd)
+                bd[use] = d[use]
+                bl[use] = np.where(t[use] < 0.5, i, j)
+        got = bl >= 0
+        lab[idx[rest[got]]] = bl[got]
     return lab.reshape(h, w)
 
 
@@ -1537,7 +1579,8 @@ def analyze(
 
     # 3b. ONE label per pixel. Every pixel that is one of the colours (or a blend of two) takes it: nothing
     # is eroded, opened or dropped, so a painted pixel always ends up in its stain, however thin the stain.
-    lab = _assign(img, region, centers, CAP * tol, SEG_TOL)
+    flat_region = _open(_grad(img) <= FLAT_T, rad(1)) & region
+    lab = _assign(img, region, centers, CAP * tol, SEG_TOL, flat_region, rad(NEAR_PX))
     lab = _fill_nearest(
         lab, inside
     )  # only text / thin lines are left: they take their nearest neighbour
