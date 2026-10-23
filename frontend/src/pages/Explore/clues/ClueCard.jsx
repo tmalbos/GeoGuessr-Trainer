@@ -7,6 +7,7 @@ import { CategoryChip, LocationChip } from "./tagUi.jsx";
 import { GENERAL_TAGS, LOCATION_TAGS } from "./tags.js";
 import { useCountries } from "./countries.js";
 import { verbFor, relsOf, uniq } from "./relations.js";
+import fileUrl from "./fileUrl.js";
 import "./blur.css";
 import "./editor.css";
 import "./relations.css";
@@ -27,14 +28,16 @@ function Media({ cc, clue, children }) {
   const map = hasMap && <ClueMap cc={cc} clue={clue} />;
   const limited = !!clue.image && !!clue.max_height;
   return <div className={`clue-media ${limited ? "limited" : ""}`} style={limited ? { "--mh": `${clue.max_height}px` } : undefined}>
-    {clue.image
-      ? <>
-          <img src={`/api/clues/${cc}/files/${clue.image}`} alt="" loading="lazy"
-            className={clue.blur ? "clue-blur" : undefined} tabIndex={clue.blur ? 0 : undefined}
-            title={clue.blur ? "Hover to reveal" : undefined} />
-          {hasMap && <div className="clue-ov">{map}</div>}
-        </>
-      : <div className="clue-full">{map}</div>}
+    <div className="clue-photo">
+      {clue.image
+        ? <>
+            <img src={fileUrl(cc, clue.image, clue.rev)} alt="" loading="lazy"
+              className={clue.blur ? "clue-blur" : undefined} tabIndex={clue.blur ? 0 : undefined}
+              title={clue.blur ? "Hover to reveal" : undefined} />
+            {hasMap && <div className="clue-ov">{map}</div>}
+          </>
+        : <div className="clue-full">{map}</div>}
+    </div>
     {children}
   </div>;
 }
@@ -44,7 +47,10 @@ function Badges({ clue }) {
   const items = [];
   if (relsOf(clue, "same_as").length) items.push(<span key="w" className="cb" role="img" aria-label="Same clue in other countries" title="The same clue exists in other countries">⚠️</span>);
   if (relsOf(clue, "similar_to").length) items.push(<span key="i" className="cb" role="img" aria-label="Similar clue in other countries" title="A similar clue exists in other countries">ℹ️</span>);
-  if (clue.badge === "subcontinent") items.push(<img key="s" className="cb-img" src="/grades/great.png" alt="Subcontinent unique" title="Subcontinent unique" />);
+  if (clue.badge === "subcontinent") {
+    const t = clue.subcontinent ? `Unique to ${clue.subcontinent}` : "Subcontinent unique";
+    items.push(<img key="s" className="cb-img" src="/grades/great.png" alt={t} title={t} />);
+  }
   if (clue.badge === "world") items.push(<img key="u" className="cb-img" src="/grades/brilliant.png" alt="World unique" title="World unique" />);
   return items.length ? <div className="clue-badges">{items}</div> : null;
 }

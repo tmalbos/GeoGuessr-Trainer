@@ -69,6 +69,9 @@ URL_RE = re.compile(r"https?://\S+", re.IGNORECASE)
 
 ASSET_RE = re.compile(r"(nat|reg)_[a-z]+_\d{5}\.(webp|csv|parquet)")
 TOKEN_RE = re.compile(r"[0-9a-f]{32}")
+
+# Country code -> subcontinent label ("CL" -> "South America"), for the badge tooltip.
+_SUB_OF = {code: label for _, label, codes in SUBCONTINENTS for code in codes.split()}
 _LOCK = threading.Lock()
 
 # Countries that have at least one clue shown in the normal view. Built from disk on first request,
@@ -594,10 +597,17 @@ def clues_summary():
 
 @router.get("/clues/subcontinents")
 def clues_subcontinents():
-    """[{id, label, countries}] where countries = the ones of that subcontinent that have clues."""
+    """[{id, label, countries, all}] where countries = the ones of that subcontinent that have clues,
+    all = every country of the subcontinent.
+    """
     have = _countries_with_clues()
     return [
-        {"id": sid, "label": label, "countries": sorted(c for c in codes.split() if c in have)}
+        {
+            "id": sid,
+            "label": label,
+            "countries": sorted(c for c in codes.split() if c in have),
+            "all": sorted(codes.split()),
+        }
         for sid, label, codes in SUBCONTINENTS
     ]
 
@@ -608,11 +618,20 @@ def list_clues(cc: str, show_all: Annotated[bool, Query(alias="all")] = False):
     items = _load(cc)
     if not show_all:
         items = [c for c in items if c.get("visibility", "visible") in {"visible", "guide-only"}]
+    sub = _SUB_OF.get(cc)
     for c in items:
         if c.get("csv"):
             p = CLUES_DIR / cc / c["csv"]
             if p.is_file():
                 c["csv_rows"] = list(csv.reader(io.StringIO(p.read_text(encoding="utf-8"))))
+        if c.get("image"):
+            # rev (the file's mtime) busts the browser cache for ?v=: an image overwritten in place
+            # keeps its name, so without this the card could show the old picture after an update.
+            p = CLUES_DIR / cc / c["image"]
+            if p.is_file():
+                c["rev"] = p.stat().st_mtime_ns
+        if sub:
+            c["subcontinent"] = sub  # for the badge tooltip: "Unique to South America"
     return items
 
 

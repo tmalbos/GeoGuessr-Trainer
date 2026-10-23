@@ -268,19 +268,19 @@ const ClueImage = forwardRef(function ClueImage({ current, blur, onBlur, maxH, o
           {limited && <Tool icon={<Unlimit />} label="Remove height limit" onClick={() => onMaxH(null)} />}
           <i className="ed-sep" />
         </>}
+        <input className="ed-path" value={path} disabled={busy} aria-label="Image file path" placeholder="Type or paste a file path"
+          onChange={(e) => setPath(e.target.value)}
+          onPaste={(e) => {
+            const f = e.clipboardData.files[0];
+            if (f) { e.preventDefault(); pickFile(f); return; }
+            const t = e.clipboardData.getData("text");
+            if (t.trim()) { e.preventDefault(); pickPath(t); }
+          }}
+          onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); pickPath(path); } }}
+          onBlur={() => { if (path.trim() && path.trim() !== tried.current && !busy) pickPath(path); }} />
         <Tool icon={<Upload />} label={has ? "Replace image" : "Choose an image"} disabled={off} onClick={() => picker.current.click()} />
       </>}
     </div>
-    {mode === "view" && <input className="ed-path" value={path} disabled={busy} aria-label="Image file path" placeholder="Type or paste a file path"
-      onChange={(e) => setPath(e.target.value)}
-      onPaste={(e) => {
-        const f = e.clipboardData.files[0];
-        if (f) { e.preventDefault(); pickFile(f); return; }
-        const t = e.clipboardData.getData("text");
-        if (t.trim()) { e.preventDefault(); pickPath(t); }
-      }}
-      onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); pickPath(path); } }}
-      onBlur={() => { if (path.trim() && path.trim() !== tried.current && !busy) pickPath(path); }} />}
     {err && <p className="err">{err}</p>}
     <input ref={picker} type="file" accept="image/*" hidden onChange={(e) => { pickFile(e.target.files[0]); e.target.value = ""; }} />
   </>;

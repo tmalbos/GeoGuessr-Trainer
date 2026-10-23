@@ -7,6 +7,7 @@ import FilePicker from "./FilePicker.jsx";
 import RatingDots from "./RatingDots.jsx";
 import RelatePicker from "./RelatePicker.jsx";
 import { useCountries } from "./countries.js";
+import fileUrl from "./fileUrl.js";
 import { NOTE_TYPES, REL_LABEL, VERBS, joinNames, sameRel, uniq, verbFor } from "./relations.js";
 import { LocationIcon } from "./tagUi.jsx";
 import { CATEGORY_ICONS, DEFAULT_LOCATION, GENERAL_TAGS, LOCATION_TAGS, RATINGS, VISIBILITIES, tagHue } from "./tags.js";
@@ -80,6 +81,7 @@ export default function ClueEditor({ cc, name, clue, onClose, onSaved }) {
   const srcRef = useRef(null);
   const srcInput = useRef(null);
   const asked = useRef(new Set());
+  const [sub, setSub] = useState(clue?.subcontinent ?? ""); // this country's subcontinent, for the badge tooltip
 
   const snapshot = () => JSON.stringify([scope, info, general, location, rating, visibility, blur, maxH,
     img.sig, source, relations, notes, badge, Object.keys(files)]);
@@ -121,6 +123,16 @@ export default function ClueEditor({ cc, name, clue, onClose, onSaved }) {
     document.addEventListener("mousedown", onDown);
     return () => document.removeEventListener("mousedown", onDown);
   }, [srcOpen]);
+
+  // Which subcontinent this country belongs to (badge tooltip). New clues have it nowhere: ask the map.
+  useEffect(() => {
+    let off = false;
+    api("/clues/subcontinents").then((d) => {
+      if (off) return;
+      setSub(d.find((s) => s.all?.includes(cc))?.label ?? "");
+    }).catch(() => {});
+    return () => { off = true; };
+  }, [cc]);
 
   // Load the clues on the other end of each relation, so the chips can say which clue they point at.
   useEffect(() => {
@@ -197,7 +209,7 @@ export default function ClueEditor({ cc, name, clue, onClose, onSaved }) {
   const badges = <div className="clue-badges ed-badges">
     <span className={`cb ${present("same_as") ? "" : "dim"}`} role="img" aria-label="Same clue in other countries" title="Same clue in other countries (from relations)">⚠️</span>
     <span className={`cb ${present("similar_to") ? "" : "dim"}`} role="img" aria-label="Similar clue in other countries" title="Similar clue in other countries (from relations)">ℹ️</span>
-    {badgeBtn("subcontinent", "/grades/great.png", "Subcontinent unique")}
+    {badgeBtn("subcontinent", "/grades/great.png", sub ? `Unique to ${sub}` : "Subcontinent unique")}
     {badgeBtn("world", "/grades/brilliant.png", "World unique")}
   </div>;
 
@@ -214,13 +226,13 @@ export default function ClueEditor({ cc, name, clue, onClose, onSaved }) {
       {/* Same grid as the clue card: media on the left, body on the right. */}
       <div className="clue ed-clue">
         <div className="ed-left" ref={colRef}>
-          <ClueImage ref={imgApi} current={clue?.image ? `/api/clues/${cc}/files/${clue.image}` : null} colRef={colRef} overlay={badges}
+          <ClueImage ref={imgApi} current={clue?.image ? fileUrl(cc, clue.image, clue.rev) : null} colRef={colRef} overlay={badges}
             blur={blur} onBlur={setBlur} maxH={maxH} onMaxH={setMaxH}
             onState={(h, sig) => setImg((p) => (p.has === h && p.sig === sig ? p : { has: h, sig }))} />
           <div className="ed-rels">
             {relations.map((r) => {
               const o = snippetOf(r);
-              const thumb = o?.image ? `/api/clues/${r.cc}/files/${o.image}` : null;
+              const thumb = o?.image ? fileUrl(r.cc, o.image, o.rev) : null;
               return <span key={`${r.type}-${r.cc}-${r.id}`} className={`rel-chip ed-rel ${r.type}`}
                 title={`${REL_LABEL[r.type]}${r.type === "group" ? "" : ` · ${nameOf(r.cc)}`}${o ? ` — ${trunc(o.info, 80)}` : ""}`}>
                 {REL_ICON[r.type]}

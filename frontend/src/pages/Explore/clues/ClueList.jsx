@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import ErrorBox from "../../../components/ErrorBox.jsx";
 import { SkeletonCard } from "../../../components/Skeleton.jsx";
 import { useToast } from "../../../components/Toast.jsx";
@@ -18,6 +19,35 @@ const catOf = (c) => c.tags.find((t) => GENERAL_TAGS.includes(t));
 const locOf = (c) => c.tags.find((t) => LOCATION_TAGS.includes(t));
 const UNDO_MS = 5000;
 const SHOWN = ["visible", "guide-only"]; // what counts as "has clues" on the world map
+const Funnel = () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
+  strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M3 4h18l-7 8v6l-4 2v-8z" /></svg>;
+
+/** The clue filters, drawn into the page's side panel (`slotEl`) instead of above the list.
+ *  Collapsed behind a toggle by default; shows the chips only while expanded. */
+function FilterPanel({ slotEl, cat, loc, cats, count, onCat, onLoc }) {
+  const [open, setOpen] = useState(false);
+  const active = (cat ? 1 : 0) + (loc ? 1 : 0);
+  return createPortal(<>
+    <button type="button" className="cf-toggle" aria-expanded={open}
+      aria-label="Filter the clues" title="Filter the clues" onClick={() => setOpen((o) => !o)}>
+      <Funnel />
+      {active > 0 && <span className="count">{active}</span>}
+    </button>
+    {open && <div className="clue-filter">
+      <div className="clue-chips" role="group" aria-label="Filter by category">
+        <button type="button" className={`fchip ${!cat ? "on" : ""}`} aria-pressed={!cat} onClick={() => onCat("")}>All</button>
+        {cats.map((t) => <button key={t} type="button" className={`fchip ${cat === t ? "on" : ""}`} aria-pressed={cat === t} onClick={() => onCat(cat === t ? "" : t)}>
+          <span aria-hidden="true">{CATEGORY_ICONS[t]}</span> {t}<span className="count">{count(t)}</span></button>)}
+      </div>
+      <div className="clue-filter-row">
+        <div className="clue-chips" role="group" aria-label="Filter by location">
+          {LOCATION_TAGS.map((t) => <button key={t} type="button" className={`fchip loc ${loc === t ? "on" : ""}`} style={{ "--h": tagHue(t) }}
+            aria-pressed={loc === t} onClick={() => onLoc(loc === t ? "" : t)}><LocationIcon t={t} /> {t}</button>)}
+        </div>
+      </div>
+    </div>}
+  </>, slotEl);
+}
 
 export default function ClueList({ id, name, editing }) {
   const toast = useToast();
@@ -31,20 +61,25 @@ export default function ClueList({ id, name, editing }) {
   const [drag, setDrag] = useState(null); // { id, key } of the clue being dragged
   const [over, setOver] = useState(null); // id of the clue it is hovering
   const pending = useRef(new Map()); // key -> { cc, clueId }, deletes waiting out their undo window
+  const [fslot, setFslot] = useState(null); // the side panel element the filters render into
+
+  useEffect(() => { setFslot(document.getElementById("clue-filter-slot")); }, []);
 
   useEffect(() => {
     let off = false;
-    setItems(null); setErr("");
+    // The old list stays on screen while this runs: blanking it first shrank the column and yanked
+    // the scroll position back to the top every time a clue was saved or deleted.
     api(`/clues/${id}${editing ? "?all=true" : ""}`).then((d) => {
         if (off) return;
         setItems(d);
+        setErr("");
         // This list is the truth about whether the country has clues: tell the world map without refetching.
         setHasClues(id, d.some((c) => SHOWN.includes(c.visibility ?? "visible")));
-      }).catch((e) => !off && setErr(errorText(e)));
+      }).catch((e) => { if (!off) { setErr(errorText(e)); setItems(null); } });
     return () => { off = true; };
   }, [id, editing, version]);
 
-  useEffect(() => { setCat(""); setLoc(""); setForm(null); }, [id]);
+  useEffect(() => { setItems(null); setErr(""); setCat(""); setLoc(""); setForm(null); }, [id]);
   useEffect(() => { if (!editing) setForm(null); }, [editing]);
 
   const reload = () => setVersion((v) => v + 1);
@@ -159,19 +194,8 @@ export default function ClueList({ id, name, editing }) {
     {!items && !err ? <><SkeletonCard /><SkeletonCard /></>
       : items && !visible.length ? (editing ? null : <EmptyCat />)
       : items && <>
-        {visible.length >= 4 && <div className="clue-filter">
-          <div className="clue-chips" role="group" aria-label="Filter by category">
-            <button type="button" className={`fchip ${!cat ? "on" : ""}`} aria-pressed={!cat} onClick={() => setCat("")}>All</button>
-            {cats.map((t) => <button key={t} type="button" className={`fchip ${cat === t ? "on" : ""}`} aria-pressed={cat === t} onClick={() => setCat(cat === t ? "" : t)}>
-              <span aria-hidden="true">{CATEGORY_ICONS[t]}</span> {t}<span className="count">{count(t)}</span></button>)}
-          </div>
-          <div className="clue-filter-row">
-            <div className="clue-chips" role="group" aria-label="Filter by location">
-              {LOCATION_TAGS.map((t) => <button key={t} type="button" className={`fchip loc ${loc === t ? "on" : ""}`} style={{ "--h": tagHue(t) }}
-                aria-pressed={loc === t} onClick={() => setLoc(loc === t ? "" : t)}><LocationIcon t={t} /> {t}</button>)}
-            </div>
-          </div>
-        </div>}
+        {fslot && visible.length >= 4 && <FilterPanel slotEl={fslot} cat={cat} loc={loc} cats={cats}
+          count={count} onCat={setCat} onLoc={setLoc} />}
         {list}
       </>}
     {form && <ClueEditor key={form === "new" ? "new" : form.id} cc={id} name={name} clue={form === "new" ? null : form} onClose={() => setForm(null)}

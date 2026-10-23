@@ -14,6 +14,7 @@
 
 /* Category = neutral (what it is). Location keeps its color (where it applies). */
 .chip.neutral { background: var(--raise); color: var(--ink); border-color: var(--line); }
+.chip.neutral:not(.src) { display: inline-flex; align-items: center; line-height: 1.5; padding: 2px 10px; }
 .chip.loc { padding: 2px 8px; }
 .chip.loc .ico { vertical-align: -3px; }
 .tag.neutral { border-color: var(--line); color: var(--ink); }
@@ -61,8 +62,16 @@
 /* ── Selection outline inside the editor: blue, not red ── */
 .modal-back :focus-visible, .cp.editing :focus-visible { outline-color: var(--sea-hi); }
 
-/* ── Filters and groups ── */
-.clue-filter { display: grid; gap: 10px; margin-bottom: 8px; }
+/* ── Filters: a small icon toggle under the country map; the chips open in a raised box below it ── */
+#clue-filter-slot { display: grid; gap: 10px; justify-items: start; border-top: 1px solid var(--line); padding-top: 14px; }
+#clue-filter-slot:empty { display: none; }
+.cf-toggle { display: inline-flex; align-items: center; justify-content: center; gap: 6px; width: auto; min-width: 34px; height: 34px;
+  padding: 0 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--raise);
+  color: var(--ink); font: inherit; font-weight: 600; cursor: pointer; }
+.cf-toggle:hover, .cf-toggle[aria-expanded="true"] { border-color: var(--mute); }
+.cf-toggle .count { margin-left: 0; padding: 0 6px; border-radius: 999px; background: hsl(210 30% 100% / .14); font-size: 11px; }
+.clue-filter { display: grid; gap: 10px; margin-bottom: 0; padding: 12px; background: var(--raise);
+  border: 1px solid var(--line); border-radius: 8px; }
 .clue-filter-row { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; }
 .clue-chips { display: flex; flex-wrap: wrap; gap: 6px; }
 .fchip { display: inline-flex; align-items: center; gap: 6px; padding: 4px 12px; border-radius: 999px; border: 1px solid var(--line); background: var(--card); cursor: pointer; font-size: 13px; }

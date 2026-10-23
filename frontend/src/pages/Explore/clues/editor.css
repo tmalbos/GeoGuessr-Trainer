@@ -1,6 +1,8 @@
 /* ── Height limit (card + editor). The image keeps its proportions: a taller-than-wide image just gets narrower. ── */
-.clue-media.limited:not(.cropping) { width: fit-content; max-width: 100%; margin-inline: auto; }
+.clue-media.limited:not(.cropping) { width: 100%; max-width: 100%; margin-inline: 0; }
+.clue-media.limited:not(.cropping) .clue-photo { width: fit-content; max-width: 100%; margin-inline: auto; border-radius: 8px; overflow: hidden; }
 .clue-media.limited:not(.cropping) img { width: auto; max-width: 100%; max-height: var(--mh); }
+.clue-media.limited:not(.cropping) > img { margin-inline: auto; border-radius: 8px; }
 
 /* ── Editor: same two-column layout as the card ── */
 .modal.wide { width: min(calc(100vw - clamp(300px, 28vw, 420px) - 48px), 100%); }
@@ -35,10 +37,11 @@
 .ed-busy { position: absolute; inset: 0; z-index: 6; display: grid; place-items: center; background: rgba(9, 12, 17, .55); }
 .ed-busy .st-icon { margin: 0; }
 .ed-path { max-width: none; }
+/* The path box fills the rest of the toolbar row, up to the image's maximum width. */
+.ed-tools .ed-path { flex: 1 1 200px; width: auto; min-width: 0; height: 30px; padding: 0 8px; margin: 2px 4px; font-size: 13px; }
 
 /* Icon toolbar under the image */
-.ed-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 2px; width: fit-content; max-width: 100%; padding: 3px;
-  background: var(--raise); border: 1px solid var(--line); border-radius: 8px; }
+.ed-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 2px; width: 100%; max-width: 100%; padding: 0; }
 .ed-tool { display: grid; place-items: center; width: 34px; height: 34px; padding: 0; border: 0; border-radius: 6px; background: none; color: var(--ink); cursor: pointer; }
 .ed-tool:hover:not(:disabled) { background: #ffffff14; }
 .ed-tool:disabled { opacity: .35; cursor: default; }

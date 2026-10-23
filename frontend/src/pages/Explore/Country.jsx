@@ -65,6 +65,8 @@ export default function Country({ id, section, onSection, onBack, backLabel = "W
           aria-current={s === current ? "page" : undefined} onClick={() => onSection(s.id)}>{s.label}</button>)}
       </nav>}
       <CountryMap id={id} />
+      {/* The clue list renders its filters here through a portal (see ClueList / FilterPanel). */}
+      <div id="clue-filter-slot" />
     </aside>
   </div>;
 }

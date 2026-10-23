@@ -1,11 +1,12 @@
 /* ── Clue cards ── */
 .clue-bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 16px; }
 .clue { display: grid; grid-template-columns: minmax(0, 560px) minmax(0, 1fr); gap: 24px; align-items: start; padding: 20px 0; border-bottom: 1px solid var(--line); }
-.clue-media { position: relative; background: var(--paper); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.clue-media { position: relative; background: var(--paper); border-radius: 8px; overflow: hidden; }
+.clue-photo { position: relative; }
 .clue-media img { display: block; width: 100%; height: auto; }
 .clue-ov { position: absolute; right: 8px; bottom: 8px; width: 38%; filter: drop-shadow(0 2px 6px rgba(0,0,0,.6)); pointer-events: none; }
 .clue-full { padding: 14px; }
-.clue-tags { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+.clue-tags { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 10px; }
 .cp-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .cp-edit { padding: 6px 10px; display: inline-grid; place-items: center; }
 .cp-edit.on { background: var(--sea); color: #fff; }
@@ -57,7 +58,7 @@
 .cp-head .cp-back { justify-self: start; padding: 6px 12px; }
 .rt-row { display: flex; align-items: flex-start; gap: 10px; margin-top: 6px; }
 .rt-bar { display: flex; gap: 6px; }
-.rt-bar button { min-width: 34px; padding: 4px 10px; background: var(--raise); border: 1px solid var(--line); border-radius: 6px; cursor: pointer; }
+.rt-bar button { display: inline-flex; align-items: center; justify-content: center; min-width: 34px; padding: 4px 10px; background: var(--raise); border: 1px solid var(--line); border-radius: 6px; cursor: pointer; }
 .rt-bar button:hover { border-color: var(--sea-hi); }
 
 /* ── Info icon ── */
