@@ -157,6 +157,18 @@ export default function ClueEditor({ cc, name, clue, onClose, onSaved }) {
   const addRelation = (r) => { setRelations((rs) => (rs.some((x) => sameRel(x, r)) ? rs : [...rs, r])); setPicking(false); };
   const removeRelation = (r) => setRelations((rs) => rs.filter((x) => !sameRel(x, r)));
   const snippetOf = (r) => others[r.cc]?.find((c) => c.id === r.id);
+  // Grouped clues share the tags of the clue they are grouped with. A new clue gets them filled in;
+  // once grouped, the tags can't be changed by hand (ungroup to edit them).
+  const grouped = relations.some((r) => r.type === "group");
+  useEffect(() => {
+    if (general || location) return;
+    const g = relations.find((r) => r.type === "group");
+    const o = g && snippetOf(g);
+    if (!o) return;
+    const t = o.tags ?? [];
+    setLocation(t.find((x) => LOCATION_TAGS.includes(x)) ?? "");
+    setGeneral(t.find((x) => GENERAL_TAGS.includes(x)) ?? "");
+  }, [relations, others]); // eslint-disable-line react-hooks/exhaustive-deps
   const host = hostOf(source.trim());
   const srcBad = !!source.trim() && !URL_OK.test(source.trim());
 
@@ -248,10 +260,15 @@ export default function ClueEditor({ cc, name, clue, onClose, onSaved }) {
           <div className="ed-tagrow">
             <div className="clue-tags tag-slot" ref={slot}>
               {general
-                ? <>
-                    <Tag t={location} kind="loc" on caret aria-haspopup="true" aria-expanded={menu === "loc"} onClick={() => toggle("loc")} />
-                    <Tag t={general} kind="cat" on caret aria-haspopup="true" aria-expanded={menu === "cat"} onClick={() => toggle("cat")} />
-                  </>
+                ? grouped
+                  ? <>
+                      <Tag t={location} kind="loc" on disabled aria-pressed={undefined} title="Tags come from the grouped clue — ungroup to change them" />
+                      <Tag t={general} kind="cat" on disabled aria-pressed={undefined} title="Tags come from the grouped clue — ungroup to change them" />
+                    </>
+                  : <>
+                      <Tag t={location} kind="loc" on caret aria-haspopup="true" aria-expanded={menu === "loc"} onClick={() => toggle("loc")} />
+                      <Tag t={general} kind="cat" on caret aria-haspopup="true" aria-expanded={menu === "cat"} onClick={() => toggle("cat")} />
+                    </>
                 : <button type="button" className="tag-empty" aria-label="Add tag" title="Add tag" aria-haspopup="true" aria-expanded={menu === "cat"}
                     onClick={() => toggle("cat")}><TagPlus /></button>}
               {menu === "cat" && <div className="tag-pop" role="group" aria-label="Category">

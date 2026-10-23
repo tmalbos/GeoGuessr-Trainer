@@ -21,6 +21,14 @@ const Grip = () => <svg width="14" height="20" viewBox="0 0 14 20" fill="current
 // The site's own icon, taken from its domain. Hidden if it can't be loaded.
 const hostOf = (url) => { try { return new URL(url).hostname.replace(/^www\./, ""); } catch { return ""; } };
 
+export function SourceChip({ source }) {
+  const host = source ? hostOf(source) : "";
+  if (!host) return null;
+  return <a className="chip neutral src" href={source} target="_blank" rel="noopener noreferrer" title={host} aria-label={`Source: ${host}`}>
+    <img src={`https://www.google.com/s2/favicons?domain=${encodeURIComponent(host)}&sz=32`} alt="" width="16" height="16"
+      onError={(e) => { e.currentTarget.style.display = "none"; }} /></a>;
+}
+
 // Image (with the regional map overlaid) or, without an image, just the map.
 // `clue.max_height` (px) caps the image: it keeps its proportions, so a tall image just gets narrower.
 function Media({ cc, clue, children }) {
@@ -92,14 +100,14 @@ function RelatedMedia({ cc, ids, name, onClose }) {
 }
 
 /** Drag props (edit mode): onGrab (grip drag start), onOver / onDrop (this card as a target), onRelease (drag end),
- *  dragging / over = visual states. */
-export default function ClueCard({ cc, clue, editing, onDelete, onEdit, dragging, over, onGrab, onOver, onDrop, onRelease }) {
+ *  dragging / over = visual states. showTags / showSource are off for clues inside a group: the group shows them once. */
+export default function ClueCard({ cc, clue, editing, onDelete, onEdit, dragging, over, onGrab, onOver, onDrop, onRelease,
+  showTags = true, showSource = true }) {
   const { nameOf } = useCountries();
   const [open, setOpen] = useState([]); // countries whose related clue is shown next to this one
   const toggleOpen = (c) => setOpen((o) => (o.includes(c) ? o.filter((x) => x !== c) : [...o, c]));
   const loc = clue.tags.find((t) => LOCATION_TAGS.includes(t));
   const cat = clue.tags.find((t) => GENERAL_TAGS.includes(t));
-  const host = clue.source ? hostOf(clue.source) : "";
   const idsOf = (c) => (clue.relations ?? []).filter((r) => r.type !== "group" && r.cc === c).map((r) => r.id);
   const shown = open.filter((c) => idsOf(c).length); // a relation removed while open just disappears
   return <article className={`clue ${shown.length ? "expanded" : ""} ${dragging ? "dragging" : ""} ${over ? "over" : ""}`}
@@ -115,8 +123,8 @@ export default function ClueCard({ cc, clue, editing, onDelete, onEdit, dragging
     {shown.map((c) => <RelatedMedia key={c} cc={c} ids={idsOf(c)} name={nameOf(c)} onClose={() => toggleOpen(c)} />)}
     <div className={`clue-body ${editing ? "has-tools" : ""}`}>
       <div className="clue-tags">
-        {loc && <LocationChip t={loc} />}
-        {cat && <CategoryChip t={cat} />}
+        {showTags && loc && <LocationChip t={loc} />}
+        {showTags && cat && <CategoryChip t={cat} />}
         {clue.visibility === "guide-only" && <span className="chip" style={{ "--h": 260 }}>Guide only</span>}
         {clue.visibility === "analysis-only" && <span className="chip" style={{ "--h": 0 }}>Analysis only (hidden)</span>}
       </div>
@@ -124,8 +132,6 @@ export default function ClueCard({ cc, clue, editing, onDelete, onEdit, dragging
       <RelationLine type="same_as" clue={clue} open={shown} nameOf={nameOf} onToggle={toggleOpen} />
       <RelationLine type="similar_to" clue={clue} open={shown} nameOf={nameOf} onToggle={toggleOpen} />
     </div>
-    {host && <a className="chip neutral src" href={clue.source} target="_blank" rel="noopener noreferrer" title={host} aria-label={`Source: ${host}`}>
-      <img src={`https://www.google.com/s2/favicons?domain=${encodeURIComponent(host)}&sz=32`} alt="" width="16" height="16"
-        onError={(e) => { e.currentTarget.style.display = "none"; }} /></a>}
+    {showSource && <SourceChip source={clue.source} />}
   </article>;
 }

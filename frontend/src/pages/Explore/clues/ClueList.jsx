@@ -5,7 +5,7 @@ import { SkeletonCard } from "../../../components/Skeleton.jsx";
 import { useToast } from "../../../components/Toast.jsx";
 import { api, errorText } from "../../../lib/api.js";
 import { invalidateClueCountries, setHasClues } from "../clueCountries.js";
-import ClueCard from "./ClueCard.jsx";
+import ClueCard, { SourceChip } from "./ClueCard.jsx";
 import ClueEditor from "./ClueEditor.jsx";
 import EmptyCat from "./EmptyCat.jsx";
 import { groupBlocks } from "./relations.js";
@@ -153,13 +153,21 @@ export default function ClueList({ id, name, editing }) {
   const count = (t) => visible.filter((c) => catOf(c) === t).length;
   const filtered = visible.filter((c) => (!cat || catOf(c) === cat) && (!loc || locOf(c) === loc));
   // `key` = the block the card is shown in (clues can only be dragged inside their own block).
-  const card = (c, key) => <ClueCard key={c.id} cc={id} clue={c} editing={editing} onDelete={remove} onEdit={setForm}
-    dragging={drag?.id === c.id} over={over === c.id}
+  const card = (c, key, opts = {}) => <ClueCard key={c.id} cc={id} clue={c} editing={editing} onDelete={remove} onEdit={setForm}
+    dragging={drag?.id === c.id} over={over === c.id} showTags={opts.showTags !== false} showSource={opts.showSource !== false}
     onGrab={(e) => grab(e, c, key)} onOver={(e) => hover(e, c, key)} onDrop={(e) => drop(e, c, key)} onRelease={release} />;
-  // Clues joined by a "group" relation are drawn together inside one box.
-  const blocks = (arr, key) => groupBlocks(arr).map((b) => b.length > 1
-    ? <div className="clue-box" key={`box-${b[0].id}`}>{b.map((c) => card(c, key))}</div>
-    : card(b[0], key));
+  // Clues joined by a "group" relation are drawn together inside one box. The tags of the first clue and
+  // the source(s) of the whole group are shown once, for the box, instead of repeating on every clue.
+  const blocks = (arr, key) => groupBlocks(arr).map((b) => {
+    if (b.length === 1) return card(b[0], key);
+    const sources = [...new Set(b.map((c) => c.source).filter(Boolean))];
+    return <div className="clue-box" key={`box-${b[0].id}`}>
+      {b.map((c, i) => card(c, key, { showTags: i === 0, showSource: false }))}
+      {sources.length > 0 && <div className="clue-box-src">
+        {sources.map((s) => <SourceChip key={s} source={s} />)}
+      </div>}
+    </div>;
+  });
   const clear = () => { setCat(""); setLoc(""); };
 
   let list;

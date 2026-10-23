@@ -32,6 +32,9 @@
 .tag { background: transparent; border: 1px solid hsl(var(--h) 45% 32%); color: hsl(var(--h) 80% 78%); border-radius: 999px; padding: 3px 12px; cursor: pointer; font-size: 13px; font-weight: 600; }
 .tag:hover { border-color: hsl(var(--h) 70% 55%); }
 .tag.on { background: hsl(var(--h) 45% 24%); border-color: hsl(var(--h) 70% 60%); color: hsl(var(--h) 90% 88%); }
+.tag:disabled { cursor: default; }
+.tag:disabled:hover { border-color: hsl(var(--h) 45% 32%); }
+.tag.neutral:disabled:hover { border-color: var(--line); }
 .modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 18px; }
 
 .fp { border: 1px dashed var(--line); border-radius: 8px; padding: 12px; margin-top: 10px; display: grid; gap: 10px; }
