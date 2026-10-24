@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { TILE, createMapEngine, fx, fy } from "../../lib/googleMap.js";
+import { attribution } from "../../lib/mapProviders.js";
 
 // The replay report map. Tiles, panning, zooming and animation live in lib/googleMap.js (shared with the
 // polygonizer map). This file only draws what goes on top (path, pins, searched area, highlight).
@@ -182,7 +183,7 @@ export default function RoundMap({ real, guess, path, searched, focus }) {
         <button type="button" className="btn" aria-label="Zoom in" onClick={() => eng?.zoomBy(1)}>+</button>
         <button type="button" className="btn" aria-label="Zoom out" onClick={() => eng?.zoomBy(-1)}>−</button>
       </div>
-      <div className="rr-attr">Map data © Google</div>
+      <div className="rr-attr">{attribution()}</div>
     </div>
     {err && <p className="err" style={{ margin: "8px 0 0" }}>{err}</p>}
   </>;

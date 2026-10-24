@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import { TILE, createMapEngine, fx, fy } from "../../lib/googleMap.js";
+import { attribution } from "../../lib/mapProviders.js";
 
 // Polygons + places drawn on one canvas, redrawn on every frame of the shared map engine (lib/googleMap.js).
 
@@ -132,7 +133,7 @@ export default function PolyMap({ features, pts, basemap, fitKey }) {
       <button type="button" className="btn" aria-label="Zoom in" onClick={() => api.current?.engine.zoomBy(1)}>+</button>
       <button type="button" className="btn" aria-label="Zoom out" onClick={() => api.current?.engine.zoomBy(-1)}>−</button>
     </div>
-    <div className="tp-attr">Map data © Google</div>
+    <div className="tp-attr">{attribution()}</div>
     <div ref={tip} className="tp-tip" hidden />
   </div>;
 }

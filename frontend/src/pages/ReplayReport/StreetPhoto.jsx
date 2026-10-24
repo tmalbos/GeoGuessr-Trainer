@@ -1,14 +1,16 @@
 import { useEffect, useState } from "react";
+import { streetViewAvailable } from "../../lib/mapProviders.js";
 
 // Debug mode: open the app at  #/history?debug  to get editable heading / pitch / fov under each photo.
 // Read at render time (not at load), so typing it into an already-open page works.
 const isDebug = () => /[?&]debug\b/.test(window.location.hash);
 const FOV_AT_ZOOM_0 = 90; // keep equal to FOV_AT_ZOOM_0 in src/analysis/replay_look.py (a VERTICAL fov)
-const ASPECT = 16 / 9; // keep equal to OUT_W / OUT_H in src/geoguessr/streetview_photo.py
+const ASPECT = 16 / 9; // keep equal to PHOTO_ASPECT in src/geo/map_providers.py
 const num = (v) => (v === "" || v == null || Number.isNaN(Number(v)) ? null : Number(v));
 const hfov = (vfov) => (2 * Math.atan(Math.tan((vfov * Math.PI) / 360) * ASPECT) * 180) / Math.PI;
 
-/** Street View photo of a look event's view. Rendered by the backend (/api/streetview/photo). */
+/** Street View photo of a look event's view. Rendered by the backend (/api/streetview/photo).
+ *  Shows nothing when the selected map source has no photos (OpenStreetMap, or Google without a key). */
 export default function StreetPhoto({ view }) {
   const DEBUG = isDebug();
   const [ov, setOv] = useState({}); // debug overrides (strings)
@@ -22,6 +24,8 @@ export default function StreetPhoto({ view }) {
   })}`;
   const [state, setState] = useState("loading"); // loading | ok | error
   useEffect(() => { setState("loading"); }, [src]);
+
+  if (!streetViewAvailable()) return null;
 
   return <figure className={`rr-photo ${state}`}>
     {state === "error"

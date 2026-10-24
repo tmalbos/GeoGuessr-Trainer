@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import ErrorBox from "../components/ErrorBox.jsx";
+import MapSourceCard from "../components/MapSourceCard.jsx";
 import { Skeleton } from "../components/Skeleton.jsx";
 import StatusGrid from "../components/StatusGrid.jsx";
 import { useToast } from "../components/Toast.jsx";
@@ -61,5 +62,7 @@ export default function Settings() {
         {dirty && <button type="button" className="btn ghost" disabled={saving} onClick={() => setDraft({ cookie: "", userId: saved.user_id, lang: saved.lang })}>Discard</button>}
       </p>
     </>}
+    <h3>Maps</h3>
+    <MapSourceCard />
   </>;
 }

@@ -1,4 +1,5 @@
-// Shared map engine: Google roadmap tiles + a view state (zoom, center) that drives everything.
+// Shared map engine: raster map tiles (source chosen in Settings, see mapProviders.js) + a view state (zoom, center)
+// that drives everything.
 // Used by the replay report map (RoundMap.jsx) and the polygonizer map (PolyMap.jsx).
 //
 // SYNC: tiles and the caller's overlay are both updated from the SAME view state inside the SAME render() call,
@@ -7,9 +8,10 @@
 // it runs on every frame; `settled` is true when the view stopped moving (a good moment to redraw precisely).
 //
 // ZOOM: wheel and +/- move exactly one whole level (2x). Programmatic fits may land on a fractional zoom
-// (so a bbox fits exactly); the next step snaps to the next whole level.
+// (so a bbox fits exactly); the next step snaps to the next whole level. Past the tile source's own max zoom
+// the last tile level is simply scaled up.
 
-import { tileUrl } from "./googleTiles.js";
+import { maxTileZoom, tileUrl } from "./mapProviders.js";
 
 export const TILE = 256;
 export const MAX_ZOOM = 21;
@@ -55,7 +57,7 @@ export function createMapEngine({ box, tiles, layer, tileClass = "map-tile", lay
   };
 
   const syncTiles = () => {
-    tileZoom = clamp(Math.round(v.z), 0, MAX_ZOOM);
+    tileZoom = clamp(Math.round(v.z), 0, Math.min(MAX_ZOOM, maxTileZoom()));
     let L = layers.get(tileZoom);
     if (!L) {
       const S = TILE * 2 ** tileZoom;
@@ -80,6 +82,8 @@ export function createMapEngine({ box, tiles, layer, tileClass = "map-tile", lay
       for (let y = y0; y <= y1; y++) {
         const key = `${x},${y}`;
         if (L.imgs.has(key)) continue;
+        const url = tileUrl(x, y, tileZoom);
+        if (!url) continue;
         const img = document.createElement("img");
         img.className = tileClass;
         img.alt = "";
@@ -92,7 +96,7 @@ export function createMapEngine({ box, tiles, layer, tileClass = "map-tile", lay
         const done = () => { img.onload = img.onerror = null; L.pending--; prune(); };
         img.onload = done;
         img.onerror = done;
-        img.src = tileUrl(x, y, tileZoom);
+        img.src = url;
         L.el.appendChild(img);
         L.imgs.set(key, img);
       }
