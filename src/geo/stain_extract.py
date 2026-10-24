@@ -49,9 +49,10 @@ outline and first-level borders are known:
                    is. Only text and thin lines (neither a colour nor a blend) are filled from the
                    nearest labelled pixel. A pixel has exactly one label, so stains never overlap.
   5. polygons      each label -> polygon straight from its pixels, so neighbouring stains share the
-                   exact same boundary. No blur, no per-stain growing: the only change is an
-                   optional gap-free simplification (sub-pixel tolerance) when the polygons form a
-                   valid coverage. Then lon/lat, clipped to the outline.
+                   exact same boundary. No per-stain growing: the only changes are an optional
+                   gap-free simplification (sub-pixel tolerance) when the polygons form a valid
+                   coverage, and a final small boundary smoothing that only rounds the pixel steps.
+                   Then lon/lat, clipped to the outline.
 
 The registration is a 2x3 affine in the projected plane: px = A @ (u, v) + t. A is a full 2x2 matrix
 (it may rotate / shear), so every consumer uses A and t, never separate scale factors.
@@ -100,7 +101,8 @@ MIN_MAP_FRACTION = 0.2  # smallest map considered, relative to the largest that 
 TOP_K = 3  # coarse candidates that get refined
 ICP_ITERS = 45
 CENTER_SAMPLE = 300_000  # pixels used to find the map colours (the assignment uses every pixel)
-SIMPLIFY_PX = 0.7  # gap-free simplification tolerance, in full-res px (sub-pixel)
+SIMPLIFY_PX = 0  # gap-free simplification tolerance, in full-res px (sub-pixel)
+SMOOTH_PX = 0.6  # final boundary smoothing radius, in full-res px (no shape change beyond it)
 
 # Hint prior (the detected map box). All soft: the weakest placement still keeps HINT_FLOOR of its score.
 HINT_FLOOR = 0.3  # prior of a placement that does not touch the hint at all
@@ -137,20 +139,20 @@ CHANCE_SHIFT_FRAC = 0.04  # chance level = line shifted by this share of the map
 CHANCE_SHIFT_MIN, CHANCE_SHIFT_MAX = 4.0, 12.0  # ...limited to this range (px)
 
 # Colours / labels
-MAX_CLASSES = 7  # colours kept inside the map (base map included)
+MAX_CLASSES = 5  # colours kept inside the map (base map included)
 FLAT_T = 24.0  # gradient magnitude (sum over channels) under which a pixel is "flat"
-CAP = 1.5  # a pixel takes a colour only within CAP * tol of it; the rest is filled from neighbours
+CAP = 1.4  # a pixel takes a colour only within CAP * tol of it; the rest is filled from neighbours
 HOLE_MIN = 30.0  # holes in a stain smaller than this (px² at work size) are filled
 MIN_POLY = 4.0  # polygons smaller than this (px² at work size) are dropped
 GROW_PX = (
     3  # colours are read this many px beyond the fitted outline (it can sit inside the drawn coast)
 )
-SEG_TOL = 20.0  # a pixel this close (L1) to the line between two colours is a blend of them
+SEG_TOL = 0.0  # a pixel this close (L1) to the line between two colours is a blend of them
 BLEND_CENTRE_TOL = (
     30.0  # a colour this close (L1) to the line between two other colours is a "blend colour"
 )
 BLEND_T_MIN, BLEND_T_MAX = 0.15, 0.85  # ...and it must lie between them, not near an end
-NEAR_PX = 3  # edge pixels may only take colours that exist this many work px around them
+NEAR_PX = 4  # edge pixels may only take colours that exist this many work px around them
 CLIP_PX = 3  # the stains may reach this many px past the app's own country outline
 
 
@@ -1103,12 +1105,17 @@ def register(sub: np.ndarray, outline, borders, projection: str, hint=None) -> d
 # ── stains (inside the matched shape only, full resolution) ────────────────
 
 
-def _find_centers(pix: np.ndarray, tol: int = TOL, max_k: int = 14) -> np.ndarray:
+def _find_centers(
+    pix: np.ndarray,
+    tol: int = TOL,
+    max_k: int = 14,
+    min_share: float = MIN_CLASS_SHARE,
+) -> np.ndarray:
     """Peak-based colour clustering of (N, 3) pixels. Returns the map colours, (K, 3)."""
     pix = pix.astype(np.int16)
     centers: list[np.ndarray] = []
     idx = np.arange(len(pix))
-    min_px = max(20, int(MIN_CLASS_SHARE * len(pix) * 0.5))
+    min_px = max(20, int(min_share * len(pix) * 0.5))
     for _ in range(max_k):
         if len(idx) < min_px:
             break
@@ -1157,6 +1164,7 @@ def _assign(
     seg_tol: float,
     flat: np.ndarray,
     near_r: int,
+    blend_tol: float = BLEND_CENTRE_TOL,
 ) -> np.ndarray:
     """ONE label per pixel of `region` (-1 = none).
 
@@ -1179,7 +1187,7 @@ def _assign(
     dists = np.stack([np.abs(pix - c).sum(1, dtype=np.int32) for c in ci])  # (K, N)
     which = dists.argmin(0).astype(np.int16)
     best = dists.min(0)
-    blend = _blend_centres(ci, BLEND_CENTRE_TOL)
+    blend = _blend_centres(ci, blend_tol)
     take = (best <= cap) & (~blend[which] | flat.ravel()[idx])
     lab[idx[take]] = which[take]
 
@@ -1311,6 +1319,51 @@ def _simplify_shared(geoms: list, tol: float) -> list:
     except Exception:  # noqa: BLE001
         pass
     return geoms
+
+
+def _smooth_ring(ring: np.ndarray, sigma: float) -> np.ndarray:
+    """Low-pass a closed ring along its length (resampled every ~sigma/2 px)."""
+    p = np.asarray(ring, float)
+    if len(p) < 5 or sigma <= 0.0:
+        return p
+    q = p[:-1] if np.allclose(p[0], p[-1]) else p
+    seg = np.hypot(*(np.roll(q, -1, axis=0) - q).T)
+    keep = seg > 1e-9
+    if not keep.any():
+        return p
+    q = q[keep]
+    seg = seg[keep]
+    per = float(seg.sum())
+    m = max(8, round(per / max(0.5, sigma / 2.0)))
+    space = per / m
+    s = np.arange(m) * space
+    cum = np.concatenate([[0.0], np.cumsum(seg)])
+    x = np.interp(s, cum, np.append(q[:, 0], q[0, 0]))
+    y = np.interp(s, cum, np.append(q[:, 1], q[0, 1]))
+    k = max(1, int(np.ceil(3 * sigma / space)))
+    t = np.arange(-k, k + 1)
+    w = np.exp(-0.5 * (t * space / sigma) ** 2)
+    w /= w.sum()
+    xs = np.convolve(np.pad(x, k, mode="wrap"), w, mode="valid")
+    ys = np.convolve(np.pad(y, k, mode="wrap"), w, mode="valid")
+    out = np.column_stack([xs, ys])
+    return np.vstack([out, out[0]])
+
+
+def _smooth_shared(geoms: list, sigma: float) -> list:
+    """Smooth every ring of each polygon. A polygon that would become invalid keeps its outline."""
+    out = []
+    for g in geoms:
+        parts = []
+        for p in _polys(g):
+            holes = [_smooth_ring(np.asarray(r.coords), sigma) for r in p.interiors]
+            sp = shapely.Polygon(_smooth_ring(np.asarray(p.exterior.coords), sigma), holes)
+            if sp.is_empty or not sp.is_valid:
+                parts = []
+                break
+            parts.append(sp)
+        out.append(shapely.union_all(parts) if parts else g)
+    return out
 
 
 # ── output helpers ─────────────────────────────────────────────────────────
@@ -1502,6 +1555,7 @@ def analyze(
     cache: dict | None = None,
     hint: list[float] | None = None,
     debug: bool = False,
+    params: dict | None = None,
 ) -> dict:
     """arr: work-size RGB (used to find the map). full: the same image at full resolution (used to
     read the stains). outline: the country's lon/lat geometry. crop: fractions [x0, y0, x1, y1]
@@ -1510,10 +1564,26 @@ def analyze(
     hint: fractions [x0, y0, x1, y1] of the image where a map was detected (a rough guess that
     biases the search; may be too small or off).
     debug: also return the edge pixels the final fit looks at (see "debug" in the result).
+    params: optional overrides of the stain constants (see StainParams in the API).
 
     Every colour found inside the map is returned (clipped to the outline), the biggest one flagged
     `base`. The app's own country map is drawn underneath, so the UI leaves the base unselected.
     """
+    tune = params or {}
+    tol = int(tune.get("tol", tol))
+    cap = float(tune.get("cap", CAP))
+    seg_tol = float(tune.get("seg_tol", SEG_TOL))
+    near_px = int(tune.get("near_px", NEAR_PX))
+    grow_px = int(tune.get("grow_px", GROW_PX))
+    flat_t = float(tune.get("flat_t", FLAT_T))
+    blend_tol = float(tune.get("blend_centre_tol", BLEND_CENTRE_TOL))
+    max_classes = int(tune.get("max_classes", MAX_CLASSES))
+    min_share = float(tune.get("min_class_share", MIN_CLASS_SHARE))
+    hole_min = float(tune.get("hole_min", HOLE_MIN))
+    min_poly = float(tune.get("min_poly", MIN_POLY))
+    clip_px = int(tune.get("clip_px", CLIP_PX))
+    simplify_px = float(tune.get("simplify_px", SIMPLIFY_PX))
+    smooth_px = float(tune.get("smooth_px", SMOOTH_PX))
     h0, w0 = arr.shape[:2]
     fx0, fy0, fx1, fy1 = crop or (0.0, 0.0, 1.0, 1.0)
     x0 = int(np.clip(round(fx0 * w0), 0, max(0, w0 - MIN_CROP)))
@@ -1557,7 +1627,7 @@ def analyze(
         return inv(uv)
 
     def rad(n: int) -> int:  # a radius that is n px on the work image, in full-res px
-        return max(1, round(n * scale))
+        return max(0, round(n * scale))
 
     inside = _raster(placed, (hgt, wid))
     if inside.sum() < 100:
@@ -1565,29 +1635,29 @@ def analyze(
         raise StainError(msg)
     # The fitted outline can sit a pixel or two inside the drawn coast, so colours are read a little
     # beyond it. What ends up outside the country is cut away at the end.
-    region = _dilate(inside, rad(GROW_PX))
+    region = _dilate(inside, rad(grow_px))
 
     # 3. the colours of the map: peaks of the FLAT pixels inside it (the base map is one of them)
     # Borders, text and the coast stroke are thin, so they never define a colour. A stain that is thin in one
     # place still has its colour: it is wide somewhere else, and every thin pixel is matched to it below.
-    flat = _open((_grad(img) <= FLAT_T) & inside, rad(1))
+    flat = _open((_grad(img) <= flat_t) & inside, rad(1))
     pool = img[flat] if flat.sum() >= 100 else img[inside]
-    centers = _find_centers(_subsample(pool, CENTER_SAMPLE), tol, MAX_CLASSES)
+    centers = _find_centers(_subsample(pool, CENTER_SAMPLE), tol, max_classes, min_share)
     if not len(centers):
         msg = "No colours were found inside the map."
         raise StainError(msg)
 
     # 3b. ONE label per pixel. Every pixel that is one of the colours (or a blend of two) takes it: nothing
     # is eroded, opened or dropped, so a painted pixel always ends up in its stain, however thin the stain.
-    flat_region = _open(_grad(img) <= FLAT_T, rad(1)) & region
-    lab = _assign(img, region, centers, CAP * tol, SEG_TOL, flat_region, rad(NEAR_PX))
+    flat_region = _open(_grad(img) <= flat_t, rad(1)) & region
+    lab = _assign(img, region, centers, cap * tol, seg_tol, flat_region, rad(near_px), blend_tol)
     lab = _fill_nearest(
         lab, inside
     )  # only text / thin lines are left: they take their nearest neighbour
 
     # the app's own country outline, a few px wider: the drawn coast and the fitted one never agree exactly
     p0, p1 = to_lonlat(np.array([[wid / 2, hgt / 2], [wid / 2 + 1, hgt / 2]], float))
-    clip = reg["clip_outline"].buffer(rad(CLIP_PX) * float(np.hypot(*(p1 - p0))))
+    clip = reg["clip_outline"].buffer(rad(clip_px) * float(np.hypot(*(p1 - p0))))
 
     # 4. polygons straight from the label map: disjoint pixels -> disjoint polygons
     counts = np.bincount(lab[lab >= 0], minlength=max(1, len(centers)))
@@ -1595,12 +1665,13 @@ def analyze(
     for i in np.argsort(-counts, kind="stable"):
         if counts[i] <= 0:
             continue
-        parts = [p for p in _polys(_runs_geom(lab == i)) if p.area >= MIN_POLY * scale * scale]
+        parts = [p for p in _polys(_runs_geom(lab == i)) if p.area >= min_poly * scale * scale]
         if parts:
             geoms.append(shapely.union_all(parts))
             ids.append(int(i))
-    geoms = _fill_small_holes(geoms, HOLE_MIN * scale * scale)
-    geoms = _simplify_shared(geoms, SIMPLIFY_PX)
+    geoms = _fill_small_holes(geoms, hole_min * scale * scale)
+    geoms = _simplify_shared(geoms, simplify_px)
+    geoms = _smooth_shared(geoms, smooth_px)
 
     classes, features = [], []
     total = sum(int(counts[i]) for i in ids) or 1

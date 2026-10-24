@@ -30,7 +30,26 @@ from starlette.concurrency import run_in_threadpool
 
 from src.api.deps import get_ctx
 from src.geo.map_detect import detect_map
-from src.geo.stain_extract import TOL, StainError, analyze, evaluate_warp, load_image
+from src.geo.stain_extract import (
+    BLEND_CENTRE_TOL,
+    CAP,
+    CLIP_PX,
+    FLAT_T,
+    GROW_PX,
+    HOLE_MIN,
+    MAX_CLASSES,
+    MIN_CLASS_SHARE,
+    MIN_POLY,
+    NEAR_PX,
+    SEG_TOL,
+    SIMPLIFY_PX,
+    SMOOTH_PX,
+    TOL,
+    StainError,
+    analyze,
+    evaluate_warp,
+    load_image,
+)
 from src.geo.stain_scan import write_last_report
 
 router = APIRouter()
@@ -89,6 +108,24 @@ def _prepare(data: bytes) -> dict:
     return {"full": full, "arr": work, "reg": {}, "map": detect_map(work)}
 
 
+class StainParams(BaseModel):
+    """Live overrides of the stain step (the map registration is reused)."""
+
+    cap: float = Field(CAP, ge=0.5, le=5.0)
+    seg_tol: float = Field(SEG_TOL, ge=0.0, le=150.0)
+    near_px: int = Field(NEAR_PX, ge=1, le=12)
+    grow_px: int = Field(GROW_PX, ge=0, le=20)
+    flat_t: float = Field(FLAT_T, ge=0.0, le=150.0)
+    blend_centre_tol: float = Field(BLEND_CENTRE_TOL, ge=0.0, le=150.0)
+    max_classes: int = Field(MAX_CLASSES, ge=1, le=14)
+    min_class_share: float = Field(MIN_CLASS_SHARE, ge=0.0, le=0.1)
+    hole_min: float = Field(HOLE_MIN, ge=0.0, le=1000.0)
+    min_poly: float = Field(MIN_POLY, ge=0.0, le=200.0)
+    clip_px: int = Field(CLIP_PX, ge=0, le=20)
+    simplify_px: float = Field(SIMPLIFY_PX, ge=0.0, le=5.0)
+    smooth_px: float = Field(SMOOTH_PX, ge=0.0, le=5.0)
+
+
 @router.post("/technical/stain/upload")
 async def stain_upload(request: Request):
     """Raw image bytes in the body."""
@@ -105,7 +142,13 @@ async def stain_upload(request: Request):
         while len(_UPLOADS) > MAX_UPLOADS:
             _UPLOADS.popitem(last=False)
     h, w = up["full"].shape[:2]
-    return {"token": token, "width": w, "height": h, "map": up["map"]}
+    return {
+        "token": token,
+        "width": w,
+        "height": h,
+        "map": up["map"],
+        "params": {**StainParams().model_dump(), "tol": TOL},
+    }
 
 
 class StainBody(BaseModel):
@@ -114,6 +157,7 @@ class StainBody(BaseModel):
     crop: list[float] | None = Field(None, min_length=4, max_length=4)
     projection: Literal["auto", "equirect", "plate", "mercator", "lcc", "albers"] = "auto"
     tol: int = Field(TOL, ge=8, le=120)  # shades closer than this are merged into one colour
+    params: StainParams = Field(default_factory=StainParams)
     debug: bool = False  # also return the edge pixels the fit looks at
 
 
@@ -155,6 +199,7 @@ async def stain_analyze(body: StainBody, request: Request):
             up["reg"].setdefault(code, {}),
             hint,
             body.debug,
+            body.params.model_dump(),
         )
     except StainError as e:
         raise HTTPException(422, str(e)) from e

@@ -14,6 +14,24 @@ const MIN_ZOOM = 1;
 const MAX_ZOOM = 8;
 const memo = { country: "" }; // remembered while you move between pages
 
+// Small, bounded steps for the stain constants. `tol` is sent separately (it is a top-level API field).
+const TUNING = [
+  { key: "tol", label: "TOL · shade merge", min: 8, max: 120, step: 1, digits: 0 },
+  { key: "cap", label: "CAP · colour reach", min: 0.5, max: 5, step: 0.05, digits: 2 },
+  { key: "seg_tol", label: "SEG_TOL · blend reach", min: 0, max: 150, step: 0.5, digits: 1 },
+  { key: "near_px", label: "NEAR_PX · nearby colours", min: 1, max: 12, step: 1, digits: 0 },
+  { key: "grow_px", label: "GROW_PX · beyond outline", min: 0, max: 20, step: 1, digits: 0 },
+  { key: "flat_t", label: "FLAT_T · flatness", min: 0, max: 150, step: 1, digits: 0 },
+  { key: "blend_centre_tol", label: "BLEND_CENTRE_TOL", min: 0, max: 150, step: 1, digits: 0 },
+  { key: "max_classes", label: "MAX_CLASSES", min: 1, max: 14, step: 1, digits: 0 },
+  { key: "min_class_share", label: "MIN_CLASS_SHARE", min: 0, max: 0.1, step: 0.0005, digits: 4 },
+  { key: "hole_min", label: "HOLE_MIN · fill holes", min: 0, max: 1000, step: 5, digits: 0 },
+  { key: "min_poly", label: "MIN_POLY · drop specks", min: 0, max: 200, step: 1, digits: 0 },
+  { key: "clip_px", label: "CLIP_PX · past outline", min: 0, max: 20, step: 1, digits: 0 },
+  { key: "simplify_px", label: "SIMPLIFY_PX", min: 0, max: 5, step: 0.1, digits: 1 },
+  { key: "smooth_px", label: "SMOOTH_PX", min: 0, max: 5, step: 0.1, digits: 1 },
+];
+
 // Wheel to zoom around the cursor, drag (on the caller's side) to pan. 1x is "fit".
 function useViewZoom(ref, ready = true) {
   const [view, setView] = useState({ s: 1, x: 0, y: 0 });
@@ -132,6 +150,7 @@ export default function StainTool() {
   const [over, setOver] = useState(false);
   const [err, setErr] = useState("");
   const [dbg, setDbg] = useState(false); // debug: show the edges the fit looks at
+  const [tune, setTune] = useState({}); // stain constants (defaults come from the upload response)
   const [warpMode, setWarpMode] = useState(false);
   const [warp, setWarp] = useState({ sx: 1, sy: 1, dx: 0, dy: 0 });
   const [warpRes, setWarpRes] = useState(null);
@@ -165,6 +184,7 @@ export default function StainTool() {
       const d = await r.json();
       setUrl((old) => { if (old) URL.revokeObjectURL(old); return URL.createObjectURL(file); });
       setUp(d); setCrop(null); setPick({}); setRes(null);
+      setTune(d.params ?? {});
       setWarpMode(false); setWarp({ sx: 1, sy: 1, dx: 0, dy: 0 }); setWarpRes(null); setWarpErr("");
       setScanBusy(false); setScanErr("");
       resetView();
@@ -193,12 +213,13 @@ export default function StainTool() {
     let stale = false;
     setBusy(true);
     const t = setTimeout(() => {
-      api("/technical/stain/analyze", { method: "POST", body: { token: up.token, country, crop, debug: dbg } })
+      const { tol, ...params } = tune;
+      api("/technical/stain/analyze", { method: "POST", body: { token: up.token, country, crop, debug: dbg, tol, params } })
         .then((r) => { if (!stale) { setRes(r); setErr(""); setBusy(false); } })
         .catch((e) => { if (!stale) { setErr(errorText(e)); setBusy(false); } });
     }, 300);
     return () => { stale = true; clearTimeout(t); };
-  }, [up, country, cropKey, noMap, dbg]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [up, country, cropKey, noMap, dbg, tune]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // A new image/country/crop invalidates a manual fit.
   useEffect(() => {
@@ -320,6 +341,10 @@ export default function StainTool() {
     ...w,
     [key]: Math.min(hi, Math.max(lo, Number((w[key] + delta).toFixed(4)))),
   }));
+  const bumpTune = (key, delta, lo, hi) => setTune((t) => ({
+    ...t,
+    [key]: Math.min(hi, Math.max(lo, Number((Number(t[key] ?? 0) + delta).toFixed(6)))),
+  }));
   const ra = res?.fit?.regions;
   const rm = warpRes?.fit?.regions;
   const cmp = res && warpRes ? [
@@ -352,6 +377,31 @@ export default function StainTool() {
           {countries.map((c) => <option key={c.code} value={c.code}>{c.name}</option>)}
         </select>
       </div>
+
+      {up && <section className="st-warp" aria-label="Stain tuning">
+        <div className="st-warp-head">
+          <h3>Stain tuning</h3>
+          <span className="muted">{busy ? "Computing…" : "Live"}</span>
+        </div>
+        <p className="muted">Only the stain step is recomputed; the map fit is reused.</p>
+        <div className="st-warp-grid">
+          {TUNING.map((item) => {
+            const value = tune[item.key] ?? item.min;
+            return <label key={item.key}>
+              <span>{item.label}</span>
+              <span className="st-step">
+                <button type="button" className="btn ghost" title={`−${item.step}`}
+                  onClick={() => bumpTune(item.key, -item.step, item.min, item.max)}>−</button>
+                <b>{Number(value).toFixed(item.digits)}</b>
+                <button type="button" className="btn ghost" title={`+${item.step}`}
+                  onClick={() => bumpTune(item.key, item.step, item.min, item.max)}>+</button>
+              </span>
+              <input type="range" min={item.min} max={item.max} step={item.step} value={value}
+                onChange={(e) => setTune((t) => ({ ...t, [item.key]: Number(e.target.value) }))} />
+            </label>;
+          })}
+        </div>
+      </section>}
 
       {res && <>
         <h3>Debug</h3>
