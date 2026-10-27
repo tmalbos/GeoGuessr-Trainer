@@ -127,9 +127,15 @@ class StainParams(BaseModel):
 
 
 @router.post("/technical/stain/upload")
-async def stain_upload(request: Request):
-    """Raw image bytes in the body."""
-    raw = await request.body()
+async def stain_upload(request: Request, path: str | None = None):
+    """Raw image bytes in the body; `?path=` reads a file from this machine instead (the app runs locally)."""
+    if path is not None:
+        p = Path(path.strip().strip('"'))
+        if not p.is_file():
+            raise HTTPException(404, f"No file at {p}")
+        raw = await run_in_threadpool(p.read_bytes)
+    else:
+        raw = await request.body()
     if not raw:
         raise HTTPException(422, "Empty file")
     try:

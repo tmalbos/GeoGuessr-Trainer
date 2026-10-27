@@ -23,13 +23,11 @@
 .clue-badges .cb-img { display: block; width: 20px; height: 20px; object-fit: contain; filter: drop-shadow(0 1px 3px rgba(0,0,0,.7)); }
 
 /* ── Grouped clues share one box ── */
-.clue-box { position: relative; margin: 16px 0; padding: 0 20px; border-radius: 10px; }
+.clue-box { position: relative; margin: 16px 0; border-radius: 10px; }
 .clue-box .clue:first-child { padding-top: 16px; }
 .clue-box .clue:last-child { border-bottom: 0; }
-/* A height-limited image leaves blank space on its sides: inside the box it must blend with the box, not look like a dark fill. */
-.clue-box .clue-media.limited { background: transparent; }
 /* Grouped sources: one chip per distinct source, in the box's bottom right corner. */
-.clue-box-src { position: absolute; right: 20px; bottom: 16px; display: flex; gap: 6px; }
+.clue-box-src { position: absolute; right: 0; bottom: 16px; display: flex; gap: 6px; }
 .clue-box-src .chip.src { position: static; }
 
 /* ── Editor: relations section ── */

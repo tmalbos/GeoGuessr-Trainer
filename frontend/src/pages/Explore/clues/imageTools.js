@@ -5,13 +5,13 @@ const json = async (r) => {
   return r.json();
 };
 
-export const stageFile = (file) =>
-  fetch(`/api/clues/stage/image?filename=${encodeURIComponent(file.name || "image.png")}`, { method: "POST", body: file }).then(json);
+export const stageFile = (file, kind = "image") =>
+  fetch(`/api/clues/stage/${kind}?filename=${encodeURIComponent(file.name || "image.png")}`, { method: "POST", body: file }).then(json);
 export const stageBlob = (blob) => stageFile(new File([blob], "edited.png", { type: "image/png" }));
-export const stagePath = (path) =>
-  fetch("/api/clues/stage-path/image", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ path }) }).then(json);
+export const stagePath = (path, kind = "image") =>
+  fetch(`/api/clues/stage-path/${kind}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ path }) }).then(json);
 export const discardStaged = (token) => { if (token) fetch(`/api/clues/staged/${token}`, { method: "DELETE" }).catch(() => {}); };
-export const stagedUrl = (token) => `/api/clues/staged/${token}/image`;
+export const stagedUrl = (token, kind = "image") => `/api/clues/staged/${token}/${kind}`;
 
 // ── canvas ──────────────────────────────────────────────────────────────────
 const make = (w, h) => { const c = document.createElement("canvas"); c.width = w; c.height = h; return c; };

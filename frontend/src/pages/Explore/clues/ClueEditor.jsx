@@ -2,12 +2,16 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import ConfirmDialog from "../../../components/ConfirmDialog.jsx";
 import Flag from "../../../components/Flag.jsx";
 import { api, errorText } from "../../../lib/api.js";
+import { streetViewAvailable } from "../../../lib/mapProviders.js";
+import AreaPicker from "./AreaPicker.jsx";
 import ClueImage from "./ClueImage.jsx";
-import FilePicker from "./FilePicker.jsx";
+import { Preview } from "./FilePicker.jsx";
 import RatingDots from "./RatingDots.jsx";
 import RelatePicker from "./RelatePicker.jsx";
 import { useCountries } from "./countries.js";
 import fileUrl from "./fileUrl.js";
+import { discardStaged, stageFile, stagePath } from "./imageTools.js";
+import { kindOfFile, kindOfName, parseStreetView, streetViewShot } from "./mediaKinds.js";
 import { NOTE_TYPES, REL_LABEL, VERBS, joinNames, sameRel, uniq, verbFor } from "./relations.js";
 import { LocationIcon } from "./tagUi.jsx";
 import { CATEGORY_ICONS, DEFAULT_LOCATION, GENERAL_TAGS, LOCATION_TAGS, RATINGS, VISIBILITIES, tagHue } from "./tags.js";
@@ -16,15 +20,25 @@ import "./clues.css";
 import "./editor.css";
 import "./relations.css";
 
-const GEO_ACCEPT = ".geojson,.json,.gpkg,.zip,.parquet,.kml";
-const GEO_HINT = "Polygons, lines or points, detected automatically. GeoJSON, GeoPackage, zipped Shapefile, GeoParquet or KML";
-// The image has its own editor (ClueImage); these two are the regional area files.
-const FILES = [
-  { kind: "csv", label: "CSV", hint: "GroupName,Level1,Level2,… (administrative areas)", accept: ".csv,text/csv", scopes: ["reg"] },
-  { kind: "geometry", label: "Geometry", hint: GEO_HINT, accept: GEO_ACCEPT, scopes: ["reg"] },
-];
-const AREA_KINDS = ["csv", "geometry"];
 const GEOM_FIELDS = ["polygons", "lines", "points"];
+const geoKindOf = (c) => (c ? GEOM_FIELDS.find((k) => c[k]) : undefined);
+// A geometry upload says polygons / lines / points; the editor calls all of them "geometry".
+const uiKind = (k) => (GEOM_FIELDS.includes(k) ? "geometry" : k);
+
+const initialMedia = (c) => {
+  if (!c) return { kind: null, upload: null };
+  if (c.image) return { kind: "image", upload: null };
+  if (c.svg) return { kind: "svg", upload: null };
+  if (c.csv) return { kind: "csv", upload: null };
+  return geoKindOf(c) ? { kind: "geometry", upload: null } : { kind: null, upload: null };
+};
+const initialArea = (c) => {
+  if (!c || !c.image) return { kind: null, upload: null };
+  if (c.svg) return { kind: "svg", upload: null };
+  if (c.csv) return { kind: "csv", upload: null };
+  return geoKindOf(c) ? { kind: "geometry", upload: null } : { kind: null, upload: null };
+};
+
 const URL_OK = /^https?:\/\/\S+$/i;
 const trunc = (s, n) => (s.length > n ? `${s.slice(0, n)}…` : s);
 
@@ -63,6 +77,14 @@ export default function ClueEditor({ cc, name, clue, onClose, onSaved }) {
   const [blur, setBlur] = useState(!!clue?.blur);
   const [maxH, setMaxH] = useState(clue?.max_height ?? null); // px cap for the image on the card
   const [img, setImg] = useState({ has: !!clue?.image, sig: ":0" }); // reported by ClueImage
+  // The media slot: an image (handled by ClueImage), or an SVG / CSV / geometry staged here.
+  const [media, setMedia] = useState(() => initialMedia(clue));
+  // The region of a photo: required whenever the media is an image (same SVG / CSV / geometry kinds).
+  const [area, setArea] = useState(() => initialArea(clue));
+  const [incoming, setIncoming] = useState(null); // a staged image to hand to ClueImage
+  const [imageGone, setImageGone] = useState(false);
+  const [mediaErr, setMediaErr] = useState("");
+  const [stagedKind] = useState(() => ({ media: initialMedia(clue).kind, area: initialArea(clue).kind }));
   const [source, setSource] = useState(clue?.source ?? "");
   const [relations, setRelations] = useState(clue?.relations ?? []);
   const [notes, setNotes] = useState(clue?.relation_notes ?? {});
@@ -70,11 +92,10 @@ export default function ClueEditor({ cc, name, clue, onClose, onSaved }) {
   const [srcOpen, setSrcOpen] = useState(false);
   const [picking, setPicking] = useState(false);
   const [others, setOthers] = useState({}); // cc -> that country's clues, only to describe the relation chips
-  const [files, setFiles] = useState({});
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState("");
   const [confirm, setConfirm] = useState(false);
-  const area = useRef(null);
+  const areaEl = useRef(null);
   const slot = useRef(null);
   const colRef = useRef(null);
   const imgApi = useRef(null);
@@ -83,8 +104,11 @@ export default function ClueEditor({ cc, name, clue, onClose, onSaved }) {
   const asked = useRef(new Set());
   const [sub, setSub] = useState(clue?.subcontinent ?? ""); // this country's subcontinent, for the badge tooltip
 
+  const mainKind = media.kind ?? (img.has ? "image" : null); // what the media slot is showing now
+  const isImage = mainKind === "image";
+  const showArea = scope === "reg" && isImage; // a photo needs a region; an SVG/CSV/geometry is its own
   const snapshot = () => JSON.stringify([scope, info, general, location, rating, visibility, blur, maxH,
-    img.sig, source, relations, notes, badge, Object.keys(files)]);
+    img.sig, source, relations, notes, badge, mainKind, media.upload?.token ?? "", area.kind, area.upload?.token ?? ""]);
   const initial = useRef(snapshot());
   const dirty = snapshot() !== initial.current;
   const requestClose = () => (dirty ? setConfirm(true) : onClose());
@@ -92,7 +116,7 @@ export default function ClueEditor({ cc, name, clue, onClose, onSaved }) {
   closeRef.current = requestClose;
 
   const wrap = (before, after = before) => {
-    const el = area.current;
+    const el = areaEl.current;
     const { selectionStart: a, selectionEnd: b } = el;
     setInfo(info.slice(0, a) + before + info.slice(a, b) + after + info.slice(b));
     requestAnimationFrame(() => { el.focus(); el.setSelectionRange(a + before.length, b + before.length); });
@@ -100,7 +124,7 @@ export default function ClueEditor({ cc, name, clue, onClose, onSaved }) {
 
   // The text box grows with what is typed, like the paragraph on the card.
   useLayoutEffect(() => {
-    const el = area.current;
+    const el = areaEl.current;
     if (!el) return;
     el.style.height = "auto";
     el.style.height = `${el.scrollHeight + 2}px`;
@@ -172,22 +196,65 @@ export default function ClueEditor({ cc, name, clue, onClose, onSaved }) {
   const host = hostOf(source.trim());
   const srcBad = !!source.trim() && !URL_OK.test(source.trim());
 
-  // What the clue already stores (edit mode), so required files don't have to be re-uploaded.
-  const currentFor = (kind) => {
-    if (!clue) return null;
-    if (kind === "csv" && clue.csv) return { text: `Current CSV${clue.csv_rows ? ` (${clue.csv_rows.length - 1} rows)` : ""}` };
-    if (kind === "geometry") { const g = GEOM_FIELDS.find((k) => clue[k]); if (g) return { text: `Current geometry (${g})` }; }
-    return null;
+  // ── media / region staging ──────────────────────────────────────────────
+  // Anything pasted into the media slot ends up here, except plain images (ClueImage edits those itself).
+  const stageInput = async (input) => {
+    const raw = input.file ? "" : String(input.path ?? input.text ?? "").trim().replace(/^"|"$/g, "");
+    const link = input.file ? null : parseStreetView(raw);
+    if (link) {
+      if (link.short) throw new Error("Short Google Maps links can't be read. Open the link and copy the full address.");
+      if (!streetViewAvailable()) throw new Error("Street View isn't available with the current map source. Pick one in Settings.");
+      const up = await stageFile(await streetViewShot(link));
+      return { ...up, kind: "image" };
+    }
+    const kind = input.file ? kindOfFile(input.file) : kindOfName(raw);
+    if (!kind) throw new Error("That file isn't an image, SVG, CSV or geometry file.");
+    const endpoint = kind === "geometry" ? "geometry" : kind;
+    const up = input.file ? await stageFile(input.file, endpoint) : await stagePath(raw, endpoint);
+    return { ...up, kind: up.kind ?? kind };
   };
 
-  const slots = FILES.filter((f) => f.scopes.includes(scope));
-  const has = (kind) => !!files[kind] || !!currentFor(kind);
-  const hasImage = img.has;
+  const takeMedia = async (input) => {
+    setMediaErr("");
+    try {
+      const up = await stageInput(input);
+      if (up.kind === "image") {
+        setIncoming(up);
+        setImageGone(false);
+        setMedia({ kind: "image", upload: null });
+      } else {
+        discardStaged(media.upload?.token);
+        // A file that already shows the region needs no second component.
+        if (area.upload) { discardStaged(area.upload.token); setArea({ kind: null, upload: null }); }
+        setMedia({ kind: uiKind(up.kind), upload: up });
+      }
+    } catch (e) { setMediaErr(e.message); }
+  };
+
+  const takeArea = (up) => {
+    discardStaged(area.upload?.token);
+    setArea(up ? { kind: uiKind(up.kind), upload: up } : { kind: null, upload: null });
+  };
+
+  // Removing the photo leaves its region: that becomes the clue's media instead of losing it.
+  const removeMedia = () => {
+    setIncoming(null);
+    setImageGone(true);
+    setMedia(area.kind ? { kind: area.kind, upload: area.upload } : { kind: null, upload: null });
+    setArea({ kind: null, upload: null });
+  };
+
+  const storedMedia = stagedKind.media;
+  const storedArea = stagedKind.area;
+  const mediaChanged = mainKind !== storedMedia;
+  const areaChanged = (showArea ? area.kind : null) !== storedArea;
+
   const problems = [];
   if (!info.trim()) problems.push("Write what the clue teaches.");
   if (!general || !location) problems.push("Add a tag.");
-  if (scope === "nat" && !hasImage) problems.push("Add an image.");
-  if (scope === "reg" && !AREA_KINDS.some(has)) problems.push("Add a CSV or a geometry file.");
+  if (scope === "nat" && !isImage) problems.push("Add an image.");
+  if (scope === "reg" && !mainKind) problems.push("Add an image, SVG map, CSV, geometry file or Street View link.");
+  if (showArea && !area.kind) problems.push("Add the region for the photo: an SVG map, a CSV, a geometry file or a picture of the map.");
   if (source.trim() && !URL_OK.test(source.trim())) problems.push("The source must be a link starting with http:// or https://.");
   for (const t of NOTE_TYPES) if (present(t) && !note(t).text.trim()) problems.push(`Finish the "${REL_LABEL[t]}" sentence.`);
 
@@ -196,19 +263,32 @@ export default function ClueEditor({ cc, name, clue, onClose, onSaved }) {
     const num = (v) => (v === "" ? null : Number(v));
     try {
       // Edits to the image stay in memory until now; this uploads the final pixels (or reuses the staged file).
-      const imageToken = await imgApi.current.resolve();
-      const upload = Object.fromEntries(slots.filter((s) => files[s.kind]).map((s) =>
-        [s.kind === "geometry" ? files.geometry.kind : s.kind, files[s.kind].token]));
+      const imageToken = isImage ? await imgApi.current?.resolve() : null;
+      const upload = {};
       if (imageToken) upload.image = imageToken;
+      const put = (u) => { if (u?.token) upload[u.kind] = u.token; };
+      put(showArea ? area.upload : media.upload);
+      // Files of a kind the clue no longer uses are deleted with it.
+      const used = new Set(Object.keys(upload));
+      if (isImage) used.add("image");
+      if (!isImage && mainKind === "svg") used.add("svg");
+      if (showArea && area.kind === "svg") used.add("svg");
+      if (!isImage && mainKind === "csv") used.add("csv");
+      if (showArea && area.kind === "csv") used.add("csv");
+      if (!isImage && mainKind === "geometry") used.add(media.upload?.kind ?? geoKindOf(clue) ?? "");
+      if (showArea && area.kind === "geometry") used.add(area.upload?.kind ?? geoKindOf(clue) ?? "");
+      const remove = clue && (mediaChanged || areaChanged)
+        ? ["image", ...GEOM_FIELDS, "svg", "csv"].filter((k) => clue[k] && !used.has(k)) : [];
       await api(clue ? `/clues/${cc}/${clue.id}` : `/clues/${cc}`, { method: clue ? "PUT" : "POST", body: {
-        scope, info, tags: [location, general], visibility, blur: hasImage && blur,
-        max_height: hasImage ? maxH : null,
+        scope, info, tags: [location, general], visibility, blur: isImage && blur,
+        max_height: isImage ? maxH : null,
         frequency: num(rating.frequency), ease: num(rating.ease), reliability: num(rating.reliability),
         source: source.trim(),
         relations,
         relation_notes: Object.fromEntries(NOTE_TYPES.filter(present).map((t) => [t, note(t)])),
         badge: badge || null,
         files: upload,
+        remove,
       } });
       onSaved();
     } catch (e) { setErr(errorText(e)); setSaving(false); }
@@ -225,22 +305,52 @@ export default function ClueEditor({ cc, name, clue, onClose, onSaved }) {
     {badgeBtn("world", "/grades/brilliant.png", "World unique")}
   </div>;
 
+  // What the media box shows when it is not a picture.
+  const mediaPreview = media.kind && media.kind !== "image"
+    ? media.upload
+      ? <Preview kind={media.kind} v={media.upload} />
+      : media.kind === "svg"
+        ? <img className="ed-media-img" src={fileUrl(cc, clue?.svg, clue?.rev)} alt="" />
+        : <p className="ed-media-note muted">{media.kind === "csv" ? `Current CSV${clue?.csv_rows ? ` (${clue.csv_rows.length - 1} rows)` : ""}` : "Current geometry"}</p>
+    : undefined;
+
+  const areaCurrent = clue && showArea
+    ? area.kind === "svg" && clue.svg ? { src: fileUrl(cc, clue.svg, clue.rev), text: "Current SVG" }
+      : area.kind === "csv" && clue.csv ? { text: `Current CSV${clue.csv_rows ? ` (${clue.csv_rows.length - 1} rows)` : ""}` }
+        : area.kind === "geometry" && geoKindOf(clue) ? { text: `Current geometry (${geoKindOf(clue)})` } : null
+    : null;
+
+  // National clues only take an image: switching back drops an SVG / CSV / geometry picked for a region.
+  const changeScope = (k) => {
+    setScope(k);
+    if (k === "nat" && media.kind && media.kind !== "image") {
+      discardStaged(media.upload?.token);
+      setMedia({ kind: null, upload: null });
+    }
+    if (k === "nat" && area.upload) takeArea(null);
+  };
+
   return <div className="modal-back" onMouseDown={(e) => { if (e.target === e.currentTarget) requestClose(); }}>
     <div className="modal wide" role="dialog" aria-modal="true" aria-label={`${clue ? "Edit" : "Add"} clue for ${name}`}>
       <div className="modal-head">
         <h3>{clue ? "Edit clue" : "Add clue"} · {name}</h3>
         <div className="tabs" role="group" aria-label="Scope">
           {[["nat", "National"], ["reg", "Regional"]].map(([k, l]) =>
-            <button key={k} type="button" aria-pressed={scope === k} className={scope === k ? "on" : ""} disabled={!!clue && scope !== k} onClick={() => setScope(k)}>{l}</button>)}
+            <button key={k} type="button" aria-pressed={scope === k} className={scope === k ? "on" : ""} disabled={!!clue && scope !== k} onClick={() => changeScope(k)}>{l}</button>)}
         </div>
       </div>
 
       {/* Same grid as the clue card: media on the left, body on the right. */}
       <div className="clue ed-clue">
         <div className="ed-left" ref={colRef}>
-          <ClueImage ref={imgApi} current={clue?.image ? fileUrl(cc, clue.image, clue.rev) : null} colRef={colRef} overlay={badges}
+          <ClueImage ref={imgApi} current={imageGone ? null : clue?.image ? fileUrl(cc, clue.image, clue.rev) : null} colRef={colRef} overlay={badges}
+            preview={mediaPreview} incoming={incoming}
+            onOtherFile={(f) => takeMedia({ file: f })} onOtherText={(t) => takeMedia({ text: t })} onRemove={removeMedia}
             blur={blur} onBlur={setBlur} maxH={maxH} onMaxH={setMaxH}
             onState={(h, sig) => setImg((p) => (p.has === h && p.sig === sig ? p : { has: h, sig }))} />
+          {mediaErr && <p className="err">{mediaErr}</p>}
+          {/* A photo can't say which region it is: the region is mandatory in that case. */}
+          {showArea && <AreaPicker cc={cc} value={area.upload} current={areaCurrent} onChange={takeArea} stage={stageInput} />}
           <div className="ed-rels">
             {relations.map((r) => {
               const o = snippetOf(r);
@@ -282,7 +392,7 @@ export default function ClueEditor({ cc, name, clue, onClose, onSaved }) {
               {VISIBILITIES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select>
           </div>
 
-          <textarea id="cl-info" className="ed-info" ref={area} rows={4} value={info} aria-label="Info"
+          <textarea id="cl-info" className="ed-info" ref={areaEl} rows={4} value={info} aria-label="Info"
             onChange={(e) => setInfo(e.target.value)} placeholder="What does this clue teach?" />
           <div className="rt-row">
             <div className="rt-bar" role="toolbar" aria-label="Text formatting">
@@ -323,10 +433,6 @@ export default function ClueEditor({ cc, name, clue, onClose, onSaved }) {
       </div>
 
       <div className="ed-extra">
-        {slots.length > 0 && <div className="ed-wide">
-          {slots.map((s) => <FilePicker key={s.kind} {...s} current={currentFor(s.kind)} value={files[s.kind]}
-            onChange={(v) => setFiles((f) => ({ ...f, [s.kind]: v }))} />)}
-        </div>}
         <div className="rates-dots">
           {RATINGS.map(([k, label, lo, hi]) => <RatingDots key={k} label={label} lo={lo} hi={hi} value={rating[k]}
             onChange={(v) => setRating((r) => ({ ...r, [k]: v }))} />)}

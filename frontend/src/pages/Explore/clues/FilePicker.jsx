@@ -1,5 +1,7 @@
 import { useRef, useState } from "react";
 import { bboxOf, fitProjection, shapes } from "./geoDraw.js";
+import { stagedUrl } from "./imageTools.js";
+import { kindOfFile, kindOfName, parseStreetView } from "./mediaKinds.js";
 
 const kb = (n) => (n > 1048576 ? `${(n / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`);
 
@@ -31,13 +33,13 @@ function GeoThumb({ gj }) {
   </svg>;
 }
 
-function Preview({ kind, v }) {
+export function Preview({ kind, v }) {
   let stats = `${kb(v.bytes_in)} → ${kb(v.bytes_out)}`;
-  if (kind === "image") stats = `${v.width}×${v.height} · ${stats}`;
+  if (kind === "image" || kind === "svg") stats = kind === "image" ? `${v.width}×${v.height} · ${stats}` : stats;
   else if (kind === "csv") stats = `${v.row_count} rows · ${stats}`;
   else stats = `${v.kind} · ${v.features.toLocaleString()} features · ${v.vertices_before.toLocaleString()} → ${v.vertices_after.toLocaleString()} vertices · ${stats}`;
   return <div className="fp-prev">
-    {kind === "image" && <img className="fp-img" src={`/api/clues/staged/${v.token}/image`} alt="Loaded file preview" />}
+    {(kind === "image" || kind === "svg") && <img className="fp-img" src={stagedUrl(v.token, kind)} alt="Loaded file preview" />}
     {v.geojson && <GeoThumb gj={v.geojson} />}
     {kind === "csv" && <div className="fp-csv"><table><tbody>
       {v.rows.slice(0, 6).map((r, i) => <tr key={i}>{r.slice(0, 5).map((c, j) => i ? <td key={j}>{c}</td> : <th key={j}>{c}</th>)}</tr>)}
@@ -48,8 +50,10 @@ function Preview({ kind, v }) {
 
 /** Path box + browse button. Also accepts drag and drop, and Ctrl+V of a path, a copied file or an image.
  *  `current` ({ src?, text }) = the file a clue already has (edit mode); picking a new one replaces it.
- *  `extra` = something to show in the top-right corner of the box (e.g. the Blur checkbox). */
-export default function FilePicker({ kind, label, hint, accept, value, onChange, current, extra }) {
+ *  `extra` = something to show in the top-right corner of the box (e.g. the Blur checkbox).
+ *  `stage` ({file} | {path}) = stage the input yourself and return the upload; `onImage` = take the
+ *  image / Street View link instead of a file of `kind` (used by the region slot for the stain tool). */
+export default function FilePicker({ kind, label, hint, accept, value, onChange, current, extra, stage, onImage }) {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
   const [drag, setDrag] = useState(false);
@@ -67,10 +71,20 @@ export default function FilePicker({ kind, label, hint, accept, value, onChange,
       onChange(next);
     } catch (e) { setErr(e.message); } finally { setBusy(false); }
   };
-  const upload = (file) => file && run(() => post(`/clues/stage/${kind}?filename=${encodeURIComponent(file.name)}`, file), file.name);
+  const isImage = (src) => (src.file ? kindOfFile(src.file) === "image"
+    : kindOfName(src.path) === "image" || !!parseStreetView(src.path));
+  const upload = (file) => {
+    if (!file) return;
+    if (onImage && isImage({ file })) { onImage({ file }); return; }
+    if (stage) { run(() => stage({ file }), file.name); return; }
+    run(() => post(`/clues/stage/${kind}?filename=${encodeURIComponent(file.name)}`, file), file.name);
+  };
   const fromPath = (p) => {
     const clean = p.trim().replace(/^"|"$/g, "");
-    if (clean) run(() => post(`/clues/stage-path/${kind}`, JSON.stringify({ path: clean }), "application/json"), clean);
+    if (!clean) return;
+    if (onImage && isImage({ path: clean })) { onImage({ path: clean }); return; }
+    if (stage) { run(() => stage({ path: clean }), clean); return; }
+    run(() => post(`/clues/stage-path/${kind}`, JSON.stringify({ path: clean }), "application/json"), clean);
   };
   const onPaste = (e) => {
     const file = e.clipboardData.files[0];
@@ -83,7 +97,7 @@ export default function FilePicker({ kind, label, hint, accept, value, onChange,
     onDragOver={(e) => { e.preventDefault(); setDrag(true); }} onDragLeave={() => setDrag(false)}
     onDrop={(e) => { e.preventDefault(); setDrag(false); upload(e.dataTransfer.files[0]); }}>
     <div className="fp-head"><b>{label}</b>{hint && <Info text={hint} />}{extra}</div>
-    {value && <Preview kind={kind} v={value} />}
+    {value && <Preview kind={value.kind ?? kind} v={value} />}
     {!value && current && <div className="fp-prev">
       {current.src && <img className="fp-img" src={current.src} alt="Current file" />}
       <div className="muted">{current.text} · pick another to replace it</div>

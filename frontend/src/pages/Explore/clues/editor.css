@@ -1,7 +1,11 @@
 /* ── Height limit (card + editor). The image keeps its proportions: a taller-than-wide image just gets narrower. ── */
 .clue-media.limited:not(.cropping) { width: 100%; max-width: 100%; margin-inline: 0; }
 .clue-media.limited:not(.cropping) .clue-photo { width: fit-content; max-width: 100%; margin-inline: auto; border-radius: 8px; overflow: hidden; }
-.clue-media.limited:not(.cropping) img { width: auto; max-width: 100%; max-height: var(--mh); }
+/* Height is set explicitly (rather than capped with max-height): with `width: auto` + only a max-height,
+   an image smaller than its column stays at its intrinsic width, so every limit above its natural
+   height renders identically ("normal" or "really small", nothing in between). */
+.clue-media.limited:not(.cropping) > img,
+.clue-media.limited:not(.cropping) .clue-photo > img { height: var(--mh); width: auto; max-width: 100%; object-fit: contain; }
 .clue-media.limited:not(.cropping) > img { margin-inline: auto; border-radius: 8px; }
 
 /* ── Editor: same two-column layout as the card ── */
@@ -61,7 +65,7 @@
 
 /* Crop box */
 .ed-crop { position: absolute; inset: 0; z-index: 4; touch-action: none; user-select: none; -webkit-user-select: none; overflow: hidden; }
-.ed-sel { position: absolute; cursor: move; outline: 1.5px solid #fff; box-shadow: 0 0 0 9999px rgba(8, 12, 17, .62); touch-action: none; }
+.ed-sel { position: absolute; outline: 1.5px solid #fff; box-shadow: 0 0 0 9999px rgba(8, 12, 17, .62); touch-action: none; }
 .ed-sel::before, .ed-sel::after { content: ""; position: absolute; inset: 0; pointer-events: none; }
 .ed-sel::before { background: linear-gradient(90deg, transparent calc(33.33% - .5px), rgba(255, 255, 255, .35) 0 calc(33.33% + .5px), transparent 0 calc(66.66% - .5px), rgba(255, 255, 255, .35) 0 calc(66.66% + .5px), transparent 0); }
 .ed-sel::after { background: linear-gradient(180deg, transparent calc(33.33% - .5px), rgba(255, 255, 255, .35) 0 calc(33.33% + .5px), transparent 0 calc(66.66% - .5px), rgba(255, 255, 255, .35) 0 calc(66.66% + .5px), transparent 0); }
@@ -121,3 +125,20 @@
 .clue-box .clue { border-bottom: 0; padding: 8px 0; }
 .clue-box .clue:first-child { padding-top: 16px; }
 .clue-box .clue:last-child { padding-bottom: 16px; }
+
+/* Region slot under a photo: an SVG / CSV / geometry file, or a picture read by the stain tool */
+.ar { display: grid; gap: 8px; }
+.ar .fp { margin-top: 0; }
+.ar-stain { display: grid; gap: 8px; }
+.ar-shot { position: relative; width: 100%; border-radius: 8px; overflow: hidden; border: 1px solid var(--line); cursor: crosshair; user-select: none; touch-action: none; }
+.ar-shot img { display: block; width: 100%; height: auto; pointer-events: none; }
+.ar-box { position: absolute; border: 2px solid var(--sea-hi); background: #6cc0e522; box-shadow: 0 0 0 9999px #0006; pointer-events: none; }
+.ar-row { display: flex; align-items: center; gap: 10px; }
+.ar-row .muted { flex: 1; min-width: 0; }
+.ar-land { fill: var(--raise); stroke: var(--line); stroke-width: .5; }
+.ar-zone { fill: #d95f4b88; stroke: #d95f4b; stroke-width: .5; }
+
+/* Media box showing something that is not a picture (SVG / CSV / geometry) */
+.ed-media .fp-prev { padding: 12px; }
+.ed-media-img { display: block; width: 100%; height: auto; }
+.ed-media-note { margin: 16px; }

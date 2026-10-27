@@ -8,6 +8,7 @@ duplicating them would risk the copies drifting apart.
 # ---- fixed style constants ----
 COUNTRIES_COLORS = {
     "Albania": {"water_color": "#87D8EB", "land_color": "#CFF6DF"},
+    "Andorra": {"water_color": "#90D9ED", "land_color": "#D3F8E1"},
     "Argentina": {"water_color": "#75D3E7", "land_color": "#BAEBD6"},
     "Australia": {"water_color": "#76D3E7", "land_color": "#FBF8F2"},
     "Austria": {"water_color": "#87D7EB", "land_color": "#B4EFCD"},

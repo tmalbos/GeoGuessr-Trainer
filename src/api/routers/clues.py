@@ -26,6 +26,7 @@ import time
 import uuid
 from pathlib import Path
 from typing import Annotated, Literal
+from xml.etree import ElementTree as ET
 
 import geopandas as gpd
 import numpy as np
@@ -51,11 +52,11 @@ GENERAL_TAGS = [
     "Electricity Pole", "Bollard", "National Parks", "Biome", "Religion",
 ]  # fmt: skip
 
-KINDS = ("image", "csv", "polygons", "lines", "points")
-AREA_KINDS = ("csv", "polygons", "lines", "points")
+KINDS = ("image", "svg", "csv", "polygons", "lines", "points")
+AREA_KINDS = ("svg", "csv", "polygons", "lines", "points")  # what says which part of the country
 GEOM_KINDS = ("polygons", "lines", "points")
 GEOM_KIND = {"Polygon": "polygons", "LineString": "lines", "Point": "points"}
-STAGE_KINDS = ("image", "csv", "geometry")
+STAGE_KINDS = ("image", "svg", "csv", "geometry")
 
 NOTE_TYPES = ("same_as", "similar_to")  # relations that carry a sentence
 
@@ -67,7 +68,7 @@ PREVIEW_MAX_FEATURES = 5000
 
 URL_RE = re.compile(r"https?://\S+", re.IGNORECASE)
 
-ASSET_RE = re.compile(r"(nat|reg)_[a-z]+_\d{5}\.(webp|csv|parquet)")
+ASSET_RE = re.compile(r"(nat|reg)_[a-z]+_\d{5}\.(webp|svg|csv|parquet)")
 TOKEN_RE = re.compile(r"[0-9a-f]{32}")
 
 # Country code -> subcontinent label ("CL" -> "South America"), for the badge tooltip.
@@ -209,6 +210,21 @@ def _process_image(data: bytes, out: Path) -> dict:
     }
 
 
+def _process_svg(data: bytes, out: Path) -> dict:
+    """Keep the vector as it is; only check that it is an SVG with the expected layers."""
+    text = data.decode("utf-8-sig", errors="replace")
+    try:
+        root = ET.fromstring(text)
+    except ET.ParseError as e:
+        raise HTTPException(422, f"Could not read the SVG: {e}") from e
+    if not root.tag.lower().endswith("svg"):
+        raise HTTPException(422, "That file is not an SVG")
+    if not any(el.get("id") == "Background" for el in root.iter()):
+        raise HTTPException(422, 'The SVG needs a layer with id="Background"')
+    out.write_text(text, encoding="utf-8")
+    return {"bytes_in": len(data), "bytes_out": out.stat().st_size}
+
+
 def _process_csv(data: bytes, out: Path) -> dict:
     text = data.decode("utf-8-sig", errors="replace")
     try:
@@ -326,6 +342,8 @@ def _stage(kind: str, filename: str, data: bytes) -> dict:
     try:
         if kind == "image":
             info = _process_image(data, STAGING / f"{token}.image.webp")
+        elif kind == "svg":
+            info = _process_svg(data, STAGING / f"{token}.svg.svg")
         elif kind == "csv":
             info = _process_csv(data, STAGING / f"{token}.csv.csv")
         else:
@@ -363,7 +381,9 @@ async def stage_from_path(kind: str, body: PathBody):
 
 @router.get("/clues/staged/{token}/{kind}")
 def staged_file(token: str, kind: str):
-    return FileResponse(_staged_path(token, kind))
+    p = _staged_path(token, kind)
+    # An SVG has to be served as such for the editor to preview it.
+    return FileResponse(p, media_type="image/svg+xml" if p.suffix == ".svg" else None)
 
 
 # Must stay ABOVE DELETE /clues/{cc}/{clue_id}, or "staged" is read as a country code.
@@ -409,6 +429,7 @@ class ClueBody(BaseModel):
     relation_notes: dict[str, NoteIn] = {}  # sentence for same_as / similar_to
     badge: Literal["subcontinent", "world"] | None = None  # manual uniqueness badge
     files: dict[str, str] = {}  # kind -> staging token
+    remove: list[str] = []  # kinds of the clue's own files to delete (e.g. the media changed type)
 
 
 def _validate(b: ClueBody, have: set[str] | frozenset[str] = frozenset()) -> tuple[str, str]:
@@ -428,11 +449,12 @@ def _validate(b: ClueBody, have: set[str] | frozenset[str] = frozenset()) -> tup
     extra = set(b.files) - allowed
     if extra:
         raise HTTPException(422, f"{', '.join(sorted(extra))} not allowed in a {b.scope} clue")
-    kinds = set(b.files) | set(have)
+    kinds = (set(b.files) | set(have)) - set(b.remove)
     if b.scope == "nat" and "image" not in kinds:
         raise HTTPException(422, "A national clue needs an image")
     if b.scope == "reg" and not any(k in kinds for k in AREA_KINDS):
-        raise HTTPException(422, "A regional clue needs a csv, polygons, lines or points file")
+        msg = "A regional clue needs a region: an SVG map, a CSV or a geometry file"
+        raise HTTPException(422, msg)
     return loc[0], gen[0]
 
 
@@ -624,12 +646,16 @@ def list_clues(cc: str, show_all: Annotated[bool, Query(alias="all")] = False):
             p = CLUES_DIR / cc / c["csv"]
             if p.is_file():
                 c["csv_rows"] = list(csv.reader(io.StringIO(p.read_text(encoding="utf-8"))))
-        if c.get("image"):
-            # rev (the file's mtime) busts the browser cache for ?v=: an image overwritten in place
+        if c.get("image") or c.get("svg"):
+            # rev (the file's mtime) busts the browser cache for ?v=: a file overwritten in place
             # keeps its name, so without this the card could show the old picture after an update.
-            p = CLUES_DIR / cc / c["image"]
-            if p.is_file():
-                c["rev"] = p.stat().st_mtime_ns
+            rev = 0
+            for kind in ("image", "svg"):
+                p = CLUES_DIR / cc / c[kind] if c.get(kind) else None
+                if p and p.is_file():
+                    rev = max(rev, p.stat().st_mtime_ns)
+            if rev:
+                c["rev"] = rev
         if sub:
             c["subcontinent"] = sub  # for the badge tooltip: "Unique to South America"
     return items
@@ -639,7 +665,10 @@ def list_clues(cc: str, show_all: Annotated[bool, Query(alias="all")] = False):
 def clue_file(cc: str, name: str):
     # "no-cache" = the browser may keep it but must revalidate, so a file overwritten in place
     # (same name, new content) shows up right away.
-    return FileResponse(_asset(cc, name), headers={"Cache-Control": "no-cache"})
+    p = _asset(cc, name)
+    # An SVG has to be served as such for the card to render it as a picture.
+    media = "image/svg+xml" if p.suffix == ".svg" else None
+    return FileResponse(p, media_type=media, headers={"Cache-Control": "no-cache"})
 
 
 @router.get("/clues/{cc}/geo/{name}")
@@ -739,7 +768,7 @@ def update_clue(cc: str, clue_id: str, body: ClueBody):
             raise HTTPException(422, "A clue can't switch between national and regional")
         location, general = _validate(body, {k for k in KINDS if old.get(k)})
         staged = {k: _staged_path(t, k) for k, t in body.files.items()}
-        replaced = set(staged)
+        replaced = set(staged) | set(body.remove)
         if replaced & set(GEOM_KINDS):
             replaced |= set(GEOM_KINDS)
         names: dict[str, str] = {}
