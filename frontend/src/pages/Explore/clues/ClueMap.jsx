@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { loadCountryMap } from "../geo.js";
-import { alignedProjection, bboxOf, fitProjection, shapes } from "./geoDraw.js";
+import RegionPreview from "./RegionPreview.jsx";
 
 const GEO_KINDS = ["polygons", "lines", "points"];
 const norm = (s) => s.trim().toLowerCase();
@@ -18,21 +18,20 @@ function csvLevels(rows) {
   return m;
 }
 
-// The country outline with the areas a clue applies to painted on it.
-//
-// ASSUMPTION: geometry is overlaid using `bbox` ([minLon, minLat, maxLon, maxLat]) from
-// /geo/admin1/{id}.json, assuming the map is a linear (equirectangular) fit of that bbox
-// into data.w × data.h. Without `bbox`, polygons/lines/points are drawn alone, without outline.
+// The country with the areas a clue applies to painted on it.
+// - Geometry files (polygons / lines / points): drawn on the country's own outline and borders (RegionPreview).
+// - CSV: the country's first-level subdivisions, painted.
 export default function ClueMap({ cc, clue }) {
   const [map, setMap] = useState(null);
   const [geo, setGeo] = useState({});
   const [err, setErr] = useState("");
   const kinds = GEO_KINDS.filter((k) => clue[k]);
+  const hasGeo = kinds.length > 0;
 
   useEffect(() => {
     let off = false;
     setMap(null); setGeo({}); setErr("");
-    loadCountryMap(cc).then((d) => !off && setMap(d)).catch((e) => !off && setErr(e.message));
+    if (!hasGeo) loadCountryMap(cc).then((d) => !off && setMap(d)).catch((e) => !off && setErr(e.message));
     for (const k of kinds) {
       fetch(`/api/clues/${cc}/geo/${clue[k]}`)
         .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`${clue[k]}: HTTP ${r.status}`))))
@@ -40,40 +39,26 @@ export default function ClueMap({ cc, clue }) {
         .catch((e) => !off && setErr(e.message));
     }
     return () => { off = true; };
-  }, [cc, clue.id]);
+  }, [cc, clue.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (err) return <p className="err">{err}</p>;
-  if (!map || !kinds.every((k) => geo[k])) return <p className="muted">Loading map…</p>;
 
-  const layers = kinds.map((k) => geo[k]);
-  const aligned = !!map.bbox;
-  const standalone = layers.length > 0 && !aligned;
+  if (hasGeo) {
+    if (!kinds.every((k) => geo[k])) return <p className="muted">Loading map…</p>;
+    return <RegionPreview cc={cc} layers={kinds.map((k) => geo[k])} />;
+  }
+
+  if (!map) return <p className="muted">Loading map…</p>;
   const levels = clue.csv_rows ? csvLevels(clue.csv_rows) : new Map();
   const pad = 8;
-
-  let W = map.w, H = map.h, project = null;
-  if (standalone) {
-    const bb = bboxOf({ type: "GeometryCollection", geometries: layers });
-    W = 1000; H = 700;
-    project = fitProjection(bb, W, H);
-  } else if (layers.length) {
-    project = alignedProjection(map.bbox, W, H);
-  }
-  const drawn = project ? layers.map((g) => shapes(g, project)) : [];
-
-  return <svg className="cl-svg" viewBox={`${-pad} ${-pad} ${W + pad * 2} ${H + pad * 2}`} role="img"
+  return <svg className="cl-svg" viewBox={`${-pad} ${-pad} ${map.w + pad * 2} ${map.h + pad * 2}`} role="img"
     aria-label={`Map of ${map.name} showing where this clue applies`}>
-    {!standalone && map.regions.map((r) => {
+    {map.regions.map((r) => {
       const cls = `cl-r ${levels.get(norm(r.name)) ?? ""}`;
       return <g key={r.name}>
         <path className={cls} d={r.d} fillRule="evenodd" />
         {(r.dots ?? []).map(([x, y], i) => <circle key={i} className={cls} cx={x} cy={y} r="11" />)}
       </g>;
     })}
-    {drawn.map((s, i) => <g key={i}>
-      <path className="cl-poly" d={s.polys} fillRule="evenodd" />
-      <path className="cl-line" d={s.lines} fill="none" />
-      {s.pts.map(([x, y], j) => <circle key={j} className="cl-pt" cx={x} cy={y} r="5" />)}
-    </g>)}
   </svg>;
 }

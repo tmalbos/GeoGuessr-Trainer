@@ -9,6 +9,7 @@ from fastapi import FastAPI
 
 from src.api.routers import (
     analysis,
+    clue_base,
     clues,
     countries,
     coverage,
@@ -49,6 +50,7 @@ for router_module in (
     settings,
     study_scripts,
     clues,
+    clue_base,
     countries,
     coverage,
     replay_report,

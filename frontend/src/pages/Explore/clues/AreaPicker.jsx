@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { api, errorText } from "../../../lib/api.js";
 import { discardStaged, stagePath, stagedUrl } from "./imageTools.js";
-import { bboxOf, fitProjection, shapes } from "./geoDraw.js";
 import { parseStreetView, streetViewShot } from "./mediaKinds.js";
 import FilePicker from "./FilePicker.jsx";
 
@@ -12,25 +11,15 @@ const MIN_BOX = 0.04;
 const clamp = (v) => Math.min(1, Math.max(0, v));
 const rect = (r) => r && { left: `${r[0] * 100}%`, top: `${r[1] * 100}%`, width: `${(r[2] - r[0]) * 100}%`, height: `${(r[3] - r[1]) * 100}%` };
 
-function StainPreview({ res }) {
-  const bb = bboxOf(res.base?.outline);
-  if (!bb) return null;
-  const W = 260, H = 170;
-  const p = fitProjection(bb, W, H, 6);
-  const keep = (res.geojson?.features ?? []).filter((f) => !f.properties?.base);
-  return <svg className="fp-thumb" viewBox={`0 0 ${W} ${H}`} role="img" aria-label="Areas found in the picture">
-    <path className="ar-land" d={shapes(res.base.outline, p).polys} fillRule="evenodd" />
-    {keep.map((f, i) => <path key={i} className="ar-zone" d={shapes(f.geometry, p).polys} fillRule="evenodd" />)}
-  </svg>;
-}
-
 /** The region slot below the media: an SVG, CSV or geometry file, or a picture of the map, which is
- *  run through the stain tool for this country (no knobs: only a box when the map isn't found). */
+ *  run through the stain tool for this country. The result is shown once, on the country (FilePicker's preview).
+ *  The picture itself only appears when the map has to be boxed by hand (not found / low confidence) or on request. */
 export default function AreaPicker({ cc, value, current, onChange, stage }) {
   const [up, setUp] = useState(null);       // { token, url, map } — the picture sent to the stain tool
   const [crop, setCrop] = useState(null);   // [x0, y0, x1, y1] as fractions of the picture, drawn by hand
   const [res, setRes] = useState(null);     // stain result
   const [draft, setDraft] = useState(null);
+  const [adjust, setAdjust] = useState(false); // user asked to see the picture
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
   const shot = useRef(null);
@@ -59,7 +48,7 @@ export default function AreaPicker({ cc, value, current, onChange, stage }) {
   };
 
   const takePicture = async (input) => {
-    setBusy(true); setErr(""); setRes(null); setCrop(null);
+    setBusy(true); setErr(""); setRes(null); setCrop(null); setAdjust(false);
     try {
       const file = await pictureOf(input);
       let preview;
@@ -133,14 +122,17 @@ export default function AreaPicker({ cc, value, current, onChange, stage }) {
     if (shot.current?.url?.startsWith("blob:")) URL.revokeObjectURL(shot.current.url);
     discardStaged(shot.current?.token);
     shot.current = null;
-    setUp(null); setRes(null); setCrop(null); setDraft(null); setErr("");
+    setUp(null); setRes(null); setCrop(null); setDraft(null); setErr(""); setAdjust(false);
   };
+
+  const needBox = up?.map?.found === false || !!err || (!!res && res.fit.confidence < 0.35);
+  const showShot = !!up?.url && (needBox || adjust);
 
   return <div className="ar">
     <FilePicker kind="geometry" label="Region" hint={HINT} accept={ACCEPT} value={value} current={current}
-      onChange={onChange} stage={stage} onImage={takePicture} />
+      onChange={onChange} stage={stage} onImage={takePicture} cc={cc} />
     {up && <div className="ar-stain">
-      {up.url && <div className="ar-shot" onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp}>
+      {showShot && <div className="ar-shot" onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp}>
         <img src={up.url} alt="The picture the areas are read from" draggable={false} />
         {rect(draft ?? crop) && <div className="ar-box" style={rect(draft ?? crop)} />}
       </div>}
@@ -148,12 +140,12 @@ export default function AreaPicker({ cc, value, current, onChange, stage }) {
         <span className="muted">
           {busy ? "Looking for the map…"
             : err ? err
-              : res ? `${(res.geojson?.features ?? []).filter((f) => !f.properties?.base).length} areas found`
+              : res ? `${(res.geojson?.features ?? []).filter((f) => !f.properties?.base).length} areas found${showShot ? ". Drag a box around the map to search again." : ""}`
                 : "The map wasn't found: drag a box around it."}
         </span>
+        {res && !needBox && <button type="button" className="btn ghost" onClick={() => setAdjust((a) => !a)}>{adjust ? "Hide picture" : "Adjust"}</button>}
         <button type="button" className="btn ghost" onClick={stop}>Close</button>
       </div>
-      {res && <StainPreview res={res} />}
     </div>}
   </div>;
 }

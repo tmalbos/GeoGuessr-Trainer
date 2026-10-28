@@ -106,7 +106,8 @@ function RelatedMedia({ cc, ids, name, onClose }) {
 }
 
 /** Drag props (edit mode): onGrab (grip drag start), onOver / onDrop (this card as a target), onRelease (drag end),
- *  dragging / over = visual states. showTags / showSource are off for clues inside a group: the group shows them once. */
+ *  dragging / over = visual states. showTags / showSource are off for clues inside a group: the group shows them once.
+ *  `data-clue-id` lets the list find where each card is on screen (used to add a new clue near the scroll position). */
 export default function ClueCard({ cc, clue, editing, onDelete, onEdit, dragging, over, onGrab, onOver, onDrop, onRelease,
   showTags = true, showSource = true }) {
   const { nameOf } = useCountries();
@@ -116,7 +117,7 @@ export default function ClueCard({ cc, clue, editing, onDelete, onEdit, dragging
   const cat = clue.tags.find((t) => GENERAL_TAGS.includes(t));
   const idsOf = (c) => (clue.relations ?? []).filter((r) => r.type !== "group" && r.cc === c).map((r) => r.id);
   const shown = open.filter((c) => idsOf(c).length); // a relation removed while open just disappears
-  return <article className={`clue ${shown.length ? "expanded" : ""} ${dragging ? "dragging" : ""} ${over ? "over" : ""}`}
+  return <article data-clue-id={clue.id} className={`clue ${shown.length ? "expanded" : ""} ${dragging ? "dragging" : ""} ${over ? "over" : ""}`}
     style={shown.length ? { "--n": shown.length + 1 } : undefined}
     onDragOver={editing ? onOver : undefined} onDrop={editing ? onDrop : undefined}>
     {editing && <div className="clue-tools">

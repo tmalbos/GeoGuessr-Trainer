@@ -5,6 +5,7 @@ import { api, errorText } from "../../../lib/api.js";
 import { streetViewAvailable } from "../../../lib/mapProviders.js";
 import AreaPicker from "./AreaPicker.jsx";
 import ClueImage from "./ClueImage.jsx";
+import ClueMap from "./ClueMap.jsx";
 import { Preview } from "./FilePicker.jsx";
 import RatingDots from "./RatingDots.jsx";
 import RelatePicker from "./RelatePicker.jsx";
@@ -305,19 +306,20 @@ export default function ClueEditor({ cc, name, clue, onClose, onSaved }) {
     {badgeBtn("world", "/grades/brilliant.png", "World unique")}
   </div>;
 
-  // What the media box shows when it is not a picture.
+  // What the media box shows when it is not a picture. A stored CSV / geometry is drawn on its country.
   const mediaPreview = media.kind && media.kind !== "image"
     ? media.upload
-      ? <Preview kind={media.kind} v={media.upload} />
+      ? <Preview kind={media.kind} v={media.upload} cc={cc} />
       : media.kind === "svg"
         ? <img className="ed-media-img" src={fileUrl(cc, clue?.svg, clue?.rev)} alt="" />
-        : <p className="ed-media-note muted">{media.kind === "csv" ? `Current CSV${clue?.csv_rows ? ` (${clue.csv_rows.length - 1} rows)` : ""}` : "Current geometry"}</p>
+        : clue ? <div className="clue-full"><ClueMap cc={cc} clue={clue} /></div> : undefined
     : undefined;
 
+  // The region a stored photo already has: shown on the country, so the slot never looks empty.
   const areaCurrent = clue && showArea
     ? area.kind === "svg" && clue.svg ? { src: fileUrl(cc, clue.svg, clue.rev), text: "Current SVG" }
-      : area.kind === "csv" && clue.csv ? { text: `Current CSV${clue.csv_rows ? ` (${clue.csv_rows.length - 1} rows)` : ""}` }
-        : area.kind === "geometry" && geoKindOf(clue) ? { text: `Current geometry (${geoKindOf(clue)})` } : null
+      : area.kind === "csv" && clue.csv ? { node: <ClueMap cc={cc} clue={clue} />, text: `Current CSV${clue.csv_rows ? ` (${clue.csv_rows.length - 1} rows)` : ""}` }
+        : area.kind === "geometry" && geoKindOf(clue) ? { node: <ClueMap cc={cc} clue={clue} />, text: `Current geometry (${geoKindOf(clue)})` } : null
     : null;
 
   // National clues only take an image: switching back drops an SVG / CSV / geometry picked for a region.

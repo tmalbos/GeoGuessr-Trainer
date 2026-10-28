@@ -1,0 +1,4 @@
+/* Side panel row under the country map: filter toggle on the left, "+ Add clue" on the far right. */
+.cf-bar { display: flex; align-items: center; justify-content: space-between; gap: 10px; width: 100%; }
+.cf-bar:empty { display: none; }
+.cf-bar .cf-add { margin-left: auto; padding: 6px 12px; white-space: nowrap; }
