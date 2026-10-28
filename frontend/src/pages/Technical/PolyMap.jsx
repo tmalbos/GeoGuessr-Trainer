@@ -14,8 +14,8 @@ function featureBounds(fc) {
   return Number.isFinite(w) ? { w, s, e, n } : null;
 }
 
-/** features: GeoJSON FeatureCollection | null. pts: [{ lat, lng, color }]. fitKey: refit the view when it changes. */
-export default function PolyMap({ features, pts, basemap, fitKey }) {
+/** features: GeoJSON FeatureCollection | null. fitKey: refit the view to the polygons when it changes. */
+export default function PolyMap({ features, fitKey }) {
   const box = useRef(null);
   const tiles = useRef(null);
   const canvas = useRef(null);
@@ -23,7 +23,7 @@ export default function PolyMap({ features, pts, basemap, fitKey }) {
   const api = useRef(null);
 
   useEffect(() => {
-    const st = { features: null, pts: [], hits: [], dpr: 1 };
+    const st = { features: null, hits: [], dpr: 1 };
     const cv = canvas.current;
 
     const draw = (v, size) => {
@@ -60,18 +60,6 @@ export default function PolyMap({ features, pts, basemap, fitKey }) {
         ctx.stroke(path);
         st.hits.push({ path, tag: f.properties.tag });
       }
-      ctx.globalAlpha = 1;
-      ctx.lineWidth = 0.8;
-      ctx.strokeStyle = "rgba(0,0,0,.7)";
-      for (const p of st.pts) {
-        const x = X(p.lng), y = Y(p.lat);
-        if (x < -5 || y < -5 || x > size.w + 5 || y > size.h + 5) continue;
-        ctx.beginPath();
-        ctx.arc(x, y, 2.5, 0, 2 * Math.PI);
-        ctx.fillStyle = p.color;
-        ctx.fill();
-        ctx.stroke();
-      }
     };
 
     const engine = createMapEngine({ box: box.current, tiles: tiles.current, layer: draw, tileClass: "tp-tile", layerClass: "tp-tl" });
@@ -105,28 +93,22 @@ export default function PolyMap({ features, pts, basemap, fitKey }) {
     };
   }, []);
 
-  useEffect(() => { api.current?.engine.setTilesVisible(basemap); }, [basemap]);
-
   useEffect(() => {
     if (!api.current) return;
     api.current.st.features = features;
-    api.current.st.pts = pts;
     api.current.engine.render(true);
-  }, [features, pts]);
+  }, [features]);
 
-  // Fit to the places as soon as the selection changes (they are known instantly; polygons follow).
+  // Fit to the polygons when fitKey changes (the Polygonizer changes it when the result for a new selection arrives).
   const latest = useRef({});
-  latest.current = { features, pts };
+  latest.current = { features };
   useEffect(() => {
     if (!api.current) return;
-    const { features: f, pts: p } = latest.current;
-    const b = p.length
-      ? p.reduce((a, q) => ({ w: Math.min(a.w, q.lng), e: Math.max(a.e, q.lng), s: Math.min(a.s, q.lat), n: Math.max(a.n, q.lat) }), { w: Infinity, e: -Infinity, s: Infinity, n: -Infinity })
-      : featureBounds(f);
+    const b = featureBounds(latest.current.features);
     if (b) api.current.engine.fit(b, 30, 10, true);
   }, [fitKey]);
 
-  return <div ref={box} className="tp-map" role="img" aria-label="Map with the selected places and their polygons">
+  return <div ref={box} className="tp-map" role="img" aria-label="Map with the polygons">
     <div ref={tiles} className="tp-tiles" />
     <canvas ref={canvas} className="tp-canvas" />
     <div className="tp-zoom">

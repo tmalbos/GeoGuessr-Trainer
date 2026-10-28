@@ -140,7 +140,7 @@ CHANCE_SHIFT_MIN, CHANCE_SHIFT_MAX = 4.0, 12.0  # ...limited to this range (px)
 
 # Colours / labels
 MAX_CLASSES = 5  # colours kept inside the map (base map included)
-FLAT_T = 24.0  # gradient magnitude (sum over channels) under which a pixel is "flat"
+FLAT_T = 25.0  # gradient magnitude (sum over channels) under which a pixel is "flat"
 CAP = 1.4  # a pixel takes a colour only within CAP * tol of it; the rest is filled from neighbours
 HOLE_MIN = 30.0  # holes in a stain smaller than this (px² at work size) are filled
 MIN_POLY = 4.0  # polygons smaller than this (px² at work size) are dropped

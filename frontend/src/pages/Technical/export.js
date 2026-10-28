@@ -26,20 +26,25 @@ export function toTopoJSON(fc) {
 
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 
-/** SVG with the polygons only (equirectangular, fitted to their bounding box). Returns { svg, w, h }. */
-export function toSVG(fc, { width = 1600, background = null } = {}) {
-  const bb = bboxOf({ type: "GeometryCollection", geometries: fc.features.map((f) => f.geometry) });
+/** SVG of the polygons on top of `base` (a country outline geometry) with its division `borders` (lines) over them, equirectangular, fitted to both. Returns { svg, w, h }. */
+export function toSVG(fc, { width = 1600, background = null, base = null, borders = null } = {}) {
+  const geoms = fc.features.map((f) => f.geometry);
+  const bb = bboxOf({ type: "GeometryCollection", geometries: base ? [base, ...geoms] : geoms });
   if (!bb) return null;
   const k = Math.cos((((bb[1] + bb[3]) / 2) * Math.PI) / 180) || 1;
   const ratio = Math.max(1e-6, bb[3] - bb[1]) / Math.max(1e-6, (bb[2] - bb[0]) * k);
   const W = width, H = Math.round(Math.min(2400, Math.max(200, W * ratio)));
   const project = fitProjection(bb, W, H, 16);
+  const land = base
+    ? `<path d="${shapes(base, project).polys}" fill="#f6f4e4" fill-rule="evenodd" stroke="#8b98a8" stroke-width="1.5" stroke-linejoin="round"/>`
+    : "";
+  const lines = base && borders ? shapes(borders, project).lines : "";
   const paths = fc.features.map((f) => {
     const d = shapes(f.geometry, project).polys;
     return `<path d="${d}" fill="${f.properties.color}" fill-opacity="0.85" fill-rule="evenodd" stroke="#1a1a1a" stroke-opacity="0.6" stroke-width="1.5" stroke-linejoin="round"><title>${esc(f.properties.tag)}</title></path>`;
   });
   const bg = background ? `<rect width="${W}" height="${H}" fill="${background}"/>` : "";
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}">${bg}${paths.join("")}</svg>`;
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}">${bg}${land}${paths.join("")}${lines ? `<path d="${lines}" fill="none" stroke="#3a4350" stroke-opacity="0.75" stroke-width="1" stroke-linejoin="round"/>` : ""}</svg>`;
   return { svg, w: W, h: H };
 }
 

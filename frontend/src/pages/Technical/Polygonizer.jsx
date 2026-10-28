@@ -5,7 +5,7 @@ import { download, svgToPng, toGeoJSON, toSVG, toTopoJSON } from "./export.js";
 import PolyMap from "./PolyMap.jsx";
 import "./technical.css";
 
-const DEFAULTS = { method: "blob", link_km: 100, pad_km: 10, ratio: 0.3, clip: false };
+const DEFAULTS = { link_km: 45, pad_km: 10, curve: 0.5 };
 const memo = {}; // survives leaving the page: the uploaded file lives on the server, this remembers which one
 
 const Slider = ({ label, value, min, max, step, unit = "", onChange }) => <div className="tp-field">
@@ -17,16 +17,17 @@ export default function Polygonizer() {
   const [ds, setDs] = useState(memo.ds ?? null); // { token, name, total, tags, points }
   const [sel, setSel] = useState(memo.sel ?? []);
   const [params, setParams] = useState(memo.params ?? DEFAULTS);
-  const [showPts, setShowPts] = useState(memo.showPts ?? true);
-  const [basemap, setBasemap] = useState(memo.basemap ?? true);
+  const [colors, setColors] = useState(memo.colors ?? {}); // tag name -> custom colour
   const [search, setSearch] = useState("");
   const [res, setRes] = useState(null);
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const [picker, setPicker] = useState(null); // { kind, countries, code } while the user picks a country for an image
   const [over, setOver] = useState(false);
   const [err, setErr] = useState("");
   const input = useRef(null);
-  memo.ds = ds; memo.sel = sel; memo.params = params; memo.showPts = showPts; memo.basemap = basemap;
+  memo.ds = ds; memo.sel = sel; memo.params = params; memo.colors = colors;
 
   const upload = async (file) => {
     if (!file) return;
@@ -34,7 +35,7 @@ export default function Polygonizer() {
     try {
       const r = await fetch("/api/technical/mapmaking", { method: "POST", body: file });
       if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || r.statusText);
-      setDs(await r.json()); setSel([]); setRes(null);
+      setDs(await r.json()); setSel([]); setRes(null); setColors({}); setPicker(null);
     } catch (e) { setErr(e.message); } finally { setLoading(false); }
   };
 
@@ -45,20 +46,18 @@ export default function Polygonizer() {
     setBusy(true);
     const t = setTimeout(() => {
       api("/technical/polygonize", { method: "POST", body: { token: ds.token, tags: sel, ...params } })
-        .then((r) => { if (!stale) { setRes(r); setErr(""); setBusy(false); } })
+        .then((r) => { if (!stale) { setRes({ ...r, key: sel.join("|") }); setErr(""); setBusy(false); } })
         .catch((e) => { if (!stale) { setErr(errorText(e)); setBusy(false); } });
     }, 200);
     return () => { stale = true; clearTimeout(t); };
   }, [ds, sel, params]);
 
-  const pts = useMemo(() => {
-    if (!ds || !showPts || !sel.length) return [];
-    const colors = new Map(ds.tags.map((t, i) => [i, t.color]));
-    const names = new Set(sel);
-    const out = [];
-    for (const [lat, lng, ids] of ds.points) for (const i of ids) if (names.has(ds.tags[i].name)) out.push({ lat, lng, color: colors.get(i) });
-    return out;
-  }, [ds, sel, showPts]);
+  const colorOf = (t) => colors[t.name] ?? t.color;
+
+  const recolor = (collection) => ({
+    ...collection,
+    features: collection.features.map((f) => ({ ...f, properties: { ...f.properties, color: colors[f.properties.tag] ?? f.properties.color } })),
+  });
 
   const shown = useMemo(() => {
     const s = search.trim().toLowerCase();
@@ -67,16 +66,33 @@ export default function Polygonizer() {
 
   const toggle = (n) => setSel((s) => (s.includes(n) ? s.filter((x) => x !== n) : [...s, n]));
   const set = (patch) => setParams((p) => ({ ...p, ...patch }));
-  const fc = res?.geojson?.features.length ? res.geojson : null;
+  const fc = useMemo(() => (res?.geojson?.features.length ? recolor(res.geojson) : null), [res, colors]); // eslint-disable-line react-hooks/exhaustive-deps
   const base = (ds?.name ?? "map").replace(/[^\w-]+/g, "_") + "-polygons";
 
-  const exportAs = async (kind) => {
+  // Images are drawn on top of their country. One country: used straight away. Several: the user picks.
+  const exportImage = async (kind, code) => {
+    const body = { token: ds.token, tags: sel, ...params };
+    let c = code;
+    if (!c) {
+      const { countries } = await api("/technical/polygonize/base", { method: "POST", body });
+      if (!countries.length) throw new Error("No local country outline covers these tags, so there is no country to draw them on.");
+      if (countries.length > 1) { setPicker({ kind, countries, code: countries[0].code }); return; }
+      c = countries[0].code;
+    }
+    setPicker(null);
+    const { outline, borders, features } = await api("/technical/polygonize/base", { method: "POST", body: { ...body, code: c } });
+    if (!features.features.length) throw new Error("Nothing of these tags falls inside that country.");
+    const img = toSVG(recolor(features), { base: outline, borders });
+    download(kind === "svg" ? new Blob([img.svg], { type: "image/svg+xml" }) : await svgToPng(img), `${base}-${c}.${kind}`);
+  };
+
+  const exportAs = async (kind, code) => {
+    setExporting(true);
     try {
       if (kind === "geojson") download(new Blob([toGeoJSON(fc)], { type: "application/geo+json" }), `${base}.geojson`);
       else if (kind === "topojson") download(new Blob([toTopoJSON(fc)], { type: "application/json" }), `${base}.topojson`);
-      else if (kind === "svg") download(new Blob([toSVG(fc).svg], { type: "image/svg+xml" }), `${base}.svg`);
-      else download(await svgToPng(toSVG(fc)), `${base}.png`);
-    } catch (e) { setErr(errorText(e)); }
+      else await exportImage(kind, code);
+    } catch (e) { setErr(errorText(e)); } finally { setExporting(false); }
   };
 
   return <div className="tp">
@@ -100,35 +116,41 @@ export default function Polygonizer() {
         <div className="tp-tags">
           {shown.map((t) => <label className="tp-tag" key={t.name} title={t.name}>
             <input type="checkbox" checked={sel.includes(t.name)} onChange={() => toggle(t.name)} />
-            <i style={{ background: t.color }} /><span>{t.name}</span><span className="muted">{t.count.toLocaleString()}</span>
+            <input type="color" aria-label={`Color of ${t.name}`} title="Change color" value={colorOf(t)}
+              onChange={(e) => setColors((c) => ({ ...c, [t.name]: e.target.value }))} />
+            <span>{t.name}</span><span className="muted">{t.count.toLocaleString()}</span>
           </label>)}
           {!shown.length && <p className="muted">No tag matches.</p>}
         </div>
 
         <h3>Shape</h3>
-        <div className="tp-field"><label htmlFor="tp-method">Method</label>
-          <select id="tp-method" value={params.method} onChange={(e) => set({ method: e.target.value })}>
-            <option value="blob">Smooth blobs</option><option value="hull">Concave hull</option></select></div>
         <Slider label="Join points closer than" unit=" km" min={5} max={1000} step={5} value={params.link_km} onChange={(v) => set({ link_km: v })} />
         <Slider label="Minimum radius per point" unit=" km" min={0} max={100} step={1} value={params.pad_km} onChange={(v) => set({ pad_km: v })} />
-        {params.method === "hull" && <Slider label="Concavity (0 tight, 1 convex)" min={0} max={1} step={0.05} value={params.ratio} onChange={(v) => set({ ratio: v })} />}
-        <label className="tp-chk" title="Only countries that have local admin data"><input type="checkbox" checked={params.clip} onChange={(e) => set({ clip: e.target.checked })} />Clip to countries</label>
-        <label className="tp-chk"><input type="checkbox" checked={showPts} onChange={(e) => setShowPts(e.target.checked)} />Show places</label>
-        <label className="tp-chk"><input type="checkbox" checked={basemap} onChange={(e) => setBasemap(e.target.checked)} />Show basemap</label>
+        <Slider label="Curviness" min={0} max={1} step={0.05} value={params.curve} onChange={(v) => set({ curve: v })} />
 
         <h3>Export</h3>
         <div className="tp-row">
           {[["geojson", "GeoJSON"], ["topojson", "TopoJSON"], ["svg", "SVG"], ["png", "Image (PNG)"]].map(([k, l]) =>
-            <button key={k} type="button" className="btn ghost" disabled={!fc} onClick={() => exportAs(k)}>{l}</button>)}
+            <button key={k} type="button" className="btn ghost" disabled={!fc || exporting} onClick={() => exportAs(k)}>{l}</button>)}
         </div>
+        {picker && <div className="tp-field">
+          <label htmlFor="tp-country">These tags span several countries. Which one to export?</label>
+          <select id="tp-country" value={picker.code} onChange={(e) => setPicker((p) => ({ ...p, code: e.target.value }))}>
+            {picker.countries.map((c) => <option key={c.code} value={c.code}>{c.name}</option>)}
+          </select>
+          <div className="tp-row">
+            <button type="button" className="btn" disabled={exporting} onClick={() => exportAs(picker.kind, picker.code)}>Export</button>
+            <button type="button" className="btn ghost" onClick={() => setPicker(null)}>Cancel</button>
+          </div>
+        </div>}
       </>}
     </div>
 
     <div className="tp-main">
       {err && <ErrorBox message={err} />}
       {res?.warning && <p className="muted">{res.warning}</p>}
-      <PolyMap features={fc} pts={pts} basemap={basemap} fitKey={sel.join("|")} />
-      <div className="tp-stats muted">{busy ? "Computing…" : res?.stats.map((s) => `${s.tag}: ${s.polygons} area${s.polygons === 1 ? "" : "s"} from ${s.points} points`).join(" · ")}</div>
+      <PolyMap features={fc} fitKey={res?.key} />
+      {busy && <div className="tp-stats muted">Computing…</div>}
     </div>
   </div>;
 }
