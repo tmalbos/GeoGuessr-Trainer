@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GeoGuessr Pinpoint Trainer
 // @namespace    ggpt
-// @version      0.7.1
+// @version      0.7.2
 // @description  Adds a small down arrow attached to the Play button on each map page (/maps/<id>) to turn on training for that map: at the start of each round, the minimap is centered at the chosen zoom with a random offset from the real location.
 // @match        https://www.geoguessr.com/*
 // @run-at       document-start
@@ -415,7 +415,7 @@
       return origSend.call(this, body);
     };
   }
-  console.log("[ggpt] hooks installed (fetch + XHR), v0.7.1");
+  console.log("[ggpt] hooks installed (fetch + XHR), v0.7.2");
 
   setInterval(async () => {
     const token = gameToken();
@@ -509,8 +509,8 @@
       font:inherit;position:relative;pointer-events:auto}
     button:hover{filter:brightness(1.15)}
     svg{width:16px;height:16px;pointer-events:none}
-    .dot{position:absolute;top:5px;right:5px;width:7px;height:7px;border-radius:50%;background:#3fb97a;display:none;pointer-events:none}
-    .on .dot{display:block}
+    .warn{position:absolute;top:3px;right:3px;width:15px;height:15px;display:none;pointer-events:none}
+    .on .warn{display:block}
   `;
   const PANEL_CSS = `
     :host{position:fixed;z-index:2147483647;display:none}
@@ -534,7 +534,7 @@
     ar.innerHTML = `<style>${ARROW_CSS}</style>
       <button type="button" title="Training options" aria-label="Training options">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>
-        <span class="dot"></span>
+        <svg class="warn" viewBox="0 0 24 24"><path d="M12 2.5 22.5 21h-21z" fill="#f5b301" stroke="#1b1b1b" stroke-width="1.6" stroke-linejoin="round"/><path d="M12 9v5.5" stroke="#1b1b1b" stroke-width="2.2" stroke-linecap="round"/><circle cx="12" cy="17.6" r="1.3" fill="#1b1b1b"/></svg>
       </button>`;
     const arrowBtn = ar.querySelector("button");
 
@@ -554,6 +554,7 @@
       $("#zm").value = st.zoom;
       $("#zv").textContent = st.zoom;
       arrowBtn.classList.toggle("on", st.enabled);
+      arrowBtn.title = st.enabled ? "Training is ON for this map" : "Training options";
     };
     $("#en").addEventListener("change", () => { setMap(id, { enabled: $("#en").checked }); refresh(); });
     $("#zm").addEventListener("input", () => { setMap(id, { zoom: parseInt($("#zm").value, 10) }); refresh(); });
@@ -578,6 +579,19 @@
     widget.panelHost.style.left = `${left}px`;
     widget.panelHost.style.top = `${r.bottom + 8}px`;
   }
+
+  // Clicking Play starts the game: hide the arrow right away (the page can sit on a loading screen for a moment).
+  // It comes back by itself after 10 s if we are still on the map page (e.g. the game failed to start).
+  document.addEventListener("click", (e) => {
+    const p = widget?.play;
+    if (!p || !e.isTrusted) return;
+    const path = e.composedPath();
+    if (path.includes(p) || path.includes(p.closest("a") || p)) {
+      widget.hiddenUntil = Date.now() + 10000;
+      widget.arrowHost.style.display = "none";
+      setPanel(false);
+    }
+  }, true);
 
   // Close on outside click / Escape (registered once)
   document.addEventListener("pointerdown", (e) => {
@@ -627,6 +641,7 @@
   function placeArrow() {
     const w = widget;
     if (!w?.play?.isConnected) return;
+    if (Date.now() < (w.hiddenUntil || 0)) { w.arrowHost.style.display = "none"; return; }
     const r = w.play.getBoundingClientRect();
     const st = w.arrowHost.style;
     if (r.width === 0 || r.height === 0) { st.display = "none"; return; }
