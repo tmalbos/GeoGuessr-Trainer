@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import { api } from "../../lib/api.js";
 import { num, time, tone } from "../../lib/format.js";
+import fileUrl from "../Explore/clues/fileUrl.js";
+import RichText from "../Explore/clues/richText.jsx";
 import GradeIcon from "./GradeIcon.jsx";
 import RoundMap from "./RoundMap.jsx";
 import StageBars from "./StageBars.jsx";
@@ -8,6 +10,7 @@ import StreetPhoto from "./StreetPhoto.jsx";
 import Timeline from "./Timeline.jsx";
 import { GRADES, clock } from "./stages.js";
 import "./replay-report.css";
+import "./report-actions.css";
 
 const Grade = ({ id, count }) => <span className="rr-grade" style={{ "--h": GRADES[id].hue }}>
   <GradeIcon id={id} size={16} /> {GRADES[id].label}{count > 1 && ` ×${count}`}</span>;
@@ -32,6 +35,22 @@ const savedTitle = (parts) => [...Object.entries(PART_LABELS)
   .filter(([k]) => parts?.[k] && (parts[k].time_ms || parts[k].steps))
   .map(([k, l]) => `${l}: ${saved(parts[k].time_ms)} · ${stepsText(parts[k].steps)}`)].join("\n");
 const hasSaved = (x) => x.time_saved_ms > 0 || x.steps_saved > 0;
+
+/** The (at most two) things worth working on after this game. Computed by the backend (report_actions.py). */
+function Actions({ list }) {
+  if (!list?.length) return null;
+  return <section className="card rr-actions" aria-label="What to work on">
+    <h3>What to work on</h3>
+    {list.map((a, i) => <div className="rr-act" key={i}>
+      <p className="rr-act-text">{a.round != null && <span className="muted">Round {a.round} · </span>}{a.text}</p>
+      {a.clues.length > 0 && <ul className="rr-act-clues">{a.clues.map((c) => <li key={c.id}>
+        {c.image && <img src={fileUrl(c.cc, c.image)} alt="" loading="lazy" />}
+        <span><RichText text={c.info} /></span>
+      </li>)}</ul>}
+      {a.link && <a className="btn ghost" href={a.link}>{a.link_label}</a>}
+    </div>)}
+  </section>;
+}
 
 function Summary({ s }) {
   if (!s.rounds_with_replay) return null;
@@ -109,6 +128,7 @@ export default function ReplayReport({ g, title, onBack }) {
     <p className="muted">{title}</p>
     {err && <p className="err">{err}</p>}
     {!data && !err && <p className="muted">Analyzing replays…</p>}
+    {data && <Actions list={data.actions} />}
     {data && <Summary s={data.summary} />}
     {data?.rounds.map((r) => <Round key={r.round_number} r={r} />)}
   </>;

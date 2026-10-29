@@ -53,7 +53,11 @@ function SideTools({ slotEl, showFilter, editing, onAdd, cat, loc, cats, count, 
   </>, slotEl);
 }
 
-export default function ClueList({ id, name, editing }) {
+/** `query` (from the URL) can pre-filter the list, e.g. from a replay report action:
+ *    scope=nat|reg   only national / regional clues
+ *    ids=a,b,c       only those clues (analysis-only ones included)
+ *    loc=Urban|Rural only that location (Anywhere clues too); ignored when ids is given */
+export default function ClueList({ id, name, editing, query }) {
   const toast = useToast();
   const [items, setItems] = useState(null);
   const [err, setErr] = useState("");
@@ -70,13 +74,22 @@ export default function ClueList({ id, name, editing }) {
   itemsRef.current = items;
   const addAt = useRef(null); // where the list was on screen when "Add clue" was pressed
 
+  const qScope = query?.get("scope") ?? "";
+  const qLoc = query?.get("loc") ?? "";
+  const qIds = query?.get("ids") ?? "";
+  const [linkOff, setLinkOff] = useState(false); // "Show all clues" was pressed
+  useEffect(() => { setLinkOff(false); }, [id, qScope, qLoc, qIds]);
+  const linked = !linkOff && !!(qScope || qLoc || qIds);
+  const idSet = linked && qIds ? new Set(qIds.split(",")) : null;
+  const wantAll = editing || !!qIds; // analysis-only clues are needed to show the ones a report picked
+
   useEffect(() => { setFslot(document.getElementById("clue-filter-slot")); }, []);
 
   useEffect(() => {
     let off = false;
     // The old list stays on screen while this runs: blanking it first shrank the column and yanked
     // the scroll position back to the top every time a clue was saved or deleted.
-    api(`/clues/${id}${editing ? "?all=true" : ""}`).then((d) => {
+    api(`/clues/${id}${wantAll ? "?all=true" : ""}`).then((d) => {
         if (off) return;
         setItems(d);
         setErr("");
@@ -84,7 +97,7 @@ export default function ClueList({ id, name, editing }) {
         setHasClues(id, d.some((c) => SHOWN.includes(c.visibility ?? "visible")));
       }).catch((e) => { if (!off) { setErr(errorText(e)); setItems(null); } });
     return () => { off = true; };
-  }, [id, editing, version]);
+  }, [id, wantAll, version]);
 
   useEffect(() => { setItems(null); setErr(""); setCat(""); setLoc(""); setForm(null); }, [id]);
   useEffect(() => { if (!editing) setForm(null); }, [editing]);
@@ -206,10 +219,16 @@ export default function ClueList({ id, name, editing }) {
     release();
   };
 
-  const visible = (items ?? []).filter((c) => !hidden.has(`${id}/${c.id}`));
+  // Analysis-only clues are fetched when a report link needs them, but only shown if that link picked them.
+  const visible = (items ?? []).filter((c) => !hidden.has(`${id}/${c.id}`)
+    && (editing || (c.visibility ?? "visible") !== "analysis-only" || !!idSet?.has(c.id)));
   const cats = GENERAL_TAGS.filter((t) => visible.some((c) => catOf(c) === t));
   const count = (t) => visible.filter((c) => catOf(c) === t).length;
-  const filtered = visible.filter((c) => (!cat || catOf(c) === cat) && (!loc || locOf(c) === loc));
+  const fromLink = (c) => !linked
+    || ((!idSet || idSet.has(c.id))
+      && (!qScope || c.scope === qScope)
+      && (!qLoc || qIds || [qLoc, "Anywhere"].includes(locOf(c))));
+  const filtered = visible.filter((c) => (!cat || catOf(c) === cat) && (!loc || locOf(c) === loc) && fromLink(c));
   // `key` = the block the card is shown in (clues can only be dragged inside their own block).
   const card = (c, key, opts = {}) => <ClueCard key={c.id} cc={id} clue={c} editing={editing} onDelete={remove} onEdit={setForm}
     dragging={drag?.id === c.id} over={over === c.id} showTags={opts.showTags !== false} showSource={opts.showSource !== false}
@@ -226,7 +245,7 @@ export default function ClueList({ id, name, editing }) {
       </div>}
     </div>;
   });
-  const clear = () => { setCat(""); setLoc(""); };
+  const clear = () => { setCat(""); setLoc(""); setLinkOff(true); };
 
   let list;
   if (!filtered.length) {
@@ -260,6 +279,8 @@ export default function ClueList({ id, name, editing }) {
     {fslot && (editing || showFilter) && <SideTools slotEl={fslot} showFilter={showFilter} editing={editing} onAdd={startAdd}
       cat={cat} loc={loc} cats={cats} count={count} onCat={setCat} onLoc={setLoc} />}
     {err && <ErrorBox message={err} onRetry={() => { setErr(""); reload(); }} />}
+    {linked && items && <p className="muted">Showing the clues picked for you from your report.{" "}
+      <button type="button" className="link-btn" onClick={() => setLinkOff(true)}>Show all clues</button></p>}
     {!items && !err ? <><SkeletonCard /><SkeletonCard /></>
       : items && !visible.length ? (editing ? null : <EmptyCat />)
       : items && list}

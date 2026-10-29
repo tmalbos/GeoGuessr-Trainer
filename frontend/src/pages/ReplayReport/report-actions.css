@@ -1,0 +1,12 @@
+/* "What to work on" block at the top of the replay report */
+.rr-actions { display: grid; gap: 16px; margin-bottom: 16px; }
+.rr-actions h3 { margin: 0; }
+.rr-act { display: grid; gap: 10px; padding-top: 14px; border-top: 1px solid var(--line); }
+.rr-act:first-of-type { padding-top: 0; border-top: 0; }
+.rr-act-text { margin: 0; font-weight: 600; }
+.rr-act-clues { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.rr-act-clues li { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 12px; align-items: center; }
+.rr-act-clues img { width: 96px; height: 64px; object-fit: cover; border-radius: 6px; background: var(--paper); }
+.rr-act-clues li:not(:has(img)) { grid-template-columns: minmax(0, 1fr); }
+.rr-act-clues span { overflow-wrap: anywhere; }
+.rr-act .btn { justify-self: start; text-decoration: none; padding: 6px 14px; }

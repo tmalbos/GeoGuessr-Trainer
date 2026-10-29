@@ -12,7 +12,7 @@ const Pencil = () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
 
 const NO_INFO = { domain: "", side: null, currencies: [] };
 
-export default function Country({ id, section, onSection, onBack, backLabel = "World map" }) {
+export default function Country({ id, section, query, onSection, onBack, backLabel = "World map" }) {
   const [name, setName] = useState("");
   const [editing, setEditing] = useState(false);
   const [info, setInfo] = useState(NO_INFO);
@@ -41,7 +41,7 @@ export default function Country({ id, section, onSection, onBack, backLabel = "W
         <span />
       </div>
       {current
-        ? <current.Component id={id} name={title} editing={editing} />
+        ? <current.Component id={id} name={title} editing={editing} query={query} />
         : <div className="cp-empty">
             <h3>Coming soon</h3>
             <p className="muted">There are no clues for {title} yet. Sections will appear here as they are added.</p>

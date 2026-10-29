@@ -1,6 +1,7 @@
 """replay_report.py — Behavior report for one played game, built on demand from stored replays."""
 
 import json
+import logging
 
 from fastapi import APIRouter, HTTPException, Request
 from starlette.concurrency import run_in_threadpool
@@ -11,12 +12,18 @@ from src.analysis.replay_look import add_looks
 from src.analysis.replay_narrative import narrate
 from src.analysis.replay_savings import merge_parts, round_savings
 from src.analysis.replay_stages import stage_breakdown, summarize_stages
+from src.analysis.report_actions import build_actions, replay_signals
+from src.analysis.scoring import NO_GUESS_KM
+from src.api.clue_source import ClueSource
 from src.api.deps import get_ctx
 
+logger = logging.getLogger("uvicorn.error")
 router = APIRouter()
 
 # Finished reports, kept in memory for the life of the server (replays never change once saved),
 # so reopening a game is instant. Oldest entry is dropped first. Restarting the server clears it.
+# The "actions" are NOT cached: they depend on the clues and on how often each country appears in
+# your duels, both of which change.
 _CACHE: dict[tuple[str, str], dict] = {}
 _CACHE_MAX = 50
 
@@ -26,7 +33,7 @@ _QUERY = """
            r.real_state, r.real_subregion, r.real_city, r.real_area_type::text AS real_area_type,
            r.guess_latitude, r.guess_longitude, r.guess_country_code, gc.name AS guess_country,
            r.guess_state, r.guess_city,
-           g.time_limit_sec,
+           g.time_limit_sec, g.match_type::text AS match_type, g.move_type::text AS move_type,
            rp.events
     FROM round r
     JOIN game g ON g.challenge_token = r.challenge_token AND g.game_id = r.game_id
@@ -38,6 +45,17 @@ _QUERY = """
     LEFT JOIN country gc ON gc.code = r.guess_country_code
     WHERE g.challenge_token = $1 AND g.game_id = $2
     ORDER BY r.round_number
+"""
+
+# How often each real country shows up among the rounds of one exact game mode (for duel priorities).
+_FREQ_QUERY = """
+    SELECT r.real_country_code AS cc, COUNT(*) AS n
+    FROM round r
+    JOIN game g ON g.challenge_token = r.challenge_token AND g.game_id = r.game_id
+    WHERE g.match_type::text = $1
+      AND g.move_type::text = $2
+      AND g.time_limit_sec IS NOT DISTINCT FROM $3
+    GROUP BY r.real_country_code
 """
 
 
@@ -61,7 +79,7 @@ def _round_payload(row: dict, locate, countries_in, region_bounds) -> dict:
         "area_type": row["real_area_type"] or "",
     }
     real["place"] = _place(real["city"], real["state"], real["country"])
-    dist = float(row["distance_km"])
+    dist = float(row["distance_km"]) if row["distance_km"] is not None else NO_GUESS_KM
     limit_s = row["time_limit_sec"]
     result = {
         "score": row["score"],
@@ -73,11 +91,20 @@ def _round_payload(row: dict, locate, countries_in, region_bounds) -> dict:
     phases = add_looks(phases, events)
     grade_phases(phases, events, real, locate)
     guess = None
+    guess_facts = None
     if row["guess_latitude"] is not None:
         guess = {
             "lat": float(row["guess_latitude"]),
             "lng": float(row["guess_longitude"]),
             "place": _place(row["guess_city"], row["guess_state"], row["guess_country"]),
+        }
+        guess_facts = {
+            "lat": guess["lat"],
+            "lng": guess["lng"],
+            "cc": (row["guess_country_code"] or "").strip(),
+            "country": row["guess_country"] or "",
+            "state": row["guess_state"] or "",
+            "city": row["guess_city"] or "",
         }
     timeline = narrate(phases)
     stages = stage_breakdown(events, real)
@@ -100,20 +127,19 @@ def _round_payload(row: dict, locate, countries_in, region_bounds) -> dict:
         "saved_parts": savings["parts"],
         "path": build_path(events),
         "searched": searched_polygons(phases),
+        # Internal: what build_actions needs. Removed before the report is sent.
+        "_facts": {
+            "n": row["round_number"],
+            "score": row["score"],
+            "dist_km": exact_km,
+            "real": {**real, "cc": real["country_code"]},
+            "guess": guess_facts,
+            "signals": replay_signals(phases, real["country_code"], locate),
+        },
     }
 
 
-@router.get("/replay-report/{challenge_token}/{game_id}")
-async def replay_report(challenge_token: str, game_id: str, request: Request):
-    ctx = get_ctx(request)
-    local = ctx.local_geo
-    if local is None:
-        raise HTTPException(503, "Geo layers are not loaded yet. Check the Dashboard.")
-
-    cache_key = (challenge_token, game_id)
-    if cache_key in _CACHE:
-        return _CACHE[cache_key]
-
+async def _build(ctx, local, challenge_token: str, game_id: str) -> dict:
     rows = await ctx.db_adapter.fetch_rows(_QUERY, challenge_token, game_id)
     if not rows:
         raise HTTPException(404, "Game not found")
@@ -139,6 +165,7 @@ async def replay_report(challenge_token: str, game_id: str, request: Request):
     rounds = await run_in_threadpool(
         lambda: [_round_payload(r, locate, countries_in, region_bounds) for r in rows]
     )
+    facts = [r.pop("_facts") for r in rounds]
     grades = [
         it["grade"]
         for r in rounds
@@ -153,8 +180,43 @@ async def replay_report(challenge_token: str, game_id: str, request: Request):
         "steps_saved": sum(r["steps_saved"] for r in rounds),
         "saved_parts": merge_parts([r["saved_parts"] for r in rounds]),
     }
-    report = {"summary": summary, "rounds": rounds}
-    if len(_CACHE) >= _CACHE_MAX:
-        _CACHE.pop(next(iter(_CACHE)))
-    _CACHE[cache_key] = report
-    return report
+    first = rows[0]
+    return {
+        "report": {"summary": summary, "rounds": rounds},
+        "facts": facts,
+        "duel": first["match_type"] == "duel",
+        "combo": (first["match_type"], first["move_type"], first["time_limit_sec"]),
+    }
+
+
+async def _actions(ctx, local, entry: dict) -> list[dict]:
+    """The (at most two) things to work on. Never breaks the report if something goes wrong."""
+    try:
+        freq: dict[str, float] = {}
+        if entry["duel"]:
+            rows = await ctx.db_adapter.fetch_rows(_FREQ_QUERY, *entry["combo"])
+            total = sum(r["n"] for r in rows) or 1
+            freq = {(r["cc"] or "").strip(): r["n"] / total for r in rows}
+        return await run_in_threadpool(
+            build_actions, entry["facts"], ClueSource(local), entry["duel"], freq
+        )
+    except Exception:
+        logger.exception("Could not build the report actions")
+        return []
+
+
+@router.get("/replay-report/{challenge_token}/{game_id}")
+async def replay_report(challenge_token: str, game_id: str, request: Request):
+    ctx = get_ctx(request)
+    local = ctx.local_geo
+    if local is None:
+        raise HTTPException(503, "Geo layers are not loaded yet. Check the Dashboard.")
+
+    cache_key = (challenge_token, game_id)
+    entry = _CACHE.get(cache_key)
+    if entry is None:
+        entry = await _build(ctx, local, challenge_token, game_id)
+        if len(_CACHE) >= _CACHE_MAX:
+            _CACHE.pop(next(iter(_CACHE)))
+        _CACHE[cache_key] = entry
+    return {**entry["report"], "actions": await _actions(ctx, local, entry)}

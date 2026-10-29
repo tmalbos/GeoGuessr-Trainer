@@ -6,7 +6,8 @@ import WorldMap from "./WorldMap.jsx";
 import "./explore.css";
 
 // The URL decides what is open: #/explore (world), #/explore/AR (country), #/explore/AR/clues (section).
-export default function Explore({ seg }) {
+// The query (#/explore/AR/clues?scope=nat&ids=a,b) pre-filters the clue list (see ClueList).
+export default function Explore({ seg, query }) {
   const [code, section] = seg;
   const [canon, setCanon] = useState(null);
 
@@ -30,5 +31,5 @@ export default function Explore({ seg }) {
 
   if (!code) return <WorldMap onSelect={(c) => navigate(`/explore/${c}`)} />;
   if (!canon) return <p className="muted pad">Loading…</p>;
-  return <Country id={canon} section={section} onSection={(s) => navigate(`/explore/${code}/${s}`)} backLabel={back.label} onBack={back.go} />;
+  return <Country id={canon} section={section} query={query} onSection={(s) => navigate(`/explore/${code}/${s}`)} backLabel={back.label} onBack={back.go} />;
 }
