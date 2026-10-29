@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import { TILE, createMapEngine, fx, fy } from "../../lib/googleMap.js";
 import { attribution } from "../../lib/mapProviders.js";
+import { shadeFactor } from "../Explore/clues/geoDraw.js";
 
 // Polygons + places drawn on one canvas, redrawn on every frame of the shared map engine (lib/googleMap.js).
 
@@ -14,7 +15,8 @@ function featureBounds(fc) {
   return Number.isFinite(w) ? { w, s, e, n } : null;
 }
 
-/** features: GeoJSON FeatureCollection | null. fitKey: refit the view to the polygons when it changes. */
+/** features: GeoJSON FeatureCollection | null. fitKey: refit the view to the polygons when it changes.
+ *  A feature with properties.shade > 0 is a rarer part of its tag: drawn lighter. */
 export default function PolyMap({ features, fitKey }) {
   const box = useRef(null);
   const tiles = useRef(null);
@@ -41,6 +43,8 @@ export default function PolyMap({ features, fitKey }) {
       ctx.clearRect(0, 0, size.w, size.h);
       st.hits = [];
       ctx.lineJoin = "round";
+      const top = {}; // rarest shade of each tag
+      for (const f of st.features?.features ?? []) top[f.properties.tag] = Math.max(top[f.properties.tag] ?? 0, f.properties.shade ?? 0);
       for (const f of st.features?.features ?? []) {
         const g = f.geometry;
         const polys = g.type === "Polygon" ? [g.coordinates] : g.coordinates;
@@ -51,10 +55,11 @@ export default function PolyMap({ features, fitKey }) {
             path.closePath();
           }
         }
-        ctx.globalAlpha = 0.6;
+        const k = shadeFactor(f.properties.shade ?? 0, top[f.properties.tag]);
+        ctx.globalAlpha = 0.6 * k;
         ctx.fillStyle = f.properties.color;
         ctx.fill(path, "evenodd");
-        ctx.globalAlpha = 0.7;
+        ctx.globalAlpha = 0.7 * k;
         ctx.strokeStyle = "#1a1a1a";
         ctx.lineWidth = 1.2;
         ctx.stroke(path);

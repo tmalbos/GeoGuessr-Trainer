@@ -3,20 +3,15 @@ import ErrorBox from "../../components/ErrorBox.jsx";
 import { api, errorText } from "../../lib/api.js";
 import { download, svgToPng, toGeoJSON, toSVG, toTopoJSON } from "./export.js";
 import PolyMap from "./PolyMap.jsx";
+import ShapeControls, { SHAPE_DEFAULTS } from "./ShapeControls.jsx";
 import "./technical.css";
 
-const DEFAULTS = { link_km: 45, pad_km: 10, curve: 0.5 };
 const memo = {}; // survives leaving the page: the uploaded file lives on the server, this remembers which one
-
-const Slider = ({ label, value, min, max, step, unit = "", onChange }) => <div className="tp-field">
-  <label>{label}<span className="muted">{value}{unit}</span></label>
-  <input type="range" min={min} max={max} step={step} value={value} aria-label={label} onChange={(e) => onChange(Number(e.target.value))} />
-</div>;
 
 export default function Polygonizer() {
   const [ds, setDs] = useState(memo.ds ?? null); // { token, name, total, tags, points }
   const [sel, setSel] = useState(memo.sel ?? []);
-  const [params, setParams] = useState(memo.params ?? DEFAULTS);
+  const [params, setParams] = useState({ ...SHAPE_DEFAULTS, ...memo.params });
   const [colors, setColors] = useState(memo.colors ?? {}); // tag name -> custom colour
   const [search, setSearch] = useState("");
   const [res, setRes] = useState(null);
@@ -65,7 +60,6 @@ export default function Polygonizer() {
   }, [ds, search]);
 
   const toggle = (n) => setSel((s) => (s.includes(n) ? s.filter((x) => x !== n) : [...s, n]));
-  const set = (patch) => setParams((p) => ({ ...p, ...patch }));
   const fc = useMemo(() => (res?.geojson?.features.length ? recolor(res.geojson) : null), [res, colors]); // eslint-disable-line react-hooks/exhaustive-deps
   const base = (ds?.name ?? "map").replace(/[^\w-]+/g, "_") + "-polygons";
 
@@ -124,9 +118,7 @@ export default function Polygonizer() {
         </div>
 
         <h3>Shape</h3>
-        <Slider label="Join points closer than" unit=" km" min={5} max={1000} step={5} value={params.link_km} onChange={(v) => set({ link_km: v })} />
-        <Slider label="Minimum radius per point" unit=" km" min={0} max={100} step={1} value={params.pad_km} onChange={(v) => set({ pad_km: v })} />
-        <Slider label="Curviness" min={0} max={1} step={0.05} value={params.curve} onChange={(v) => set({ curve: v })} />
+        <ShapeControls params={params} onChange={setParams} />
 
         <h3>Export</h3>
         <div className="tp-row">

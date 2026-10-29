@@ -1,4 +1,4 @@
-import { bboxOf, fitProjection, shapes } from "../Explore/clues/geoDraw.js";
+import { bboxOf, fitProjection, shadeFactor, shapes } from "../Explore/clues/geoDraw.js";
 
 export function download(blob, name) {
   const a = document.createElement("a");
@@ -39,9 +39,12 @@ export function toSVG(fc, { width = 1600, background = null, base = null, border
     ? `<path d="${shapes(base, project).polys}" fill="#f6f4e4" fill-rule="evenodd" stroke="#8b98a8" stroke-width="1.5" stroke-linejoin="round"/>`
     : "";
   const lines = base && borders ? shapes(borders, project).lines : "";
+  const top = {}; // rarest shade of each tag: the lightest tone
+  for (const f of fc.features) top[f.properties.tag] = Math.max(top[f.properties.tag] ?? 0, f.properties.shade ?? 0);
   const paths = fc.features.map((f) => {
     const d = shapes(f.geometry, project).polys;
-    return `<path d="${d}" fill="${f.properties.color}" fill-opacity="0.85" fill-rule="evenodd" stroke="#1a1a1a" stroke-opacity="0.6" stroke-width="1.5" stroke-linejoin="round"><title>${esc(f.properties.tag)}</title></path>`;
+    const s = shadeFactor(f.properties.shade ?? 0, top[f.properties.tag]);
+    return `<path d="${d}" fill="${f.properties.color}" fill-opacity="${(0.85 * s).toFixed(2)}" fill-rule="evenodd" stroke="#1a1a1a" stroke-opacity="${(0.6 * s).toFixed(2)}" stroke-width="1.5" stroke-linejoin="round"><title>${esc(f.properties.tag)}</title></path>`;
   });
   const bg = background ? `<rect width="${W}" height="${H}" fill="${background}"/>` : "";
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}">${bg}${land}${paths.join("")}${lines ? `<path d="${lines}" fill="none" stroke="#3a4350" stroke-opacity="0.75" stroke-width="1" stroke-linejoin="round"/>` : ""}</svg>`;

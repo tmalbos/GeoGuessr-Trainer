@@ -13,6 +13,8 @@ Relations: a clue has `relations: [{type, cc, id}]` (same_as | similar_to | grou
          `relation_notes: {same_as|similar_to: {verb, text}}` is the sentence the card shows.
          `badge`: "subcontinent" | "world" (manual uniqueness badge).
          `max_height`: px cap for the clue image on the card (only kept when the clue has an image).
+Shades:  a polygons file may carry a `shade` column (0 = the main tone, 1..4 = lighter = rarer part of the region).
+         The geo preview / GET /clues/{CC}/geo/{file} then adds a `shades` list next to the geometries.
 Needs:   Pillow, geopandas, shapely (>= 2.1 for gap-free coverage simplification), pyarrow, pyyaml.
 """
 
@@ -30,6 +32,7 @@ from xml.etree import ElementTree as ET
 
 import geopandas as gpd
 import numpy as np
+import pandas as pd
 import shapely
 import yaml
 from fastapi import APIRouter, HTTPException, Query, Request
@@ -65,6 +68,7 @@ PREVIEW_PRECISION = 1e-5  # ~1 m, only for the GeoJSON sent to the browser
 IMAGE_MAX_PX = 1600
 IMAGE_QUALITY = 88
 PREVIEW_MAX_FEATURES = 5000
+MAX_SHADE = 4
 
 URL_RE = re.compile(r"https?://\S+", re.IGNORECASE)
 
@@ -179,15 +183,33 @@ def _vertices(geoms) -> int:
     return int(shapely.get_num_coordinates(geoms).sum())
 
 
-def _to_geojson(geoms, limit: int | None = None) -> dict:
+def _shades_of(gdf: gpd.GeoDataFrame) -> np.ndarray:
+    """The `shade` column of a geometry file as ints 0..MAX_SHADE (zeros when it has none)."""
+    if "shade" not in gdf.columns:
+        return np.zeros(len(gdf), dtype=int)
+    col = pd.to_numeric(gdf["shade"], errors="coerce").fillna(0)
+    return col.astype(int).clip(0, MAX_SHADE).to_numpy()
+
+
+def _to_geojson(geoms, limit: int | None = None, shades: np.ndarray | None = None) -> dict:
+    """GeometryCollection for the browser. When `shades` (one per geometry) has anything above 0 it is sent
+    along as `shades`, in the same order as `geometries`.
+    """
     if limit and len(geoms) > limit:
-        geoms = geoms[:: -(-len(geoms) // limit)]
+        step = -(-len(geoms) // limit)
+        geoms = geoms[::step]
+        if shades is not None:
+            shades = shades[::step]
     g = shapely.set_precision(geoms, PREVIEW_PRECISION)
-    g = g[~shapely.is_empty(g)]
-    return {
+    keep = ~shapely.is_empty(g)
+    g = g[keep]
+    out = {
         "type": "GeometryCollection",
         "geometries": [json.loads(s) for s in shapely.to_geojson(g)],
     }
+    if shades is not None and shades[keep].any():
+        out["shades"] = [int(v) for v in shades[keep]]
+    return out
 
 
 # ── converters (run in a thread) ───────────────────────────────────────────
@@ -287,9 +309,13 @@ def _process_geo(data: bytes, suffix: str, token: str) -> tuple[str, dict]:
     gdf = _read_geo(data, suffix)
     gdf = gdf.set_crs(4326) if gdf.crs is None else gdf.to_crs(4326)
     arr = gdf.geometry.to_numpy()
-    arr = arr[~shapely.is_missing(arr)]
-    parts = shapely.get_parts(arr)
-    parts = parts[~shapely.is_empty(parts)]
+    present = ~shapely.is_missing(arr)
+    arr = arr[present]
+    shades = _shades_of(gdf)[present]  # one per part from here on, kept in step with `parts`
+    parts, src = shapely.get_parts(arr, return_index=True)
+    shades = shades[src]
+    keep = ~shapely.is_empty(parts)
+    parts, shades = parts[keep], shades[keep]
 
     kinds = {GEOM_KIND[g.geom_type] for g in parts if g.geom_type in GEOM_KIND}
     if not kinds:
@@ -300,19 +326,28 @@ def _process_geo(data: bytes, suffix: str, token: str) -> tuple[str, dict]:
     kind = kinds.pop()
 
     if kind == "polygons":
-        parts = shapely.get_parts(shapely.make_valid(parts))
-        parts = parts[~shapely.is_empty(parts)]
-    parts = parts[np.array([GEOM_KIND.get(g.geom_type) == kind for g in parts], dtype=bool)]
+        parts, src = shapely.get_parts(shapely.make_valid(parts), return_index=True)
+        shades = shades[src]
+        keep = ~shapely.is_empty(parts)
+        parts, shades = parts[keep], shades[keep]
+    keep = np.array([GEOM_KIND.get(g.geom_type) == kind for g in parts], dtype=bool)
+    parts, shades = parts[keep], shades[keep]
 
     before = _vertices(parts)
     if kind == "polygons":
         parts = _simplify_polygons(parts)
     elif kind == "lines":
         parts = shapely.simplify(parts, SIMPLIFY_TOL_DEG, preserve_topology=True)
-    parts = parts[~shapely.is_empty(parts)]
+    keep = ~shapely.is_empty(parts)
+    parts, shades = parts[keep], shades[keep]
 
     out = STAGING / f"{token}.{kind}.parquet"
-    gpd.GeoDataFrame(geometry=parts, crs=4326).to_parquet(out, compression="zstd")
+    if kind == "polygons" and shades.any():
+        gpd.GeoDataFrame({"shade": shades}, geometry=parts, crs=4326).to_parquet(
+            out, compression="zstd"
+        )
+    else:
+        gpd.GeoDataFrame(geometry=parts, crs=4326).to_parquet(out, compression="zstd")
     return kind, {
         "kind": kind,
         "features": len(parts),
@@ -321,7 +356,7 @@ def _process_geo(data: bytes, suffix: str, token: str) -> tuple[str, dict]:
         "bytes_in": len(data),
         "bytes_out": out.stat().st_size,
         "bbox": [float(v) for v in shapely.total_bounds(parts)],
-        "geojson": _to_geojson(parts, PREVIEW_MAX_FEATURES),
+        "geojson": _to_geojson(parts, PREVIEW_MAX_FEATURES, shades),
     }
 
 
@@ -673,7 +708,8 @@ def clue_file(cc: str, name: str):
 
 @router.get("/clues/{cc}/geo/{name}")
 def clue_geo(cc: str, name: str):
-    return _to_geojson(gpd.read_parquet(_asset(cc, name)).geometry.to_numpy())
+    gdf = gpd.read_parquet(_asset(cc, name))
+    return _to_geojson(gdf.geometry.to_numpy(), shades=_shades_of(gdf))
 
 
 @router.post("/clues/{cc}", status_code=201)

@@ -55,7 +55,8 @@ export function Preview({ kind, v, cc }) {
  *  `current` ({ src?, node?, text }) = the file a clue already has (edit mode); picking a new one replaces it.
  *  `cc` = country code, so geometries are previewed on the country.
  *  `extra` = something to show in the top-right corner of the box (e.g. the Blur checkbox).
- *  `stage` ({file} | {path}) = stage the input yourself and return the upload; `onImage` = take the
+ *  `stage` ({file} | {path}) = stage the input yourself and return the upload (undefined = the caller handled
+ *  it some other way and nothing is replaced yet); `onImage` = take the
  *  image / Street View link instead of a file of `kind` (used by the region slot for the stain tool). */
 export default function FilePicker({ kind, label, hint, accept, value, onChange, current, extra, stage, onImage, cc }) {
   const [busy, setBusy] = useState(false);
@@ -71,6 +72,7 @@ export default function FilePicker({ kind, label, hint, accept, value, onChange,
     const previous = value?.token; // the upload this one replaces
     try {
       const next = await job();
+      if (next === undefined) return; // handled elsewhere: nothing to replace yet
       discardStaged(previous);
       onChange(next);
     } catch (e) { setErr(e.message); } finally { setBusy(false); }

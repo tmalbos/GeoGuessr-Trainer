@@ -1,6 +1,10 @@
 // Turns GeoJSON (lon/lat) into SVG path data. No dependencies.
 const f = (n) => n.toFixed(1);
 
+/** How strong a shade is drawn, 1 (the main tone, shade 0) down to about 0.35 (the lightest, shade `top`).
+ *  Shade = how rare that part of a region is: higher = rarer = lighter. Multiply by the base opacity. */
+export const shadeFactor = (shade, top) => (top > 0 ? 1 - 0.65 * (shade / top) : 1);
+
 function walk(g, fn) {
   if (!g) return;
   switch (g.type) {
