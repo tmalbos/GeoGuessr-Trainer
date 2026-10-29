@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GeoGuessr Pinpoint Trainer
 // @namespace    ggpt
-// @version      0.4.0
+// @version      0.7.1
 // @description  Adds a small down arrow attached to the Play button on each map page (/maps/<id>) to turn on training for that map: at the start of each round, the minimap is centered at the chosen zoom with a random offset from the real location.
 // @match        https://www.geoguessr.com/*
 // @run-at       document-start
@@ -18,8 +18,8 @@
   if (W.__ggpt) return;
   W.__ggpt = true;
 
-  const OFFSET_MIN = 20; // % of half the minimap window
-  const OFFSET_MAX = 80;
+  const OFFSET_MIN = 10; // % of half the minimap window
+  const OFFSET_MAX = 90;
   const ZOOM_MIN = 11;
   const ZOOM_MAX = 17;
   const DEFAULT_ZOOM = 14;
@@ -28,6 +28,14 @@
   const APPLY_EVERY_MS = 250;
   const WINDOW_MS = 5000; // GeoGuessr resets the minimap as the round starts: keep applying for 5 s
   const POLL_MS = 3000;
+  // Score model (S = 5000 * exp(-10 * d / D), D = the map's scoring distance; always 5000 under 25 m).
+  const DEFAULT_D = 14916862; // world-size map, meters. Replaced by the real value of each map when known.
+  // Every guess is replaced before it is sent, so the server only ever records 1 point (the guess was a 5k) or
+  // 0 points (it wasn't). The page you look at still shows your real click, distance and score.
+  // The server rounds scores, so anything in [0.5, 1.5) is recorded as 1. Aim at the middle of that window
+  // (in log scale) so a small error in D still lands on 1.
+  const HIT_TARGET = Math.sqrt(0.5 * 1.5);
+  const MISS_DIST = 19500000; // m: far enough from the real spot (the antipode is ~20,015 km) to always score 0
 
   // ── Per-map settings ──────────────────────────────────────────────────────
   const loadStore = () => {
@@ -119,19 +127,35 @@
     } catch { /* ignore */ }
   }
 
-  function offsetTarget(lat, lng, zoom) {
-    const frac = (OFFSET_MIN + Math.random() * (OFFSET_MAX - OFFSET_MIN)) / 100;
-    const mPerPx = (156543.03392 * Math.cos((lat * Math.PI) / 180)) / 2 ** zoom;
-    const dist = frac * HALF_PX * mPerPx;
-    const brg = Math.random() * 2 * Math.PI;
-    const R = 6371008.8, d = dist / R;
-    const p1 = (lat * Math.PI) / 180, l1 = (lng * Math.PI) / 180;
+  // ── Geometry & scoring ────────────────────────────────────────────────────
+  const R_EARTH = 6371008.8;
+  const toRad = (x) => (x * Math.PI) / 180;
+  function haversine(a, b) {
+    const p1 = toRad(a.lat), p2 = toRad(b.lat);
+    const dp = p2 - p1, dl = toRad(b.lng - a.lng);
+    const h = Math.sin(dp / 2) ** 2 + Math.cos(p1) * Math.cos(p2) * Math.sin(dl / 2) ** 2;
+    return 2 * R_EARTH * Math.asin(Math.min(1, Math.sqrt(h)));
+  }
+  function destPoint(lat, lng, dist, brg) {
+    const d = dist / R_EARTH;
+    const p1 = toRad(lat), l1 = toRad(lng);
     const p2 = Math.asin(Math.sin(p1) * Math.cos(d) + Math.cos(p1) * Math.sin(d) * Math.cos(brg));
     const l2 = l1 + Math.atan2(Math.sin(brg) * Math.sin(d) * Math.cos(p1), Math.cos(d) - Math.sin(p1) * Math.sin(p2));
     return {
-      lat: Math.max(-85, Math.min(85, (p2 * 180) / Math.PI)),
+      lat: (p2 * 180) / Math.PI,
       lng: ((((l2 * 180) / Math.PI + 540) % 360) + 360) % 360 - 180,
     };
+  }
+  const scoreFor = (d, D) => (d < 25 ? 5000 : Math.max(0, Math.round(5000 * Math.exp((-10 * d) / D))));
+
+  function offsetTarget(lat, lng, zoom) {
+    // Uniform over the AREA of the ring between OFFSET_MIN% and OFFSET_MAX% of the radius: wider rings are
+    // proportionally more likely, so the radius is the square root of a value uniform in r^2.
+    const lo = (OFFSET_MIN / 100) ** 2, hi = (OFFSET_MAX / 100) ** 2;
+    const frac = Math.sqrt(lo + Math.random() * (hi - lo));
+    const mPerPx = (156543.03392 * Math.cos((lat * Math.PI) / 180)) / 2 ** zoom;
+    const p = destPoint(lat, lng, frac * HALF_PX * mPerPx, Math.random() * 2 * Math.PI);
+    return { lat: Math.max(-85, Math.min(85, p.lat)), lng: p.lng };
   }
 
   // New round data: remember the view. It is applied only once the minimap is really on screen.
@@ -165,15 +189,53 @@
     if (p.status !== "ok") { p.status = "ok"; flash(m); }
   }, APPLY_EVERY_MS);
 
+  // ── Scoring distance D of the current map ─────────────────────────────────
+  // GeoGuessr does not send D. It is measured from the server's own score + distance of any earlier guess
+  // (D = -10 * d / ln(score / 5000)), keeping the most precise measurement ever seen for each map.
+  // Before any guess exists the diagonal of the map's bounds is used as an estimate.
+  let Dmap = {};
+  try { Dmap = GM_getValue("D", {}) || {}; } catch { /* ignore */ }
+  const savedD = (id) => { const v = Dmap[id]; return typeof v === "number" ? { D: v, err: 1 } : v; };
+  function calibrateD(data) {
+    let best = null;
+    for (const g of data.player?.guesses || []) {
+      const sc = g?.roundScoreInPoints, d = g?.distanceInMeters;
+      if (typeof sc !== "number" || typeof d !== "number" || sc < 1 || sc > 4995 || !(d > 0)) continue;
+      const ln = Math.abs(Math.log(sc / 5000));
+      const err = 0.5 / sc / ln; // the score is rounded to an integer: this is the relative error it causes
+      if (!best || err < best.err) best = { D: (10 * d) / ln, err };
+    }
+    return best;
+  }
+  function boundsD(data) {
+    const b = data.bounds;
+    if (!b?.min || !b?.max) return null;
+    return haversine(b.min, b.max);
+  }
+  function mapD(data) {
+    const cal = calibrateD(data), saved = savedD(data.map);
+    if (cal && (!saved || cal.err < saved.err)) {
+      if (data.map) {
+        Dmap = { ...Dmap, [data.map]: cal };
+        try { GM_setValue("D", Dmap); } catch { /* ignore */ }
+      }
+      return cal.D;
+    }
+    if (saved) return saved.D;
+    return boundsD(data) || DEFAULT_D;
+  }
+
   function ingest(data) {
     if (!data || !Array.isArray(data.rounds)) return;
     const token = gameToken();
     if (!token || (data.token && data.token !== token)) return;
     const round = data.round;
     const r = data.rounds[round - 1];
-    game = { token, mapId: data.map, skip: "", guessed: false };
+    game = { token, mapId: data.map, skip: "", guessed: false, round };
     if (data.type && data.type !== "standard") { game.skip = `type ${data.type}`; return; }
     if (!r || typeof r.lat !== "number" || typeof r.lng !== "number") return;
+    game.loc = { lat: r.lat, lng: r.lng };
+    game.D = mapD(data);
     game.guessed = (data.player?.guesses?.length ?? 0) >= round || data.state === "finished";
     if (game.guessed) return;
     if (!data.map || !getMap(data.map).enabled) return;
@@ -183,16 +245,178 @@
     arm(token, data.map, r.lat, r.lng);
   }
 
-  // GeoGuessr's own game requests (immediate) + a slow poll as a fallback.
+  // ── Guess swap: a guess that would score 5000 is replaced before it is sent ─
+  const loadSwaps = () => { try { const x = GM_getValue("swaps", {}); return x && typeof x === "object" ? x : {}; } catch { return {}; } };
+  let swaps = loadSwaps(); // { [token]: { [round]: { real: {lat,lng,d,score}, sent: {lat,lng} } } }
+  function saveSwap(token, round, rec) {
+    swaps = { ...swaps, [token]: { ...(swaps[token] || {}), [round]: rec } };
+    const keys = Object.keys(swaps);
+    for (const k of keys.slice(0, Math.max(0, keys.length - 20))) delete swaps[k];
+    try { GM_setValue("swaps", swaps); } catch { /* ignore */ }
+  }
+
+  // Decides what to send for a guess body (JSON text). Returns the new body text, or null to leave it alone.
+  function swapBodyText(text) {
+    const body = JSON.parse(text);
+    if (typeof body?.lat !== "number" || typeof body?.lng !== "number") return null; // no pin on the map: nothing to swap
+    // (a guess auto-sent when the timer runs out has timedOut:true but still carries the pin, so it is swapped too)
+    if (!active() || !game.loc || !game.D) {
+      console.log("[ggpt] guess seen, not touched: map not enabled or round data missing", { game });
+      return null;
+    }
+    const real = { lat: body.lat, lng: body.lng };
+    const d = haversine(real, game.loc);
+    const score = scoreFor(d, game.D);
+    const fived = score >= 5000;
+    // 1 point = a distance whose score rounds to 1. 0 points = as far as possible.
+    const dSent = fived ? Math.min(MISS_DIST, (game.D / 10) * Math.log(5000 / HIT_TARGET)) : MISS_DIST;
+    const sent = destPoint(game.loc.lat, game.loc.lng, dSent, Math.random() * 2 * Math.PI);
+    saveSwap(game.token, game.round, { real: { ...real, d, score }, sent });
+    console.log(`[ggpt] guess ${fmtDist(d)} away = ${score} pts (D=${Math.round(game.D / 1000)} km) -> sent as ${fived ? "1 point (5k)" : "0 points"} | your click ${real.lat.toFixed(5)},${real.lng.toFixed(5)} -> sent ${sent.lat.toFixed(5)},${sent.lng.toFixed(5)}`);
+    return JSON.stringify({ ...body, lat: sent.lat, lng: sent.lng });
+  }
+
+  // fetch() version
+  async function rewriteGuess(args) {
+    try {
+      const [input, init] = args;
+      let text = null;
+      if (typeof init?.body === "string") text = init.body;
+      else if (input instanceof W.Request) text = await input.clone().text();
+      if (!text) { console.log("[ggpt] guess seen but body unreadable, not touched"); return args; }
+      const newText = swapBodyText(text);
+      if (!newText) return args;
+      if (typeof init?.body === "string") return [input, { ...init, body: newText }];
+      return [new W.Request(input, { body: newText }), ...args.slice(1)];
+    } catch (e) { console.log("[ggpt] error while handling guess", e); return args; }
+  }
+
+  // What the page should show instead of what the server answered.
+  const fmtDist = (m) => (m >= 1000 ? `${(m / 1000).toFixed(1)} km` : `${Math.round(m)} m`);
+  const distObj = (m) => ({
+    meters: m >= 1000 ? { amount: (m / 1000).toFixed(1), unit: "km" } : { amount: String(Math.round(m)), unit: "m" },
+    miles: m >= 1609.344 ? { amount: (m / 1609.344).toFixed(1), unit: "miles" } : { amount: String(Math.round(m / 0.9144)), unit: "yd" },
+  });
+  const loggedServer = new Set();
+  const shownInfo = {}; // token -> { [round]: { sent: {d, score}, real: {d, score} }, total: { sent, shown } }
+
+  function patchGameData(data) {
+    const token = gameToken();
+    const sw = token && swaps[token];
+    const p = data?.player;
+    if (!sw || !Array.isArray(p?.guesses)) return null;
+    const info = (shownInfo[token] = shownInfo[token] || {});
+    const rawTotal = p.totalScoreInPoints;
+    let dScore = 0, dDist = 0, changed = false;
+    p.guesses.forEach((g, i) => {
+      const x = sw[i + 1];
+      if (!x || typeof g?.distanceInMeters !== "number") return;
+      const logKey = `${token}:${i + 1}:${g.roundScoreInPoints}`;
+      if (!loggedServer.has(logKey)) {
+        loggedServer.add(logKey);
+        console.log(`[ggpt] SERVER HAS for round ${i + 1}: ${g.roundScoreInPoints} pts, ${fmtDist(g.distanceInMeters)} from the real spot (${g.lat.toFixed(5)},${g.lng.toFixed(5)}) | the page is shown your real click instead`);
+      }
+      info[i + 1] = { sent: { d: g.distanceInMeters, score: g.roundScoreInPoints }, real: { d: x.real.d, score: x.real.score } };
+      dScore += x.real.score - g.roundScoreInPoints;
+      dDist += x.real.d - g.distanceInMeters;
+      g.lat = x.real.lat;
+      g.lng = x.real.lng;
+      g.distanceInMeters = x.real.d;
+      g.roundScoreInPoints = x.real.score;
+      if (typeof g.roundScoreInPercentage === "number") g.roundScoreInPercentage = Math.round((x.real.score / 50) * 100) / 100;
+      if (g.distance) g.distance = { ...g.distance, ...distObj(x.real.d) };
+      changed = true;
+    });
+    if (!changed) return null;
+    if (typeof p.totalScoreInPoints === "number") p.totalScoreInPoints += dScore;
+    if (typeof p.totalDistanceInMeters === "number") {
+      p.totalDistanceInMeters += dDist;
+      if (p.totalDistance) p.totalDistance = { ...p.totalDistance, ...distObj(p.totalDistanceInMeters) };
+    }
+    info.total = { sent: rawTotal, shown: p.totalScoreInPoints };
+    return data;
+  }
+
+  // Reads a game response (JSON text): remembers the round, returns the corrected JSON text (or null if unchanged).
+  function processResponseText(text) {
+    try {
+      const data = JSON.parse(text);
+      ingest(data); // always from the raw server data
+      const patched = patchGameData(JSON.parse(JSON.stringify(data)));
+      return patched ? JSON.stringify(patched) : null;
+    } catch { return null; }
+  }
+
+  // GeoGuessr talks to its API with fetch() or XMLHttpRequest. Both are hooked.
+  const GAME_URL = /\/api\/v3\/games\/[A-Za-z0-9]+(\?|$)/;
   const realFetch = W.fetch;
   W.fetch = function (...args) {
-    const p = realFetch.apply(this, args);
+    let url = "", method = "GET";
     try {
-      const url = String(args[0]?.url ?? args[0]);
-      if (/\/api\/v3\/games\/[A-Za-z0-9]+(\?|$)/.test(url)) p.then((r) => r.clone().json()).then(ingest).catch(() => {});
+      url = String(args[0]?.url ?? args[0]);
+      method = String(args[1]?.method ?? args[0]?.method ?? "GET").toUpperCase();
     } catch { /* ignore */ }
-    return p;
+    if (!GAME_URL.test(url)) return realFetch.apply(this, args);
+    if (method === "POST") console.log("[ggpt] guess request seen (fetch)");
+    const outgoing = method === "POST" ? rewriteGuess(args) : Promise.resolve(args);
+    return outgoing.then((a) => realFetch.apply(this, a)).then(async (r) => {
+      try {
+        const out = processResponseText(await r.clone().text());
+        if (!out) return r;
+        return new W.Response(out, { status: r.status, statusText: r.statusText, headers: { "content-type": "application/json" } });
+      } catch { return r; }
+    });
   };
+
+  const XHR = W.XMLHttpRequest;
+  if (XHR?.prototype) {
+    const origOpen = XHR.prototype.open, origSend = XHR.prototype.send;
+    const dText = Object.getOwnPropertyDescriptor(XHR.prototype, "responseText");
+    const dResp = Object.getOwnPropertyDescriptor(XHR.prototype, "response");
+    XHR.prototype.open = function (method, url, ...rest) {
+      try { this.__ggpt = { method: String(method).toUpperCase(), url: String(url) }; } catch { /* ignore */ }
+      return origOpen.call(this, method, url, ...rest);
+    };
+    XHR.prototype.send = function (body) {
+      const g = this.__ggpt;
+      if (g && GAME_URL.test(g.url)) {
+        try {
+          if (g.method === "POST") {
+            console.log("[ggpt] guess request seen (XHR)");
+            if (typeof body === "string") { const nb = swapBodyText(body); if (nb) body = nb; }
+            else console.log("[ggpt] guess body is not text, not touched", typeof body);
+          }
+          let cache;
+          const patched = () => {
+            if (cache === undefined) {
+              const textual = this.responseType === "" || this.responseType === "text";
+              const raw = textual ? dText.get.call(this) : JSON.stringify(dResp.get.call(this));
+              cache = processResponseText(raw) ?? raw;
+            }
+            return cache;
+          };
+          // Read every game response as soon as it arrives, so the round data is known before the guess is made.
+          this.addEventListener("readystatechange", () => { if (this.readyState === 4) { try { patched(); } catch { /* ignore */ } } });
+          Object.defineProperty(this, "responseText", {
+            configurable: true,
+            get: () => (this.readyState === 4 ? patched() : dText.get.call(this)),
+          });
+          Object.defineProperty(this, "response", {
+            configurable: true,
+            get: () => {
+              if (this.readyState !== 4) return dResp.get.call(this);
+              if (this.responseType === "" || this.responseType === "text") return patched();
+              if (this.responseType === "json") { try { return JSON.parse(patched()); } catch { /* fall through */ } }
+              return dResp.get.call(this);
+            },
+          });
+        } catch (e) { console.log("[ggpt] XHR hook error", e); }
+      }
+      return origSend.call(this, body);
+    };
+  }
+  console.log("[ggpt] hooks installed (fetch + XHR), v0.7.1");
+
   setInterval(async () => {
     const token = gameToken();
     if (!token || !anyEnabled() || document.hidden) return;
@@ -201,6 +425,59 @@
       if (r.ok) ingest(await r.json());
     } catch { /* ignore */ }
   }, POLL_MS);
+
+  // ── Info icon beside the round score on the results screen ────────────────
+  const ICON_ATTR = "data-ggpt-info";
+  const norm = (t) => String(t).replace(/[\s,.\u00a0']/g, "").toLowerCase();
+  const textOk = (el, test) => { const t = norm(el.textContent || ""); return t.length > 0 && t.length < 90 && test(t); };
+  function findAll(test) {
+    const out = [];
+    for (const el of document.body.querySelectorAll("*")) {
+      if (el.children.length > 6 || /^(SCRIPT|STYLE|NOSCRIPT|SVG|PATH)$/i.test(el.tagName) || el.hasAttribute(ICON_ATTR)) continue;
+      if (!textOk(el, test)) continue;
+      if ([...el.children].some((c) => !c.hasAttribute(ICON_ATTR) && textOk(c, test))) continue; // keep the deepest one
+      out.push(el);
+    }
+    return out;
+  }
+  // A floating dot pinned to the right of the score (no page elements are touched, so it can never end up below it).
+  let info = null; // { el, anchor }
+  const hideInfo = () => { if (info) { info.el.remove(); info = null; } };
+  function makeInfoEl() {
+    const el = document.createElement("div");
+    el.setAttribute(ICON_ATTR, "1");
+    el.textContent = "i";
+    el.style.cssText = "position:fixed;z-index:1000;width:18px;height:18px;border-radius:50%;display:none;align-items:center;" +
+      "justify-content:center;font:italic 700 12px/1 Georgia,serif;color:#e6edf3;background:rgba(22,27,34,.75);" +
+      "border:1px solid rgba(230,237,243,.45);cursor:help;user-select:none";
+    return el;
+  }
+  function placeInfoIcon() {
+    if (!info) return;
+    if (!info.anchor.isConnected) { info.el.style.display = "none"; return; }
+    const r = info.anchor.getBoundingClientRect();
+    if (r.width === 0 || r.height === 0) { info.el.style.display = "none"; return; }
+    info.el.style.display = "flex";
+    info.el.style.left = `${r.right + 8}px`;
+    info.el.style.top = `${r.top + r.height / 2 - 9}px`;
+  }
+
+  setInterval(() => {
+    const token = gameToken();
+    const all = token && shownInfo[token];
+    const i = all && game && game.token === token && game.guessed ? all[game.round] : null;
+    if (!i) { hideInfo(); return; }
+    const tip = `Sent to server: ${i.sent.score} ${i.sent.score === 1 ? "point" : "points"} (${fmtDist(i.sent.d)} from the real spot)`;
+    if (info && info.anchor.isConnected && info.round === game.round) { info.el.title = tip; return; }
+    hideInfo();
+    const scoreRe = new RegExp(`^\\+?${i.real.score}(points?|pts|puntos)?$`);
+    const fontSize = (e) => parseFloat(getComputedStyle(e).fontSize) || 0;
+    const anchor = findAll((t) => scoreRe.test(t)).sort((x, y) => fontSize(y) - fontSize(x))[0]; // the big score number
+    if (!anchor) return;
+    info = { el: makeInfoEl(), anchor, round: game.round };
+    info.el.title = tip;
+    document.documentElement.appendChild(info.el);
+  }, 500);
 
   // ── Map page widget (/maps/<id or slug>) ──────────────────────────────────
   const mapSegment = () => (location.pathname.match(/^\/(?:[a-z]{2}(?:-[a-z]+)?\/)?maps\/([A-Za-z0-9_-]+)\/?$/) || [])[1];
@@ -356,7 +633,7 @@
     st.cssText = `position:fixed;z-index:1000;display:block;left:${r.right - ARROW_W}px;top:${r.top}px`;
     w.arrowBtn.style.height = `${r.height}px`;
   }
-  const frame = () => { placeArrow(); requestAnimationFrame(frame); };
+  const frame = () => { placeArrow(); placeInfoIcon(); requestAnimationFrame(frame); };
   requestAnimationFrame(frame);
 
   setInterval(() => {
