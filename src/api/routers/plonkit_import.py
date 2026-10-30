@@ -1,8 +1,8 @@
 """plonkit_import.py — Import a country's Plonkit guide clue by clue.
 
 POST   /import/plonkit/start          {cc} -> {token, total}   (fetches the guide page once)
-GET    /import/plonkit/{token}/{i}    -> the clue prefilled for the editor. Only a window of 3 clues
-                                         (the current one + the next two) is ever downloaded / kept in memory.
+GET    /import/plonkit/{token}/{i}    -> the clue prefilled for the editor. Only a window of 2 clues
+                                         (the current one + the next) is ever downloaded / kept in memory.
 GET    /import/plonkit/{token}/{i}/image -> the raw Plonkit image (used as the region picture of regional clues)
 DELETE /import/plonkit/{token}        -> end the import and throw staged files away
 
@@ -11,9 +11,12 @@ Tags and text come from scripts/import_plonkit_clues.py (same rules). The source
 """
 
 import asyncio
+import contextlib
 import importlib.util
 import logging
+import math
 import re
+import time
 import unicodedata
 import urllib.parse
 from collections import OrderedDict
@@ -39,9 +42,9 @@ UA = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/124.0 Safari/537.36"
 )
-WINDOW = 3
+WINDOW = 2
 MAX_SESSIONS = 3
-PAUSE_S = 0.4
+PAUSE_S = 2.0
 MAPS_RE = re.compile(
     r"https?://(?:maps\.app\.goo\.gl|goo\.gl/maps|(?:www\.)?google\.[a-z.]+/maps)\S*", re.IGNORECASE
 )
@@ -139,6 +142,12 @@ async def _warm(ctx, cc: str) -> None:
         logger.exception("Plonkit import: could not warm geo layers")
 
 
+async def _wait(s: dict, secs: float) -> None:
+    """Sleep, and let the UI know how long the user has to wait."""
+    s["wait_until"] = time.time() + secs
+    await asyncio.sleep(secs)
+
+
 async def _build(ctx, s: dict, i: int) -> dict:
     tip = s["tips"][i]
     async with s["lock"]:  # one download at a time, with a pause: Plonkit must not see a burst
@@ -148,12 +157,20 @@ async def _build(ctx, s: dict, i: int) -> dict:
             url = tip["image_url"]
             full = f"{BASE}{url}" if url.startswith("/") else url
             full = urllib.parse.quote(full, safe=":/?#[]@!$&'()*+,;=%~")
-            r = await client.get(
-                full,
-                headers={"User-Agent": UA, "Referer": s["page_url"]},
-                follow_redirects=True,
-                timeout=30,
-            )
+            delay = 10.0
+            for _ in range(8):  # "too many requests": wait (as long as Plonkit asks) and try again
+                r = await client.get(
+                    full,
+                    headers={"User-Agent": UA, "Referer": s["page_url"]},
+                    follow_redirects=True,
+                    timeout=30,
+                )
+                if r.status_code != 429:
+                    break
+                with contextlib.suppress(ValueError):
+                    delay = max(delay, float(r.headers.get("Retry-After", 0)))
+                await _wait(s, delay)
+                delay *= 2
             r.raise_for_status()
             data = r.content
             regional = await run_in_threadpool(_has_map, data)
@@ -189,7 +206,7 @@ async def _build(ctx, s: dict, i: int) -> dict:
                     out["image"] = {"token": up["token"], "kind": "image"}
                 except HTTPException as e:
                     out["street_view_error"] = str(e.detail)
-            await asyncio.sleep(PAUSE_S)
+            await _wait(s, PAUSE_S)
             return out
         except Exception as e:
             logger.exception("Plonkit import: clue %s failed", i)
@@ -264,12 +281,28 @@ async def plonkit_start(body: StartBody, request: Request):
         raise HTTPException(404, f"The Plonkit guide for {name} has no clues to import.")
 
     token = uuid4().hex
-    s = {"cc": cc, "page_url": page_url, "tips": tips, "tasks": {}, "lock": asyncio.Lock()}
+    s = {
+        "cc": cc,
+        "page_url": page_url,
+        "tips": tips,
+        "tasks": {},
+        "lock": asyncio.Lock(),
+        "wait_until": 0.0,
+    }
     s["warm"] = asyncio.create_task(_warm(ctx, cc))
     _SESSIONS[token] = s
     while len(_SESSIONS) > MAX_SESSIONS:
         _close(_SESSIONS.popitem(last=False)[1])
     return {"token": token, "total": len(tips)}
+
+
+@router.get("/import/plonkit/{token}/wait")
+async def plonkit_wait(token: str):
+    """Seconds left before the next clue can be downloaded."""
+    s = _SESSIONS.get(token)
+    if s is None:
+        raise HTTPException(410, "That import expired. Start it again.")
+    return {"seconds": max(0, math.ceil(s["wait_until"] - time.time()))}
 
 
 @router.get("/import/plonkit/{token}/{index}")

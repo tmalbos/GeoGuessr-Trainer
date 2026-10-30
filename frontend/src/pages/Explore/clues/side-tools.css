@@ -3,7 +3,7 @@
 .cf-bar:empty { display: none; }
 .cf-bar .cf-right { display: flex; gap: 8px; margin-left: auto; }
 .cf-bar .cf-add { margin-left: auto; padding: 6px 12px; white-space: nowrap; }
-.cf-bar .cf-import { padding: 6px 12px; white-space: nowrap; display: inline-flex; align-items: center; gap: 6px; }
+.cf-bar .cf-import { padding: 6px 12px; white-space: nowrap; }
 
 /* "Import from…" dropdown: a small menu anchored under its button */
 .cf-import-wrap { position: relative; }
