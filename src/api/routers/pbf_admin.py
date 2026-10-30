@@ -241,44 +241,66 @@ def _local_outline(code: str):
 
 
 def _read_ways(path: Path, wanted: set[int], bbox) -> dict[int, np.ndarray]:
-    """One pass over nodes+ways. Returns {way id: (n, 2) lon/lat array} for the wanted ways only.
+    """One pass over the file. Returns {way id: (n, 2) lon/lat array} for the wanted ways only.
+    osmium filters out untagged nodes and unwanted ways before Python sees them (the node locations are still
+    cached for the ways), so Python only touches the boundary ways.
     Ways with a missing node (extract edge) are skipped, and so are the relations that need them.
     """
     import osmium
 
     fp = osmium.FileProcessor(str(path), osmium.osm.NODE | osmium.osm.WAY).with_locations()
+    try:
+        fp = fp.with_filter(osmium.filter.EmptyTagFilter().enable_for(osmium.osm.NODE))
+        fp = fp.with_filter(osmium.filter.IdFilter(list(wanted)).enable_for(osmium.osm.WAY))
+    except Exception:  # older pyosmium: slower, same result
+        log.warning("osmium filters unavailable, reading without them", exc_info=True)
+
     out: dict[int, np.ndarray] = {}
     for o in fp:
         if not o.is_way() or o.id not in wanted:
             continue
-        pts = []
-        for n in o.nodes:
-            try:
-                pts.append((n.lon, n.lat))
-            except Exception:  # noqa: BLE001  # location unknown
-                break
-        else:
-            if len(pts) >= 2:
-                xy = np.asarray(pts, dtype=float)
-                if bbox is not None and (
-                    xy[:, 0].max() < bbox[0]
-                    or xy[:, 0].min() > bbox[2]
-                    or xy[:, 1].max() < bbox[1]
-                    or xy[:, 1].min() > bbox[3]
-                ):
-                    continue
-                out[o.id] = xy
+        try:
+            xy = np.array([(n.lon, n.lat) for n in o.nodes], dtype=float)
+        except Exception:  # noqa: BLE001  # a node location is unknown
+            continue
+        if len(xy) < 2:
+            continue
+        if bbox is not None and (
+            xy[:, 0].max() < bbox[0]
+            or xy[:, 0].min() > bbox[2]
+            or xy[:, 1].max() < bbox[1]
+            or xy[:, 1].min() > bbox[3]
+        ):
+            continue
+        out[o.id] = xy
     return out
 
 
 def _faces(way_ids, ways: dict[int, np.ndarray]):
+    """Filled polygon(s) of a set of ways. Fast path: the ways chain end to end into closed rings (the normal case)
+    and no noding is needed. Otherwise the slower polygonize path.
+    """
     lines = [shapely.linestrings(ways[i]) for i in way_ids if i in ways]
     if not lines:
         return None
-    merged = shapely.line_merge(shapely.union_all(lines))
+    merged = shapely.line_merge(shapely.multilinestrings(lines))
+    parts = shapely.get_parts(merged)
+    if (
+        len(parts)
+        and bool(np.all(shapely.is_closed(parts)))
+        and all(len(p.coords) >= 4 for p in parts)
+    ):
+        polys = [shapely.Polygon(p.coords) for p in parts]
+        return (
+            polys[0]
+            if len(polys) == 1
+            else shapely.union_all([g if g.is_valid else shapely.make_valid(g) for g in polys])
+        )
     faces = [
         p
-        for p in shapely.get_parts(shapely.polygonize(shapely.get_parts(merged)))
+        for p in shapely.get_parts(
+            shapely.polygonize(shapely.get_parts(shapely.line_merge(shapely.union_all(lines))))
+        )
         if p.geom_type == "Polygon" and not p.is_empty
     ]
     return shapely.union_all(faces) if faces else None
@@ -411,18 +433,20 @@ def _color(level: int) -> str:
 
 
 def _simplify(arr: np.ndarray, tol: float) -> np.ndarray:
-    if tol <= 0:
+    """Simplify ALL polygons of one level together as a coverage: a shared border is simplified once and stays
+    identical on both sides, so no gaps or overlaps appear (simplifying each polygon alone does that).
+    """
+    if tol <= 0 or len(arr) == 0:
         return arr
+    if not hasattr(shapely, "coverage_simplify"):
+        raise HTTPException(
+            503, "Simplification needs shapely 2.1 or newer. Run: pip install -U shapely"
+        )
     try:
-        out = shapely.simplify(arr, tol, preserve_topology=True)
-    except Exception:  # noqa: BLE001
-        out = np.empty(len(arr), dtype=object)
-        for i, g in enumerate(arr):
-            try:
-                out[i] = shapely.simplify(g, tol, preserve_topology=True)
-            except Exception:  # noqa: BLE001
-                out[i] = g
-    return np.where(shapely.is_empty(out), arr, out)
+        return shapely.coverage_simplify(arr, tol)
+    except Exception:  # not a valid coverage (overlapping duplicates): better heavy than wrong
+        log.warning("coverage_simplify failed, level left unsimplified", exc_info=True)
+        return arr
 
 
 def _tol(data: dict, pct: int) -> float:
