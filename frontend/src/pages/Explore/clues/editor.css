@@ -1,11 +1,13 @@
 /* ── Height limit (card + editor). The image keeps its proportions: a taller-than-wide image just gets narrower. ── */
 .clue-media.limited:not(.cropping) { width: 100%; max-width: 100%; margin-inline: 0; }
-.clue-media.limited:not(.cropping) .clue-photo { width: fit-content; max-width: 100%; margin-inline: auto; border-radius: 8px; overflow: hidden; }
+/* The photo box spans the whole card (the image itself stays centred), so the regional map overlay
+   sits on the card's right edge instead of the middle when a height-limited image is narrower. */
+.clue-media.limited:not(.cropping) .clue-photo { width: 100%; max-width: 100%; border-radius: 8px; overflow: hidden; }
 /* Height is set explicitly (rather than capped with max-height): with `width: auto` + only a max-height,
    an image smaller than its column stays at its intrinsic width, so every limit above its natural
    height renders identically ("normal" or "really small", nothing in between). */
 .clue-media.limited:not(.cropping) > img,
-.clue-media.limited:not(.cropping) .clue-photo > img { height: var(--mh); width: auto; max-width: 100%; object-fit: contain; }
+.clue-media.limited:not(.cropping) .clue-photo > img { height: var(--mh); width: auto; max-width: 100%; object-fit: contain; margin-inline: auto; }
 .clue-media.limited:not(.cropping) > img { margin-inline: auto; border-radius: 8px; }
 
 /* ── Editor: same two-column layout as the card ── */

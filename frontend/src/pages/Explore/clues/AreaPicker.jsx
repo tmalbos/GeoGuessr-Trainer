@@ -12,6 +12,22 @@ const MIN_BOX = 0.04;
 const clamp = (v) => Math.min(1, Math.max(0, v));
 const rect = (r) => r && { left: `${r[0] * 100}%`, top: `${r[1] * 100}%`, width: `${(r[2] - r[0]) * 100}%`, height: `${(r[3] - r[1]) * 100}%` };
 
+// The clue map draws one hue, lighter for rarer tones. Rank the stains by how light they are found in the
+// picture, so two stains of different intensity become the main tone and its lighter equivalent.
+const lum = (hex) => {
+  const m = /^#?([0-9a-f]{6})$/i.exec(String(hex ?? ""));
+  if (!m) return 0;
+  const n = parseInt(m[1], 16);
+  return 0.299 * ((n >> 16) & 255) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255);
+};
+const withShades = (feats) => {
+  const order = feats.map((f, i) => [i, lum(f.properties?.hex ?? f.properties?.color)])
+    .sort((a, b) => a[1] - b[1] || a[0] - b[0]);
+  const shades = new Array(feats.length);
+  order.forEach(([i], rank) => { shades[i] = Math.min(4, rank); });
+  return feats.map((f, i) => ({ ...f, properties: { ...f.properties, shade: shades[i] } }));
+};
+
 /** The region slot below the media: an SVG, CSV or geometry file, or a picture of the map, which is
  *  run through the stain tool for this country. The result is shown once, on the country (FilePicker's preview).
  *  The picture itself only appears when the map has to be boxed by hand (not found / low confidence) or on request.
@@ -123,7 +139,7 @@ export default function AreaPicker({ cc, value, current, onChange, stage }) {
           setRes(r);
           const keep = (r.geojson?.features ?? []).filter((f) => !f.properties?.base);
           if (!keep.length) throw new Error("No coloured areas were found in that picture.");
-          const file = new File([JSON.stringify({ type: "FeatureCollection", features: keep })], "regions.geojson", { type: "application/geo+json" });
+          const file = new File([JSON.stringify({ type: "FeatureCollection", features: withShades(keep) })], "regions.geojson", { type: "application/geo+json" });
           const next = await stageRef.current({ file });
           if (stale) { discardStaged(next?.token); return; }
           discardStaged(staged.current);

@@ -45,7 +45,7 @@ function Media({ cc, clue, children }) {
               className={clue.blur ? "clue-blur" : undefined} tabIndex={clue.blur ? 0 : undefined}
               title={clue.blur ? "Hover to reveal" : undefined} />
             {isReg && <div className="clue-ov">
-              {hasSvg ? <img src={fileUrl(cc, clue.svg, clue.rev)} alt="" /> : <ClueMap cc={cc} clue={clue} />}
+              {hasSvg ? <img src={fileUrl(cc, clue.svg, clue.rev)} alt="" /> : <ClueMap cc={cc} clue={clue} align="right" />}
             </div>}
           </>
         : clue.svg

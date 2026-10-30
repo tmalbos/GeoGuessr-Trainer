@@ -21,7 +21,7 @@ function csvLevels(rows) {
 // The country with the areas a clue applies to painted on it.
 // - Geometry files (polygons / lines / points): drawn on the country's own outline and borders (RegionPreview).
 // - CSV: the country's first-level subdivisions, painted.
-export default function ClueMap({ cc, clue }) {
+export default function ClueMap({ cc, clue, align }) {
   const [map, setMap] = useState(null);
   const [geo, setGeo] = useState({});
   const [err, setErr] = useState("");
@@ -45,7 +45,7 @@ export default function ClueMap({ cc, clue }) {
 
   if (hasGeo) {
     if (!kinds.every((k) => geo[k])) return <p className="muted">Loading map…</p>;
-    return <RegionPreview cc={cc} layers={kinds.map((k) => geo[k])} />;
+    return <RegionPreview cc={cc} layers={kinds.map((k) => geo[k])} align={align} />;
   }
 
   if (!map) return <p className="muted">Loading map…</p>;

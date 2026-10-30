@@ -14,6 +14,7 @@ from src.api.routers import (
     countries,
     coverage,
     history,
+    pbf_admin,
     replay_report,
     settings,
     stain,
@@ -56,6 +57,7 @@ for router_module in (
     replay_report,
     streetview,
     technical,
+    pbf_admin,
     stain,
 ):
     app.include_router(router_module.router, prefix="/api")

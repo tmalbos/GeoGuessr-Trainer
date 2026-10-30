@@ -21,7 +21,7 @@ const tiers = (g) => {
 };
 
 /** layers: array of GeoJSON geometries. If the country outline can't be loaded, the region is drawn alone. */
-export default function RegionPreview({ cc, layers, style, label = "Map of the country with the region painted on it" }) {
+export default function RegionPreview({ cc, layers, style, align, label = "Map of the country with the region painted on it" }) {
   const [base, setBase] = useState(undefined); // undefined = loading, null = not available
   useEffect(() => {
     let off = false;
@@ -43,7 +43,10 @@ export default function RegionPreview({ cc, layers, style, label = "Map of the c
   const land = outline ? shapes(outline, project).polys : "";
   const borders = base?.borders ? shapes(base.borders, project).lines : "";
 
-  return <svg className="cl-svg" style={style} viewBox={`0 0 ${W} ${H}`} role="img" aria-label={label}>
+  // fitProjection centres a country that is too tall for the height cap, leaving side margins: `align="right"`
+  // pushes the drawing against the box's right edge (used by the overlay on a clue photo).
+  return <svg className="cl-svg" style={style} viewBox={`0 0 ${W} ${H}`} role="img" aria-label={label}
+    preserveAspectRatio={align === "right" ? "xMaxYMid meet" : undefined}>
     {land && <path className="cl-r" d={land} fillRule="evenodd" />}
     {borders && <path d={borders} fill="none" stroke="#8b98a8" strokeWidth=".8" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />}
     {layers.map((g, i) => {
