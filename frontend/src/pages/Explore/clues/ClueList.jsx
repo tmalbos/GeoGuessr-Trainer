@@ -18,35 +18,56 @@ import "./side-tools.css";
 
 const catOf = (c) => c.tags.find((t) => GENERAL_TAGS.includes(t));
 const locOf = (c) => c.tags.find((t) => LOCATION_TAGS.includes(t));
+// Urban / Rural also show the "Anywhere" clues (they apply there too); Anywhere shows only itself.
+const locMatches = (c, loc) => !loc || locOf(c) === loc || (loc !== "Anywhere" && locOf(c) === "Anywhere");
 const UNDO_MS = 5000;
 const SHOWN = ["visible", "guide-only"]; // what counts as "has clues" on the world map
 const Funnel = () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
   strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M3 4h18l-7 8v6l-4 2v-8z" /></svg>;
 
 /** The tools drawn into the page's side panel (`slotEl`): the filter toggle on the left and, in edit mode,
- *  "Import from…" and "+ Add clue" on the far right of the same line. The filter chips and the import sources
- *  open in a box below the line. */
+ *  "Import from…" and "+ Add clue" on the far right of the same line. The filter chips open in a box below the
+ *  line; the import sources open in a small dropdown under their button. A click outside (or Escape) closes both. */
 function SideTools({ slotEl, showFilter, editing, onAdd, onImport, cat, loc, scope, fromReport, cats, count, onCat, onLoc, onScope, onReport, onClear }) {
   const [open, setOpen] = useState(false);
   const [srcOpen, setSrcOpen] = useState(false);
   const active = (cat ? 1 : 0) + (loc ? 1 : 0) + (scope ? 1 : 0) + (fromReport ? 1 : 0);
+  const anyOpen = open || srcOpen;
+
+  useEffect(() => {
+    if (!anyOpen) return undefined;
+    const onDown = (e) => {
+      if (e.target.closest?.(".cf-toggle, .clue-filter, .cf-import-wrap")) return;
+      setOpen(false); setSrcOpen(false);
+    };
+    const onKey = (e) => { if (e.key === "Escape") { setOpen(false); setSrcOpen(false); } };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => { document.removeEventListener("mousedown", onDown); document.removeEventListener("keydown", onKey); };
+  }, [anyOpen]);
+
   return createPortal(<>
     <div className="cf-bar">
       {showFilter && <button type="button" className="cf-toggle" aria-expanded={open}
-        aria-label="Filter the clues" title="Filter the clues" onClick={() => setOpen((o) => !o)}>
+        aria-label="Filter the clues" title="Filter the clues" onClick={() => { setSrcOpen(false); setOpen((o) => !o); }}>
         <Funnel />
         {active > 0 && <span className="count">{active}</span>}
       </button>}
       {editing && <div className="cf-right">
-        <button type="button" className="btn ghost cf-import" aria-expanded={srcOpen} onClick={() => setSrcOpen((o) => !o)}>Import from…</button>
+        <div className="cf-import-wrap">
+          <button type="button" className="btn ghost cf-import" aria-haspopup="menu" aria-expanded={srcOpen}
+            onClick={() => { setOpen(false); setSrcOpen((o) => !o); }}>Import from… <span aria-hidden="true">▾</span></button>
+          {srcOpen && <div className="cf-menu" role="menu" aria-label="Import source">
+            <button type="button" role="menuitem" className="cf-menu-item" onClick={() => { setSrcOpen(false); onImport("plonkit"); }}>
+              <img src="https://www.google.com/s2/favicons?domain=plonkit.net&sz=32" alt="" width="20" height="20"
+                onError={(e) => { e.currentTarget.style.display = "none"; }} />
+              <span><b>Plonkit</b><small>Go through this country's guide, clue by clue</small></span>
+            </button>
+          </div>}
+        </div>
         <button type="button" className="btn cf-add" onClick={onAdd}>+ Add clue</button>
       </div>}
     </div>
-    {editing && srcOpen && <div className="clue-filter">
-      <div className="clue-chips" role="group" aria-label="Import source">
-        <button type="button" className="fchip" onClick={() => { setSrcOpen(false); onImport("plonkit"); }}>Plonkit</button>
-      </div>
-    </div>}
     {showFilter && open && <div className="clue-filter">
       <div className="clue-chips" role="group" aria-label="Filter by category">
         <button type="button" className={`fchip ${!cat ? "on" : ""}`} aria-pressed={!cat} onClick={() => onCat("")}>All</button>
@@ -295,7 +316,7 @@ export default function ClueList({ id, name, editing, query }) {
     && (editing || (c.visibility ?? "visible") !== "analysis-only" || !!ids?.has(c.id)));
   const cats = GENERAL_TAGS.filter((t) => visible.some((c) => catOf(c) === t));
   const count = (t) => visible.filter((c) => catOf(c) === t).length;
-  const filtered = visible.filter((c) => (!cat || catOf(c) === cat) && (!loc || locOf(c) === loc)
+  const filtered = visible.filter((c) => (!cat || catOf(c) === cat) && locMatches(c, loc)
     && (!scope || c.scope === scope) && (!ids || ids.has(c.id)));
   // `key` = the block the card is shown in (clues can only be dragged inside their own block).
   const card = (c, key, opts = {}) => <ClueCard key={c.id} cc={id} clue={c} editing={editing} onDelete={remove} onEdit={setForm}

@@ -8,12 +8,17 @@ import SyncButton from "../components/SyncButton.jsx";
 import { api, errorText } from "../lib/api.js";
 import { MAX_TOTAL, resetFilters, setFilters, useAppFilters } from "../lib/filters.js";
 import { MOVE_TYPE_LABELS, areaHue, areaLabel, num, time, tone } from "../lib/format.js";
+import { navigate } from "../lib/router.js";
 import { useSync, useSyncEvents } from "../lib/sync.jsx";
 import ReplayReport from "./ReplayReport/index.jsx";
 import "./history.css";
 
 const PAGE_SIZES = [10, 20, 50, 100];
 const MAX_ROUND_COLS = 5;
+
+// Games whose report was opened from the list (so the report keeps its title when the page is re-entered by URL).
+const reportGames = new Map();
+const reportKey = (token, id) => `${token}/${id}`;
 
 // Every level that is available, most specific first: city, subregion, region, country.
 const placeName = (p) => [p.city, p.subregion, p.state, p.country].filter(Boolean).join(", ");
@@ -125,7 +130,7 @@ function Detail({ g, onReport }) {
   </div>;
 }
 
-export default function History() {
+export default function History({ seg = [] }) {
   const { f, options, error: optError, reload: reloadOptions, ready } = useAppFilters(false);
   const { start } = useSync();
   const [sort, setSort] = useState({ by: "date", dir: "desc" });
@@ -136,8 +141,17 @@ export default function History() {
   const [open, setOpen] = useState(null);
   const [err, setErr] = useState("");
   const [refreshKey, setRefreshKey] = useState(0);
-  const [reportGame, setReportGame] = useState(null);
   const appliedKey = useRef(null);
+
+  // The open report lives in the URL (#/history/report/<token>/<game>), so "back" from another page lands on it.
+  const [view, reportToken, reportGameId] = seg;
+  const reportGame = view === "report" && reportToken && reportGameId
+    ? reportGames.get(reportKey(reportToken, reportGameId)) ?? { challenge_token: reportToken, game_id: reportGameId }
+    : null;
+  const openReport = (g) => {
+    reportGames.set(reportKey(g.challenge_token, g.game_id), g);
+    navigate(`/history/report/${encodeURIComponent(g.challenge_token)}/${encodeURIComponent(g.game_id)}`);
+  };
 
   // The page resets to 1 whenever a filter, the sort or the page size changes.
   const queryKey = [f.matchType, f.moveType, f.timeLimit, f.minScore, f.maxScore, sort.by, sort.dir, pageSize].join("|");
@@ -174,12 +188,15 @@ export default function History() {
     return () => { stale = true; clearTimeout(t); };
   }, [ready, queryKey, page, refreshKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // The report does not need the list or the filters, so it shows right away (also when opened straight from a URL).
+  if (reportGame) {
+    const title = reportGame.match_type ? `${gameName(reportGame)} · ${fmtDate(reportGame.played_at)}` : "";
+    return <ReplayReport key={`${reportGame.challenge_token}/${reportGame.game_id}`} g={reportGame} title={title} onBack={() => navigate("/history")} />;
+  }
+
   const head = <div className="hist-head"><h2>History</h2><SyncButton /></div>;
   if (optError) return <>{head}<ErrorBox message={optError} onRetry={reloadOptions} /></>;
   if (!ready) return <>{head}<SkeletonRows n={6} /></>;
-
-  // The hooks above stay mounted, so filters, page and the expanded game survive coming back.
-  if (reportGame) return <ReplayReport g={reportGame} title={`${gameName(reportGame)} · ${fmtDate(reportGame.played_at)}`} onBack={() => setReportGame(null)} />;
 
   const items = data?.items ?? [];
   const total = data?.total ?? 0;
@@ -229,7 +246,7 @@ export default function History() {
               <td className="num">{num(g.total_steps)}</td>
               <td className="num">{time(g.total_time_sec)}</td>
             </tr>
-            {isOpen && <tr className="hist-detail"><td colSpan={colSpan}><Detail g={g} onReport={setReportGame} /></td></tr>}
+            {isOpen && <tr className="hist-detail"><td colSpan={colSpan}><Detail g={g} onReport={openReport} /></td></tr>}
           </Fragment>;
         })}</tbody>
       </table></div>}

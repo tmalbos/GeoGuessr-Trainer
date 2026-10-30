@@ -24,9 +24,13 @@ export default function Explore({ seg, query }) {
 
   // Came here from another page (e.g. Analysis)? Then "back" goes there, not to the world map.
   const origin = getOrigin();
+  const originLabel = (o) => {
+    const parts = o.split("?")[0].split("/");
+    if (parts[1] === "history" && parts[2] === "report") return "Report";
+    return { analysis: "Analysis", history: "History", study: "Study", settings: "Settings" }[parts[1]] ?? "Back";
+  };
   const back = origin
-    ? { label: { analysis: "Analysis", history: "History", study: "Study", settings: "Settings" }[origin.split("?")[0].split("/")[1]] ?? "Back",
-        go: () => { clearOrigin(); navigate(origin); } }
+    ? { label: originLabel(origin), go: () => { clearOrigin(); navigate(origin); } }
     : { label: "World map", go: () => navigate("/explore") };
 
   if (!code) return <WorldMap onSelect={(c) => navigate(`/explore/${c}`)} />;
