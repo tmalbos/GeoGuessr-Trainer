@@ -25,9 +25,9 @@ const Funnel = () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
 
 /** The tools drawn into the page's side panel (`slotEl`): the filter toggle on the left and, in edit mode,
  *  "+ Add clue" on the far right of the same line. The filter chips open in a box below the line. */
-function SideTools({ slotEl, showFilter, editing, onAdd, cat, loc, cats, count, onCat, onLoc }) {
+function SideTools({ slotEl, showFilter, editing, onAdd, cat, loc, scope, fromReport, cats, count, onCat, onLoc, onScope, onReport, onClear }) {
   const [open, setOpen] = useState(false);
-  const active = (cat ? 1 : 0) + (loc ? 1 : 0);
+  const active = (cat ? 1 : 0) + (loc ? 1 : 0) + (scope ? 1 : 0) + (fromReport ? 1 : 0);
   return createPortal(<>
     <div className="cf-bar">
       {showFilter && <button type="button" className="cf-toggle" aria-expanded={open}
@@ -48,15 +48,25 @@ function SideTools({ slotEl, showFilter, editing, onAdd, cat, loc, cats, count, 
           {LOCATION_TAGS.map((t) => <button key={t} type="button" className={`fchip loc ${loc === t ? "on" : ""}`} style={{ "--h": tagHue(t) }}
             aria-pressed={loc === t} onClick={() => onLoc(loc === t ? "" : t)}><LocationIcon t={t} /> {t}</button>)}
         </div>
+        <div className="clue-chips" role="group" aria-label="Filter by scope">
+          {[["nat", "National"], ["reg", "Regional"]].map(([k, l]) => <button key={k} type="button" className={`fchip ${scope === k ? "on" : ""}`}
+            aria-pressed={scope === k} onClick={() => onScope(scope === k ? "" : k)}>{l}</button>)}
+        </div>
+        {fromReport && <div className="clue-chips"><button type="button" className="fchip on" aria-pressed="true" onClick={onReport}>From report</button></div>}
+        {active > 0 && <button type="button" className="link-btn" onClick={onClear}>Clear</button>}
       </div>
     </div>}
   </>, slotEl);
 }
 
-/** `query` (from the URL) can pre-filter the list, e.g. from a replay report action:
- *    scope=nat|reg   only national / regional clues
- *    ids=a,b,c       only those clues (analysis-only ones included)
- *    loc=Urban|Rural only that location (Anywhere clues too); ignored when ids is given */
+/** `query` (from the URL) sets the filters, e.g. from a replay report action:
+ *    scope=nat|reg   National / Regional filter
+ *    loc=Urban|Rural location filter (ignored when ids is given)
+ *    ids=a,b,c       "From report" filter: only those clues (analysis-only ones included) */
+const idsOf = (q) => (q ? new Set(q.split(",")) : null);
+const scopeOf = (q) => (q === "nat" || q === "reg" ? q : "");
+const locOfQuery = (q, ids) => (!ids && LOCATION_TAGS.includes(q) ? q : "");
+
 export default function ClueList({ id, name, editing, query }) {
   const toast = useToast();
   const [items, setItems] = useState(null);
@@ -64,8 +74,13 @@ export default function ClueList({ id, name, editing, query }) {
   const [form, setForm] = useState(null); // null | "new" | a clue being edited
   const [version, setVersion] = useState(0);
   const [hidden, setHidden] = useState(() => new Set()); // deleted but still undoable
+  const qScope = query?.get("scope") ?? "";
+  const qLoc = query?.get("loc") ?? "";
+  const qIds = query?.get("ids") ?? "";
   const [cat, setCat] = useState("");
-  const [loc, setLoc] = useState("");
+  const [loc, setLoc] = useState(() => locOfQuery(qLoc, qIds));
+  const [scope, setScope] = useState(() => scopeOf(qScope));
+  const [ids, setIds] = useState(() => idsOf(qIds)); // the "From report" filter
   const [drag, setDrag] = useState(null); // { id, key } of the clue being dragged
   const [over, setOver] = useState(null); // id of the clue it is hovering
   const pending = useRef(new Map()); // key -> { cc, clueId }, deletes waiting out their undo window
@@ -74,14 +89,7 @@ export default function ClueList({ id, name, editing, query }) {
   itemsRef.current = items;
   const addAt = useRef(null); // where the list was on screen when "Add clue" was pressed
 
-  const qScope = query?.get("scope") ?? "";
-  const qLoc = query?.get("loc") ?? "";
-  const qIds = query?.get("ids") ?? "";
-  const [linkOff, setLinkOff] = useState(false); // "Show all clues" was pressed
-  useEffect(() => { setLinkOff(false); }, [id, qScope, qLoc, qIds]);
-  const linked = !linkOff && !!(qScope || qLoc || qIds);
-  const idSet = linked && qIds ? new Set(qIds.split(",")) : null;
-  const wantAll = editing || !!qIds; // analysis-only clues are needed to show the ones a report picked
+  const wantAll = editing || !!ids; // analysis-only clues are needed to show the ones a report picked
 
   useEffect(() => { setFslot(document.getElementById("clue-filter-slot")); }, []);
 
@@ -101,6 +109,11 @@ export default function ClueList({ id, name, editing, query }) {
 
   useEffect(() => { setItems(null); setErr(""); setCat(""); setLoc(""); setForm(null); }, [id]);
   useEffect(() => { if (!editing) setForm(null); }, [editing]);
+  // The filters follow the URL (runs after the reset above, so the link wins).
+  useEffect(() => {
+    const ids0 = idsOf(qIds);
+    setCat(""); setLoc(locOfQuery(qLoc, ids0)); setScope(scopeOf(qScope)); setIds(ids0);
+  }, [id, qScope, qLoc, qIds]);
 
   const reload = () => setVersion((v) => v + 1);
   const unhide = (key) => setHidden((h) => { const n = new Set(h); n.delete(key); return n; });
@@ -221,14 +234,11 @@ export default function ClueList({ id, name, editing, query }) {
 
   // Analysis-only clues are fetched when a report link needs them, but only shown if that link picked them.
   const visible = (items ?? []).filter((c) => !hidden.has(`${id}/${c.id}`)
-    && (editing || (c.visibility ?? "visible") !== "analysis-only" || !!idSet?.has(c.id)));
+    && (editing || (c.visibility ?? "visible") !== "analysis-only" || !!ids?.has(c.id)));
   const cats = GENERAL_TAGS.filter((t) => visible.some((c) => catOf(c) === t));
   const count = (t) => visible.filter((c) => catOf(c) === t).length;
-  const fromLink = (c) => !linked
-    || ((!idSet || idSet.has(c.id))
-      && (!qScope || c.scope === qScope)
-      && (!qLoc || qIds || [qLoc, "Anywhere"].includes(locOf(c))));
-  const filtered = visible.filter((c) => (!cat || catOf(c) === cat) && (!loc || locOf(c) === loc) && fromLink(c));
+  const filtered = visible.filter((c) => (!cat || catOf(c) === cat) && (!loc || locOf(c) === loc)
+    && (!scope || c.scope === scope) && (!ids || ids.has(c.id)));
   // `key` = the block the card is shown in (clues can only be dragged inside their own block).
   const card = (c, key, opts = {}) => <ClueCard key={c.id} cc={id} clue={c} editing={editing} onDelete={remove} onEdit={setForm}
     dragging={drag?.id === c.id} over={over === c.id} showTags={opts.showTags !== false} showSource={opts.showSource !== false}
@@ -245,11 +255,11 @@ export default function ClueList({ id, name, editing, query }) {
       </div>}
     </div>;
   });
-  const clear = () => { setCat(""); setLoc(""); setLinkOff(true); };
+  const clear = () => { setCat(""); setLoc(""); setScope(""); setIds(null); };
 
   let list;
   if (!filtered.length) {
-    list = <p className="muted">No clues match. <button type="button" className="link-btn" onClick={clear}>Clear filters</button></p>;
+    list = null;
   } else {
     // National clues sit under one "National" subtitle (only shown when there are regional clues too).
     // Regional clues always sit under the subtitle of their category.
@@ -269,7 +279,7 @@ export default function ClueList({ id, name, editing, query }) {
     </>;
   }
 
-  const showFilter = !!items && visible.length >= 4;
+  const showFilter = !!items && (visible.length >= 4 || !!(cat || loc || scope || ids || qScope || qLoc || qIds));
 
   return <>
     {/* Normally the button lives in the side panel; this is only a fallback if that panel isn't there. */}
@@ -277,10 +287,9 @@ export default function ClueList({ id, name, editing, query }) {
       <button type="button" className="btn" onClick={startAdd}>+ Add clue</button>
     </div>}
     {fslot && (editing || showFilter) && <SideTools slotEl={fslot} showFilter={showFilter} editing={editing} onAdd={startAdd}
-      cat={cat} loc={loc} cats={cats} count={count} onCat={setCat} onLoc={setLoc} />}
+      cat={cat} loc={loc} scope={scope} fromReport={!!ids} cats={cats} count={count}
+      onCat={setCat} onLoc={setLoc} onScope={setScope} onReport={() => setIds(null)} onClear={clear} />}
     {err && <ErrorBox message={err} onRetry={() => { setErr(""); reload(); }} />}
-    {linked && items && <p className="muted">Showing the clues picked for you from your report.{" "}
-      <button type="button" className="link-btn" onClick={() => setLinkOff(true)}>Show all clues</button></p>}
     {!items && !err ? <><SkeletonCard /><SkeletonCard /></>
       : items && !visible.length ? (editing ? null : <EmptyCat />)
       : items && list}

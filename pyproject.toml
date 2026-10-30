@@ -19,6 +19,9 @@ dependencies = [
     "pyyaml>=6.0",
     "beautifulsoup4>=4.12",
     "aiofiles>=23.0",
+    "osmium>=4.0",
+    "pyogrio>=0.10",
+    "topojson>=1.10",
 ]
 
 [project.optional-dependencies]
