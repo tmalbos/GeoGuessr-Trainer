@@ -16,7 +16,6 @@ import hashlib
 import json
 import math
 import pickle
-import re
 import tempfile
 import threading
 from collections import OrderedDict
@@ -65,12 +64,6 @@ def _clean(value) -> str:
     return str(value)
 
 
-def _parse_other_tags(raw) -> dict[str, str]:
-    if not isinstance(raw, str) or not raw:
-        return {}
-    return dict(re.findall(r'"([^"]+)"=>"([^"]*)"', raw))
-
-
 def _level(value) -> int | None:
     text = _clean(value).strip()
     return int(text) if text.isdigit() else None
@@ -93,8 +86,8 @@ def _country_code(tags: dict[str, str]) -> str:
     return ""
 
 
-def _cache_file(token: str, country: str, levels: list[int]) -> Path:
-    key = f"{token}|{country}|{','.join(map(str, levels))}"
+def _cache_file(token: str, country: str) -> Path:
+    key = f"{token}|{country}"
     digest = hashlib.sha1(key.encode()).hexdigest()
     return CACHE_DIR / f"{token}-{digest}.pkl"
 
@@ -115,7 +108,7 @@ def _dataset(token: str) -> dict:
 # ── reading the file ───────────────────────────────────────────────────────
 
 
-def _scan(path: Path) -> tuple[list[dict], list[dict]]:
+def _scan(path: Path) -> tuple[list[dict], list[dict], dict[int, list[int]]]:
     try:
         import osmium
     except ImportError as e:  # pragma: no cover
@@ -125,6 +118,7 @@ def _scan(path: Path) -> tuple[list[dict], list[dict]]:
     seen: set[str] = set()
     seen_codes: set[str] = set()
     counts: dict[int, int] = {}
+    ids: dict[int, list[int]] = {}
 
     for obj in osmium.FileProcessor(str(path), osmium.osm.RELATION):
         if not obj.is_relation():
@@ -138,6 +132,7 @@ def _scan(path: Path) -> tuple[list[dict], list[dict]]:
         if level is None:
             continue
         counts[level] = counts.get(level, 0) + 1
+        ids.setdefault(level, []).append(obj.id)
         if level != 2:
             continue
         name = tags.get("name:en") or tags.get("name")
@@ -156,7 +151,7 @@ def _scan(path: Path) -> tuple[list[dict], list[dict]]:
 
     countries.sort(key=lambda c: c["name"].casefold())
     levels = [{"level": level, "count": counts[level]} for level in sorted(counts)]
-    return countries, levels
+    return countries, levels, ids
 
 
 def _open(path_text: str, temporary: bool = False, display_name: str | None = None) -> dict:
@@ -165,7 +160,7 @@ def _open(path_text: str, temporary: bool = False, display_name: str | None = No
         raise HTTPException(404, f"No file at {path}")
     if not path.name.lower().endswith(".pbf"):
         raise HTTPException(422, "That is not an .osm.pbf file")
-    countries, levels = _scan(path)
+    countries, levels, ids = _scan(path)
     if not countries:
         raise HTTPException(
             422,
@@ -179,6 +174,7 @@ def _open(path_text: str, temporary: bool = False, display_name: str | None = No
         "size": path.stat().st_size,
         "countries": countries,
         "levels": levels,
+        "ids": ids,
         "temporary": temporary,
     }
     with _LOCK:
@@ -199,76 +195,127 @@ def _open(path_text: str, temporary: bool = False, display_name: str | None = No
 # ── extracting one country ─────────────────────────────────────────────────
 
 
-def _read_admin(path: Path, levels: list[int]):
-    try:
-        import pyogrio
-    except ImportError as e:  # pragma: no cover
-        raise HTTPException(503, "The pyogrio package is not installed on the server.") from e
+class _AreaCollector:
+    """Second-pass handler: turns every assembled admin relation into WKB."""
 
-    wanted = sorted(set(levels) | {2})
-    levels_sql = ", ".join(f"'{level}'" for level in wanted)
-    where = f"boundary = 'administrative' AND admin_level IN ({levels_sql})"
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore")
+    def __init__(self) -> None:
+        from osmium.geom import WKBFactory
+
+        self._factory = WKBFactory()
+        self.areas: list[tuple[int, dict[str, str], bytes]] = []
+
+    def area(self, area) -> None:
+        if area.from_way():
+            return
+        tags = area.tags
+        if tags.get("boundary") != "administrative":
+            return
+        if _level(tags.get("admin_level")) is None:
+            return
         try:
-            return pyogrio.read_dataframe(
-                path,
-                layer="multipolygons",
-                where=where,
-                columns=["osm_id", "name", "admin_level", "other_tags"],
-            )
-        except Exception as e:
-            raise HTTPException(422, f"GDAL could not read the boundaries in this file: {e}") from e
+            wkb = self._factory.create_multipolygon(area)
+        except Exception:  # noqa: BLE001
+            return
+        self.areas.append(((area.id - 1) // 2, dict(tags), wkb))
 
 
-def _extract(ds: dict, country: str, levels: list[int]) -> dict:
-    gdf = _read_admin(ds["path"], levels)
-    if gdf.empty:
-        raise HTTPException(422, "No administrative boundaries were found in this file.")
+def _read_admin(path: Path, ids: list[int]) -> list[tuple[int, dict[str, str], object]]:
+    try:
+        import osmium
+    except ImportError as e:  # pragma: no cover
+        raise HTTPException(503, "The osmium package is not installed on the server.") from e
 
-    ids = gdf["osm_id"].map(_clean)
-    admin_levels = gdf["admin_level"].map(_level)
-    mask = (admin_levels == 2) & (ids == country)
-    if not mask.any():
+    # First pass: only the relations we want become area candidates.
+    manager = osmium.area.AreaManager()
+    keep = osmium.filter.IdFilter(ids)
+    keep.enable_for(osmium.osm.RELATION)
+    pool = osmium.io.ThreadPool()
+    with osmium.io.Reader(str(path), osmium.osm.RELATION, thread_pool=pool) as reader:
+        osmium.apply(reader, keep, manager.first_pass_handler())
+
+    # Second pass: assemble those areas (needs node locations for the way members).
+    collector = _AreaCollector()
+    locations = osmium.helper.NodeLocationsForWays(osmium.index.create_map("flex_mem"))
+    locations.ignore_errors()
+    entities = osmium.osm.NODE | osmium.osm.WAY | osmium.osm.RELATION
+    with osmium.io.Reader(str(path), entities, thread_pool=pool) as reader:
+        osmium.apply(reader, locations, manager.second_pass_handler(collector))
+
+    out: list[tuple[int, dict[str, str], object]] = []
+    for rel_id, tags, wkb in collector.areas:
+        try:
+            geom = shapely.from_wkb(wkb)
+        except Exception:  # noqa: BLE001
+            continue
+        if geom is None or geom.is_empty:
+            continue
+        out.append((rel_id, tags, geom))
+    return out
+
+
+def _local_outline(code: str):
+    """The app's own outline for the country, for extracts that cut a country's boundary relation."""
+    if not code:
+        return None
+    path = Path(__file__).resolve().parents[3] / "data" / "geo" / "countries.parquet"
+    if not path.is_file():
+        return None
+    try:
+        import geopandas as gpd
+
+        rows = gpd.read_parquet(path, columns=["code", "geometry"])
+        hit = rows[rows["code"] == code]
+        if not len(hit):
+            return None
+        return _polys(shapely.make_valid(hit.geometry.iloc[0]))
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _extract(ds: dict, country: str) -> dict:
+    try:
+        cid = int(country)
+    except ValueError as e:
+        raise HTTPException(404, "That country is no longer in the open file.") from e
+
+    ids = [rel for rels in ds["ids"].values() for rel in rels]
+    if cid not in ids:
         raise HTTPException(404, "That country is no longer in the open file.")
 
-    country_parts = [shapely.make_valid(g) for g in gdf.loc[mask, "geometry"] if g is not None]
-    country_geom = _polys(shapely.union_all(country_parts))
+    areas = _read_admin(ds["path"], ids)
+    if not areas:
+        raise HTTPException(422, "No administrative boundaries were found in this file.")
+
+    country_geom = None
+    for rel_id, _, geom in areas:
+        if rel_id == cid:
+            country_geom = _polys(shapely.make_valid(geom))
+            break
+    if country_geom is None:
+        code = next((c["code"] for c in ds["countries"] if c["id"] == country), "")
+        country_geom = _local_outline(code)
     if country_geom is None:
         raise HTTPException(422, "That country has no usable outline in this file.")
 
-    geoms = gdf.geometry.to_numpy()
-    present = np.array([g is not None and not g.is_empty for g in geoms], dtype=bool)
-    inside = np.zeros(len(geoms), dtype=bool)
-    if present.any():
-        points = shapely.point_on_surface(geoms[present])
-        inside[present] = shapely.contains_xy(
-            country_geom, shapely.get_x(points), shapely.get_y(points)
-        )
-
-    wanted = set(levels)
-    keep = inside & np.array([level in wanted for level in admin_levels], dtype=bool)
-    keep &= ~((admin_levels == 2) & (ids != country))
-
     features: list[tuple[dict, object]] = []
     counts: dict[int, int] = {}
-    for i in np.nonzero(keep)[0]:
-        geom = geoms[i]
-        if geom is None or geom.is_empty:
+    for rel_id, tags, geom in areas:
+        level = _level(tags.get("admin_level"))
+        if level is None:
             continue
         if not geom.is_valid:
             geom = _polys(shapely.make_valid(geom))
             if geom is None:
                 continue
-        level = int(admin_levels.iloc[i])
-        row = gdf.iloc[i]
-        tags = _parse_other_tags(row["other_tags"])
-        name = _clean(row["name"]) or tags.get("name:en") or tags.get("name") or "?"
+        point = shapely.point_on_surface(geom)
+        if not country_geom.contains(point):
+            continue
+        name = tags.get("name:en") or tags.get("name") or "?"
         iso = tags.get("ISO3166-2") or tags.get("ISO3166-1:alpha2") or tags.get("ISO3166-1") or ""
         props = {
             "name": str(name),
             "admin_level": level,
-            "osm_id": _clean(row["osm_id"]),
+            "osm_id": str(rel_id),
             "iso": str(iso),
         }
         features.append((props, geom))
@@ -280,13 +327,13 @@ def _extract(ds: dict, country: str, levels: list[int]) -> dict:
     features.sort(key=lambda item: (item[0]["admin_level"], -item[1].area))
     data = {"features": features, "counts": counts}
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
-    with _cache_file(ds["token"], country, levels).open("wb") as f:
+    with _cache_file(ds["token"], country).open("wb") as f:
         pickle.dump(data, f, protocol=pickle.HIGHEST_PROTOCOL)
     return data
 
 
-def _load(ds: dict, country: str, levels: list[int]) -> dict:
-    path = _cache_file(ds["token"], country, levels)
+def _load(ds: dict, country: str) -> dict:
+    path = _cache_file(ds["token"], country)
     if path.is_file():
         with path.open("rb") as f:
             return pickle.load(f)
@@ -294,7 +341,7 @@ def _load(ds: dict, country: str, levels: list[int]) -> dict:
         if path.is_file():
             with path.open("rb") as f:
                 return pickle.load(f)
-        return _extract(ds, country, levels)
+        return _extract(ds, country)
 
 
 # ── preview / export ───────────────────────────────────────────────────────
@@ -321,12 +368,32 @@ def _color(level: int) -> str:
     return _LEVEL_COLORS[level % len(_LEVEL_COLORS)]
 
 
+def _available(data: dict) -> list[dict]:
+    return [{"level": level, "count": data["counts"][level]} for level in sorted(data["counts"])]
+
+
+def _selected(data: dict, levels: list[int]) -> list[tuple[dict, object]]:
+    wanted = set(levels)
+    return [item for item in data["features"] if item[0]["admin_level"] in wanted]
+
+
 def _preview(ds: dict, country: str, levels: list[int], simplify: int) -> dict:
-    data = _load(ds, country, levels)
+    data = _load(ds, country)
+    available = _available(data)
+    chosen = _selected(data, levels)
+    if not chosen:
+        return {
+            "geojson": {"type": "FeatureCollection", "features": []},
+            "levels": available,
+            "counts": [],
+            "total": 0,
+            "simplified_pct": PREVIEW_PCT,
+            "tolerance_deg": 0,
+        }
     pct = max(PREVIEW_PCT, simplify)
-    tol = _tolerance(data["features"], pct)
+    tol = _tolerance(chosen, pct)
     out = []
-    for props, geom in data["features"]:
+    for props, geom in chosen:
         level = props["admin_level"]
         out.append(
             {
@@ -340,10 +407,12 @@ def _preview(ds: dict, country: str, levels: list[int], simplify: int) -> dict:
                 "geometry": json.loads(shapely.to_geojson(_simplify(geom, tol))),
             }
         )
-    counts = [{"level": level, "count": data["counts"][level]} for level in sorted(data["counts"])]
     return {
         "geojson": {"type": "FeatureCollection", "features": out},
-        "counts": counts,
+        "levels": available,
+        "counts": [
+            {"level": level, "count": data["counts"][level]} for level in sorted(set(levels))
+        ],
         "total": len(out),
         "simplified_pct": pct,
         "tolerance_deg": tol,
@@ -356,15 +425,18 @@ def _export(ds: dict, country: str, levels: list[int], simplify: int) -> tuple[s
     except ImportError as e:  # pragma: no cover
         raise HTTPException(503, "The topojson package is not installed on the server.") from e
 
-    data = _load(ds, country, levels)
-    tol = 0 if simplify <= 0 else _tolerance(data["features"], simplify)
+    data = _load(ds, country)
+    chosen = _selected(data, levels)
+    if not chosen:
+        raise HTTPException(422, "Pick at least one admin level")
+    tol = 0 if simplify <= 0 else _tolerance(chosen, simplify)
     feats = [
         {
             "type": "Feature",
             "properties": props,
             "geometry": json.loads(shapely.to_geojson(_simplify(geom, tol))),
         }
-        for props, geom in data["features"]
+        for props, geom in chosen
     ]
     topology = Topology(
         {"type": "FeatureCollection", "features": feats},
@@ -386,15 +458,12 @@ class OpenBody(BaseModel):
 class ExtractBody(BaseModel):
     token: str
     country: str
-    levels: list[int] = Field(min_length=1)
+    levels: list[int] = Field(default_factory=list)
     simplify: int = Field(0, ge=0, le=100)
 
 
 def _levels(values: list[int]) -> list[int]:
-    levels = sorted({int(v) for v in values if 1 <= int(v) <= 20})
-    if not levels:
-        raise HTTPException(422, "Pick at least one admin level")
-    return levels
+    return sorted({int(v) for v in values if 1 <= int(v) <= 20})
 
 
 @router.post("/technical/pbf/open")
