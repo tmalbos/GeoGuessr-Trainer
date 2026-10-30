@@ -15,6 +15,7 @@ from src.api.routers import (
     coverage,
     history,
     pbf_admin,
+    plonkit_import,
     replay_report,
     settings,
     stain,
@@ -59,5 +60,6 @@ for router_module in (
     technical,
     pbf_admin,
     stain,
+    plonkit_import,
 ):
     app.include_router(router_module.router, prefix="/api")

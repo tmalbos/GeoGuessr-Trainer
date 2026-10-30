@@ -1,4 +1,6 @@
-/* Side panel row under the country map: filter toggle on the left, "+ Add clue" on the far right. */
-.cf-bar { display: flex; align-items: center; justify-content: space-between; gap: 10px; width: 100%; }
+/* Side panel row under the country map: filter toggle on the left, "Import from…" and "+ Add clue" on the far right. */
+.cf-bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; width: 100%; }
 .cf-bar:empty { display: none; }
+.cf-bar .cf-right { display: flex; gap: 8px; margin-left: auto; }
 .cf-bar .cf-add { margin-left: auto; padding: 6px 12px; white-space: nowrap; }
+.cf-bar .cf-import { padding: 6px 12px; white-space: nowrap; }

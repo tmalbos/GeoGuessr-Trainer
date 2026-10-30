@@ -63,30 +63,33 @@ const Tag = ({ t, kind, on, caret, onClick, ...rest }) =>
   </button>;
 
 /** `clue` set = editing that clue; otherwise adding a new one.
+ *  `prefill` (import) = a new clue with its fields already filled in: { scope, info, general, location, source,
+ *  image (a staged image), mediaText (a Street View link for the media slot), mediaError, areaFile (picture of the
+ *  map for the region slot), progress }. `onSkip` adds a Skip button next to Save.
  *  The top part has the same layout as the clue card (image left; tags, text and sentences right);
  *  everything else sits below it. */
-export default function ClueEditor({ cc, name, clue, onClose, onSaved }) {
+export default function ClueEditor({ cc, name, clue, prefill, onClose, onSaved, onSkip }) {
   const { nameOf } = useCountries();
-  const [scope, setScope] = useState(clue?.scope ?? "nat");
-  const [info, setInfo] = useState(clue?.info ?? "");
-  const [location, setLocation] = useState(clue?.tags?.find((t) => LOCATION_TAGS.includes(t)) ?? "");
-  const [general, setGeneral] = useState(clue?.tags?.find((t) => GENERAL_TAGS.includes(t)) ?? "");
-  const [locTouched, setLocTouched] = useState(!!clue); // user picked "where it applies" by hand
+  const [scope, setScope] = useState(clue?.scope ?? prefill?.scope ?? "nat");
+  const [info, setInfo] = useState(clue?.info ?? prefill?.info ?? "");
+  const [location, setLocation] = useState(clue?.tags?.find((t) => LOCATION_TAGS.includes(t)) ?? prefill?.location ?? "");
+  const [general, setGeneral] = useState(clue?.tags?.find((t) => GENERAL_TAGS.includes(t)) ?? prefill?.general ?? "");
+  const [locTouched, setLocTouched] = useState(!!clue || !!prefill); // user picked "where it applies" by hand
   const [menu, setMenu] = useState(null); // null | "cat" | "loc"
   const [rating, setRating] = useState(() => Object.fromEntries(RATINGS.map(([k]) => [k, clue?.[k] != null ? String(clue[k]) : ""])));
   const [visibility, setVisibility] = useState(clue?.visibility ?? "visible");
-  const [blur, setBlur] = useState(!!clue?.blur);
+  const [blur, setBlur] = useState(!!clue?.blur || prefill?.general === "License Plate");
   const [maxH, setMaxH] = useState(clue?.max_height ?? null); // px cap for the image on the card
   const [img, setImg] = useState({ has: !!clue?.image, sig: ":0" }); // reported by ClueImage
   // The media slot: an image (handled by ClueImage), or an SVG / CSV / geometry staged here.
   const [media, setMedia] = useState(() => initialMedia(clue));
   // The region of a photo: required whenever the media is an image (same SVG / CSV / geometry kinds).
   const [area, setArea] = useState(() => initialArea(clue));
-  const [incoming, setIncoming] = useState(null); // a staged image to hand to ClueImage
+  const [incoming, setIncoming] = useState(prefill?.image ?? null); // a staged image to hand to ClueImage
   const [imageGone, setImageGone] = useState(false);
-  const [mediaErr, setMediaErr] = useState("");
+  const [mediaErr, setMediaErr] = useState(prefill?.mediaError ?? "");
   const [stagedKind] = useState(() => ({ media: initialMedia(clue).kind, area: initialArea(clue).kind }));
-  const [source, setSource] = useState(clue?.source ?? "");
+  const [source, setSource] = useState(clue?.source ?? prefill?.source ?? "");
   const [relations, setRelations] = useState(clue?.relations ?? []);
   const [notes, setNotes] = useState(clue?.relation_notes ?? {});
   const [badge, setBadge] = useState(clue?.badge ?? "");
@@ -237,6 +240,9 @@ export default function ClueEditor({ cc, name, clue, onClose, onSaved }) {
     setArea(up ? { kind: uiKind(up.kind), upload: up } : { kind: null, upload: null });
   };
 
+  // Imported regional clue: the Street View picture goes into the media slot as soon as the editor opens.
+  useEffect(() => { if (prefill?.mediaText) takeMedia({ text: prefill.mediaText }); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Removing the photo leaves its region: that becomes the clue's media instead of losing it.
   const removeMedia = () => {
     setIncoming(null);
@@ -335,7 +341,7 @@ export default function ClueEditor({ cc, name, clue, onClose, onSaved }) {
   return <div className="modal-back" onMouseDown={(e) => { if (e.target === e.currentTarget) requestClose(); }}>
     <div className="modal wide" role="dialog" aria-modal="true" aria-label={`${clue ? "Edit" : "Add"} clue for ${name}`}>
       <div className="modal-head">
-        <h3>{clue ? "Edit clue" : "Add clue"} · {name}</h3>
+        <h3>{clue ? "Edit clue" : "Add clue"} · {name}{prefill?.progress ? ` · ${prefill.progress}` : ""}</h3>
         <div className="tabs" role="group" aria-label="Scope">
           {[["nat", "National"], ["reg", "Regional"]].map(([k, l]) =>
             <button key={k} type="button" aria-pressed={scope === k} className={scope === k ? "on" : ""} disabled={!!clue && scope !== k} onClick={() => changeScope(k)}>{l}</button>)}
@@ -352,7 +358,8 @@ export default function ClueEditor({ cc, name, clue, onClose, onSaved }) {
             onState={(h, sig) => setImg((p) => (p.has === h && p.sig === sig ? p : { has: h, sig }))} />
           {mediaErr && <p className="err">{mediaErr}</p>}
           {/* A photo can't say which region it is: the region is mandatory in that case. */}
-          {showArea && <AreaPicker cc={cc} value={area.upload} current={areaCurrent} onChange={takeArea} stage={stageInput} />}
+          {showArea && <AreaPicker cc={cc} value={area.upload} current={areaCurrent} onChange={takeArea} stage={stageInput}
+            initialPicture={prefill?.areaFile} />}
           <div className="ed-rels">
             {relations.map((r) => {
               const o = snippetOf(r);
@@ -445,6 +452,7 @@ export default function ClueEditor({ cc, name, clue, onClose, onSaved }) {
       <div className="ed-foot">
         {problems.length > 0 && <p className="muted problems">{problems[0]}</p>}
         <button type="button" className="btn ghost" onClick={requestClose}>Cancel</button>
+        {onSkip && <button type="button" className="btn ghost" disabled={saving} onClick={onSkip}>Skip</button>}
         <button type="button" className="btn" title={problems[0]} disabled={saving || problems.length > 0} onClick={save}>{saving ? "Saving…" : "Save clue"}</button>
       </div>
     </div>

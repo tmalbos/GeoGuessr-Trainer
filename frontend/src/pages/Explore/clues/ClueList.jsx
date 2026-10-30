@@ -24,9 +24,11 @@ const Funnel = () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
   strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M3 4h18l-7 8v6l-4 2v-8z" /></svg>;
 
 /** The tools drawn into the page's side panel (`slotEl`): the filter toggle on the left and, in edit mode,
- *  "+ Add clue" on the far right of the same line. The filter chips open in a box below the line. */
-function SideTools({ slotEl, showFilter, editing, onAdd, cat, loc, scope, fromReport, cats, count, onCat, onLoc, onScope, onReport, onClear }) {
+ *  "Import from…" and "+ Add clue" on the far right of the same line. The filter chips and the import sources
+ *  open in a box below the line. */
+function SideTools({ slotEl, showFilter, editing, onAdd, onImport, cat, loc, scope, fromReport, cats, count, onCat, onLoc, onScope, onReport, onClear }) {
   const [open, setOpen] = useState(false);
+  const [srcOpen, setSrcOpen] = useState(false);
   const active = (cat ? 1 : 0) + (loc ? 1 : 0) + (scope ? 1 : 0) + (fromReport ? 1 : 0);
   return createPortal(<>
     <div className="cf-bar">
@@ -35,8 +37,16 @@ function SideTools({ slotEl, showFilter, editing, onAdd, cat, loc, scope, fromRe
         <Funnel />
         {active > 0 && <span className="count">{active}</span>}
       </button>}
-      {editing && <button type="button" className="btn cf-add" onClick={onAdd}>+ Add clue</button>}
+      {editing && <div className="cf-right">
+        <button type="button" className="btn ghost cf-import" aria-expanded={srcOpen} onClick={() => setSrcOpen((o) => !o)}>Import from…</button>
+        <button type="button" className="btn cf-add" onClick={onAdd}>+ Add clue</button>
+      </div>}
     </div>
+    {editing && srcOpen && <div className="clue-filter">
+      <div className="clue-chips" role="group" aria-label="Import source">
+        <button type="button" className="fchip" onClick={() => { setSrcOpen(false); onImport("plonkit"); }}>Plonkit</button>
+      </div>
+    </div>}
     {showFilter && open && <div className="clue-filter">
       <div className="clue-chips" role="group" aria-label="Filter by category">
         <button type="button" className={`fchip ${!cat ? "on" : ""}`} aria-pressed={!cat} onClick={() => onCat("")}>All</button>
@@ -83,10 +93,13 @@ export default function ClueList({ id, name, editing, query }) {
   const [ids, setIds] = useState(() => idsOf(qIds)); // the "From report" filter
   const [drag, setDrag] = useState(null); // { id, key } of the clue being dragged
   const [over, setOver] = useState(null); // id of the clue it is hovering
+  const [imp, setImp] = useState(null); // running import: { token, index, total, clue, file, err }
   const pending = useRef(new Map()); // key -> { cc, clueId }, deletes waiting out their undo window
   const [fslot, setFslot] = useState(null); // the side panel element the tools render into
   const itemsRef = useRef(null);
   itemsRef.current = items;
+  const impRef = useRef(null);
+  impRef.current = imp;
   const addAt = useRef(null); // where the list was on screen when "Add clue" was pressed
 
   const wantAll = editing || !!ids; // analysis-only clues are needed to show the ones a report picked
@@ -107,8 +120,15 @@ export default function ClueList({ id, name, editing, query }) {
     return () => { off = true; };
   }, [id, wantAll, version]);
 
-  useEffect(() => { setItems(null); setErr(""); setCat(""); setLoc(""); setForm(null); }, [id]);
-  useEffect(() => { if (!editing) setForm(null); }, [editing]);
+  const stopImport = useCallback(() => {
+    const p = impRef.current;
+    if (p) api(`/import/plonkit/${p.token}`, { method: "DELETE" }).catch(() => {});
+    impRef.current = null;
+    setImp(null);
+  }, []);
+
+  useEffect(() => { setItems(null); setErr(""); setCat(""); setLoc(""); setForm(null); stopImport(); }, [id]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (!editing) { setForm(null); stopImport(); } }, [editing]); // eslint-disable-line react-hooks/exhaustive-deps
   // The filters follow the URL (runs after the reset above, so the link wins).
   useEffect(() => {
     const ids0 = idsOf(qIds);
@@ -142,6 +162,44 @@ export default function ClueList({ id, name, editing, query }) {
       action: { label: "Undo", onClick: () => { pending.current.delete(key); unhide(key); } },
       onExpire: () => commit(key),
     });
+  };
+
+  // ── Import from Plonkit: one clue at a time; the server keeps the next two ready ──
+  const loadImport = async (token, index, total) => {
+    setImp({ token, index, total, clue: null, file: null, err: "" });
+    try {
+      const d = await api(`/import/plonkit/${token}/${index}`);
+      let file = null;
+      if (d.scope === "reg") {
+        const r = await fetch(`/api/import/plonkit/${token}/${index}/image`);
+        if (r.ok) { const b = await r.blob(); file = new File([b], "plonkit.png", { type: b.type || "image/png" }); }
+      }
+      setImp((p) => (p && p.token === token && p.index === index ? { ...p, clue: d, file } : p));
+    } catch (e) {
+      setImp((p) => (p && p.token === token && p.index === index ? { ...p, err: errorText(e) } : p));
+    }
+  };
+
+  const startImport = async () => {
+    toast.push("Looking for the Plonkit guide…", { ms: 2500 });
+    try {
+      const r = await api("/import/plonkit/start", { method: "POST", body: { cc: id } });
+      setForm(null);
+      loadImport(r.token, 0, r.total);
+    } catch (e) { toast.push(errorText(e), { kind: "err", ms: 6000 }); }
+  };
+
+  const advance = () => {
+    const p = impRef.current;
+    if (!p) return;
+    if (p.index + 1 >= p.total) { toast.push("Import finished", { kind: "ok" }); stopImport(); return; }
+    loadImport(p.token, p.index + 1, p.total);
+  };
+
+  const importSaved = () => {
+    toast.push("Clue saved", { kind: "ok" });
+    reload();
+    advance();
   };
 
   // ── Add clue: remember where the list is on screen, so the new clue lands near it instead of at the end ──
@@ -280,6 +338,7 @@ export default function ClueList({ id, name, editing, query }) {
   }
 
   const showFilter = !!items && (visible.length >= 4 || !!(cat || loc || scope || ids || qScope || qLoc || qIds));
+  const ic = imp?.clue;
 
   return <>
     {/* Normally the button lives in the side panel; this is only a fallback if that panel isn't there. */}
@@ -287,7 +346,7 @@ export default function ClueList({ id, name, editing, query }) {
       <button type="button" className="btn" onClick={startAdd}>+ Add clue</button>
     </div>}
     {fslot && (editing || showFilter) && <SideTools slotEl={fslot} showFilter={showFilter} editing={editing} onAdd={startAdd}
-      cat={cat} loc={loc} scope={scope} fromReport={!!ids} cats={cats} count={count}
+      onImport={startImport} cat={cat} loc={loc} scope={scope} fromReport={!!ids} cats={cats} count={count}
       onCat={setCat} onLoc={setLoc} onScope={setScope} onReport={() => setIds(null)} onClear={clear} />}
     {err && <ErrorBox message={err} onRetry={() => { setErr(""); reload(); }} />}
     {!items && !err ? <><SkeletonCard /><SkeletonCard /></>
@@ -295,5 +354,24 @@ export default function ClueList({ id, name, editing, query }) {
       : items && list}
     {form && <ClueEditor key={form === "new" ? "new" : form.id} cc={id} name={name} clue={form === "new" ? null : form} onClose={() => setForm(null)}
       onSaved={saved} />}
+    {imp && !ic && <div className="modal-back"><div className="modal">
+      {imp.err
+        ? <>
+            <ErrorBox message={imp.err} onRetry={() => loadImport(imp.token, imp.index, imp.total)} />
+            <div className="modal-actions">
+              <button type="button" className="btn ghost" onClick={stopImport}>Close</button>
+              <button type="button" className="btn" onClick={advance}>Skip</button>
+            </div>
+          </>
+        : <p className="muted">Loading clue {imp.index + 1} of {imp.total} from Plonkit…</p>}
+    </div></div>}
+    {imp && ic && <ClueEditor key={`imp-${imp.token}-${imp.index}`} cc={id} name={name} clue={null}
+      prefill={{
+        scope: ic.scope, info: ic.info, general: ic.category, location: ic.location, source: ic.source,
+        image: ic.image, mediaText: ic.scope === "reg" ? ic.street_view_url : null,
+        mediaError: ic.scope === "reg" ? ic.street_view_error : "", areaFile: imp.file,
+        progress: `Plonkit ${imp.index + 1} of ${imp.total}`,
+      }}
+      onClose={stopImport} onSaved={importSaved} onSkip={advance} />}
   </>;
 }

@@ -33,7 +33,7 @@ const withShades = (feats) => {
  *  The picture itself only appears when the map has to be boxed by hand (not found / low confidence) or on request.
  *  A mapmaking.app export dropped / pasted / browsed into the same box is recognised: its locations inside this
  *  country are listed by tag, one tag becomes the region (shape tuned under "Customize"). */
-export default function AreaPicker({ cc, value, current, onChange, stage }) {
+export default function AreaPicker({ cc, value, current, onChange, stage, initialPicture }) {
   const [up, setUp] = useState(null);       // { token, url, map } — the picture sent to the stain tool
   const [crop, setCrop] = useState(null);   // [x0, y0, x1, y1] as fractions of the picture, drawn by hand
   const [res, setRes] = useState(null);     // stain result
@@ -92,6 +92,9 @@ export default function AreaPicker({ cc, value, current, onChange, stage }) {
       setUp({ ...d, url: preview.url });
     } catch (e) { setErr(e.message); } finally { setBusy(false); }
   };
+
+  // Imported clue: the picture Plonkit shows is run through the stain tool right away.
+  useEffect(() => { if (initialPicture) takePicture({ file: initialPicture }); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // A .json dropped into the Region box may be a mapmaking export: then it is handled here (undefined = "handled",
   // FilePicker leaves the current region alone). Anything else goes on to the normal geometry staging.
