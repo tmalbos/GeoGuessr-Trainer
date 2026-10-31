@@ -115,12 +115,24 @@ export default function ClueList({ id, name, editing, query }) {
   const [drag, setDrag] = useState(null); // { id, key } of the clue being dragged
   const [over, setOver] = useState(null); // id of the clue it is hovering
   const [imp, setImp] = useState(null); // running import: { token, index, total, clue, file, err }
+  const [wait, setWait] = useState(0); // seconds Plonkit makes us wait before the next clue
   const pending = useRef(new Map()); // key -> { cc, clueId }, deletes waiting out their undo window
   const [fslot, setFslot] = useState(null); // the side panel element the tools render into
   const itemsRef = useRef(null);
   itemsRef.current = items;
   const impRef = useRef(null);
   impRef.current = imp;
+  const loadingImp = !!imp && !imp.clue && !imp.err; // the clue is still downloading: show how long we wait
+  const impToken = imp?.token;
+  const impIndex = imp?.index;
+  useEffect(() => {
+    if (!loadingImp) { setWait(0); return undefined; }
+    let off = false;
+    const tick = () => api(`/import/plonkit/${impToken}/wait`).then((r) => !off && setWait(r.seconds)).catch(() => {});
+    tick();
+    const t = setInterval(tick, 1000);
+    return () => { off = true; clearInterval(t); };
+  }, [loadingImp, impToken, impIndex]);
   const addAt = useRef(null); // where the list was on screen when "Add clue" was pressed
 
   const wantAll = editing || !!ids; // analysis-only clues are needed to show the ones a report picked
@@ -384,7 +396,10 @@ export default function ClueList({ id, name, editing, query }) {
               <button type="button" className="btn" onClick={advance}>Skip</button>
             </div>
           </>
-        : <p className="muted">Loading clue {imp.index + 1} of {imp.total} from Plonkit…</p>}
+        : <>
+            <p className="muted">Loading clue {imp.index + 1} of {imp.total} from Plonkit…</p>
+            {wait > 0 && <p className="muted">Waiting {wait}s so Plonkit doesn't block us.</p>}
+          </>}
     </div></div>}
     {imp && ic && <ClueEditor key={`imp-${imp.token}-${imp.index}`} cc={id} name={name} clue={null}
       prefill={{
