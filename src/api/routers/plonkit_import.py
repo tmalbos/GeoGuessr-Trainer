@@ -1,12 +1,15 @@
 """plonkit_import.py — Import a country's Plonkit guide clue by clue.
 
-POST   /import/plonkit/start          {cc} -> {token, total}   (fetches the guide page once)
+POST   /import/plonkit/start          {cc} -> {token, total, sections}   (fetches the guide page once)
+                                         sections = [{step, title, index}]: the guide's sections that have clues,
+                                         `index` = position of the section's first clue (used by "Skip to <section>")
 GET    /import/plonkit/{token}/{i}    -> the clue prefilled for the editor. Only a window of 2 clues
                                          (the current one + the next) is ever downloaded / kept in memory.
 GET    /import/plonkit/{token}/{i}/image -> the raw Plonkit image (used as the region picture of regional clues)
 DELETE /import/plonkit/{token}        -> end the import and throw staged files away
 
-A clue is regional when the map detector finds a drawn map in its image, national otherwise.
+A clue is regional when the map detector finds a drawn map in its image AND the tip has a Street View link
+we can open. A map without a usable Street View link falls back to a national clue (the image as it is).
 Tags and text come from scripts/import_plonkit_clues.py (same rules). The source is page#step.
 """
 
@@ -48,6 +51,7 @@ PAUSE_S = 2.0
 MAPS_RE = re.compile(
     r"https?://(?:maps\.app\.goo\.gl|goo\.gl/maps|(?:www\.)?google\.[a-z.]+/maps)\S*", re.IGNORECASE
 )
+TITLE_KEYS = ("title", "name", "label", "heading", "header")
 
 _SESSIONS: OrderedDict[str, dict] = OrderedDict()
 _MOD = None
@@ -68,6 +72,19 @@ def _script():
 def _slug(name: str) -> str:
     s = unicodedata.normalize("NFKD", name).encode("ascii", "ignore").decode().lower()
     return re.sub(r"[^a-z0-9]+", "-", s).strip("-")
+
+
+def _section_title(step: dict, number: int) -> str:
+    """The name of a guide section, or "Section N" when the step carries no readable title."""
+    for key in TITLE_KEYS:
+        v = step.get(key)
+        if isinstance(v, str) and v.strip():
+            return v.strip()
+        if isinstance(v, list):
+            text = " ".join(x.strip() for x in v if isinstance(x, str) and x.strip())
+            if text:
+                return text
+    return f"Section {number}"
 
 
 def _find_link(data: dict) -> str | None:
@@ -174,6 +191,20 @@ async def _build(ctx, s: dict, i: int) -> dict:
             r.raise_for_status()
             data = r.content
             regional = await run_in_threadpool(_has_map, data)
+            street_view_url = None
+            if regional:
+                # A drawn map needs a Street View view to make a complete regional clue. Without one
+                # (no link, or one that can't be opened) the picture is kept as it is, as a national clue.
+                if not tip["link"]:
+                    regional = False
+                else:
+                    try:
+                        street_view_url = await _resolve(client, tip["link"])
+                    except Exception:  # noqa: BLE001
+                        logger.warning(
+                            "Plonkit import: clue %s has a Street View link that can't be opened", i
+                        )
+                        regional = False
             category = mod.category_for(tip["text"], tip["tags"])
             out = {
                 "index": i,
@@ -187,20 +218,12 @@ async def _build(ctx, s: dict, i: int) -> dict:
                 "scope": "reg" if regional else "nat",
                 "image": None,
                 "has_image": True,
-                "street_view_url": None,
+                "street_view_url": street_view_url,
                 "street_view_error": "",
                 "_image": data if regional else None,
                 "_media": r.headers.get("content-type", "image/png"),
             }
-            if regional:
-                if not tip["link"]:
-                    out["street_view_error"] = "No Street View link found for this clue."
-                else:
-                    try:
-                        out["street_view_url"] = await _resolve(client, tip["link"])
-                    except Exception as e:  # noqa: BLE001
-                        out["street_view_error"] = f"Could not open the Street View link: {e}"
-            else:
+            if not regional:
                 try:
                     up = await run_in_threadpool(_stage, "image", "plonkit.png", data)
                     out["image"] = {"token": up["token"], "kind": "image"}
@@ -258,7 +281,9 @@ async def plonkit_start(body: StartBody, request: Request):
         raise HTTPException(404, f"Plonkit has no guide for {name}.")
 
     tips = []
+    titles: dict[int, str] = {}
     for step_no, step in enumerate(guide.get("steps") or [], start=1):
+        titles[step_no] = _section_title(step, step_no)
         for item in step.get("items") or []:
             if item.get("kind") != "tip":
                 continue
@@ -280,6 +305,15 @@ async def plonkit_start(body: StartBody, request: Request):
     if not tips:
         raise HTTPException(404, f"The Plonkit guide for {name} has no clues to import.")
 
+    # Sections that actually have clues, with the index of their first clue (for "Skip to <section>").
+    sections: list[dict] = []
+    seen: set[int] = set()
+    for idx, tip in enumerate(tips):
+        if tip["step"] in seen:
+            continue
+        seen.add(tip["step"])
+        sections.append({"step": tip["step"], "title": titles[tip["step"]], "index": idx})
+
     token = uuid4().hex
     s = {
         "cc": cc,
@@ -293,7 +327,7 @@ async def plonkit_start(body: StartBody, request: Request):
     _SESSIONS[token] = s
     while len(_SESSIONS) > MAX_SESSIONS:
         _close(_SESSIONS.popitem(last=False)[1])
-    return {"token": token, "total": len(tips)}
+    return {"token": token, "total": len(tips), "sections": sections}
 
 
 @router.get("/import/plonkit/{token}/wait")

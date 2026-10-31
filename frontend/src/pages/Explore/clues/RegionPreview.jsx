@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { api } from "../../../lib/api.js";
 import { bboxOf, fitProjection, shadeFactor, shapes } from "./geoDraw.js";
+import "./import-extras.css";
 
 // A region (polygons / lines / points, lon/lat GeoJSON) drawn ON its country: the country's outline and
 // first-level borders come from the backend (/clues/{cc}/base), so the region is never shown floating alone.
@@ -20,8 +21,10 @@ const tiers = (g) => {
     .map((v) => [v, { type: "GeometryCollection", geometries: g.geometries.filter((_, i) => sh[i] === v) }]);
 };
 
-/** layers: array of GeoJSON geometries. If the country outline can't be loaded, the region is drawn alone. */
-export default function RegionPreview({ cc, layers, style, align, label = "Map of the country with the region painted on it" }) {
+/** layers: array of GeoJSON geometries. If the country outline can't be loaded, the region is drawn alone.
+ *  stains (optional): [{ id, geometry, shade, active }] drawn one by one on top of the layers. With `onStain(id)`
+ *  each one can be clicked (or Enter / Space) to switch it off and on; an inactive stain is drawn dark and faint. */
+export default function RegionPreview({ cc, layers, stains, onStain, style, align, label = "Map of the country with the region painted on it" }) {
   const [base, setBase] = useState(undefined); // undefined = loading, null = not available
   useEffect(() => {
     let off = false;
@@ -32,7 +35,10 @@ export default function RegionPreview({ cc, layers, style, align, label = "Map o
 
   if (base === undefined) return <p className="muted">Loading map…</p>;
   const outline = base?.outline ?? null;
-  const bb = bboxOf({ type: "GeometryCollection", geometries: [...(outline ? [outline] : []), ...layers] });
+  const bb = bboxOf({
+    type: "GeometryCollection",
+    geometries: [...(outline ? [outline] : []), ...layers, ...(stains ?? []).map((s) => s.geometry)],
+  });
   if (!bb) return null;
 
   const W = 1000;
@@ -42,6 +48,7 @@ export default function RegionPreview({ cc, layers, style, align, label = "Map o
   const project = fitProjection(bb, W, H, 6);
   const land = outline ? shapes(outline, project).polys : "";
   const borders = base?.borders ? shapes(base.borders, project).lines : "";
+  const stainTop = Math.max(0, ...(stains ?? []).filter((s) => s.active).map((s) => s.shade ?? 0));
 
   // fitProjection centres a country that is too tall for the height cap, leaving side margins: `align="right"`
   // pushes the drawing against the box's right edge (used by the overlay on a clue photo).
@@ -64,6 +71,19 @@ export default function RegionPreview({ cc, layers, style, align, label = "Map o
         <path className="cl-line" d={s.lines} fill="none" />
         {s.pts.map(([x, y], j) => <circle key={j} className="cl-pt" cx={x} cy={y} r="5" />)}
       </g>;
+    })}
+    {(stains ?? []).map((s) => {
+      const op = s.active && s.shade ? 0.85 * shadeFactor(s.shade, stainTop) : null;
+      const toggle = () => onStain?.(s.id);
+      return <path key={s.id} className={`cl-poly cl-stain ${s.active ? "" : "off"}`} d={shapes(s.geometry, project).polys}
+        fillRule="evenodd" style={op != null ? { fillOpacity: op, strokeOpacity: op } : undefined}
+        {...(onStain ? {
+          role: "button", tabIndex: 0, "aria-pressed": s.active, "aria-label": `${s.id}: ${s.active ? "included" : "left out"}`,
+          onClick: toggle,
+          onKeyDown: (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggle(); } },
+        } : {})}>
+        {onStain && <title>{s.id} · click to {s.active ? "leave it out" : "include it"}</title>}
+      </path>;
     })}
   </svg>;
 }

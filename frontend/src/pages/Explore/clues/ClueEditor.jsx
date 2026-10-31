@@ -19,6 +19,7 @@ import { CATEGORY_ICONS, DEFAULT_LOCATION, GENERAL_TAGS, LOCATION_TAGS, RATINGS,
 import "./blur.css";
 import "./clues.css";
 import "./editor.css";
+import "./import-extras.css";
 import "./relations.css";
 
 const GEOM_FIELDS = ["polygons", "lines", "points"];
@@ -65,10 +66,11 @@ const Tag = ({ t, kind, on, caret, onClick, ...rest }) =>
 /** `clue` set = editing that clue; otherwise adding a new one.
  *  `prefill` (import) = a new clue with its fields already filled in: { scope, info, general, location, source,
  *  image (a staged image), mediaText (a Street View link for the media slot), mediaError, areaFile (picture of the
- *  map for the region slot), progress }. `onSkip` adds a Skip button next to Save.
+ *  map for the region slot), progress }. `onSkip` adds a Skip button next to Save; `skipTo` ([{ key, label, go }])
+ *  adds a small dropdown left of it with one "Skip to <label>" entry each (import: the guide's later sections).
  *  The top part has the same layout as the clue card (image left; tags, text and sentences right);
  *  everything else sits below it. */
-export default function ClueEditor({ cc, name, clue, prefill, onClose, onSaved, onSkip }) {
+export default function ClueEditor({ cc, name, clue, prefill, onClose, onSaved, onSkip, skipTo }) {
   const { nameOf } = useCountries();
   const [scope, setScope] = useState(clue?.scope ?? prefill?.scope ?? "nat");
   const [info, setInfo] = useState(clue?.info ?? prefill?.info ?? "");
@@ -76,6 +78,7 @@ export default function ClueEditor({ cc, name, clue, prefill, onClose, onSaved, 
   const [general, setGeneral] = useState(clue?.tags?.find((t) => GENERAL_TAGS.includes(t)) ?? prefill?.general ?? "");
   const [locTouched, setLocTouched] = useState(!!clue || !!prefill); // user picked "where it applies" by hand
   const [menu, setMenu] = useState(null); // null | "cat" | "loc"
+  const [skipOpen, setSkipOpen] = useState(false); // the "Skip to <section>" dropdown
   const [rating, setRating] = useState(() => Object.fromEntries(RATINGS.map(([k]) => [k, clue?.[k] != null ? String(clue[k]) : ""])));
   const [visibility, setVisibility] = useState(clue?.visibility ?? "visible");
   const [blur, setBlur] = useState(!!clue?.blur || prefill?.general === "License Plate");
@@ -101,6 +104,7 @@ export default function ClueEditor({ cc, name, clue, prefill, onClose, onSaved, 
   const [confirm, setConfirm] = useState(false);
   const areaEl = useRef(null);
   const slot = useRef(null);
+  const skipRef = useRef(null);
   const colRef = useRef(null);
   const imgApi = useRef(null);
   const srcRef = useRef(null);
@@ -134,14 +138,22 @@ export default function ClueEditor({ cc, name, clue, prefill, onClose, onSaved, 
     el.style.height = `${el.scrollHeight + 2}px`;
   }, [info]);
 
-  // Escape closes the open tag menu first, then asks before throwing work away.
+  // Escape closes the open tag menu / skip menu first, then asks before throwing work away.
   useEffect(() => {
-    const onKey = (e) => { if (e.key !== "Escape") return; if (menu) setMenu(null); else closeRef.current(); };
-    const onDown = (e) => { if (menu && slot.current && !slot.current.contains(e.target)) setMenu(null); };
+    const onKey = (e) => {
+      if (e.key !== "Escape") return;
+      if (menu) setMenu(null);
+      else if (skipOpen) setSkipOpen(false);
+      else closeRef.current();
+    };
+    const onDown = (e) => {
+      if (menu && slot.current && !slot.current.contains(e.target)) setMenu(null);
+      if (skipOpen && skipRef.current && !skipRef.current.contains(e.target)) setSkipOpen(false);
+    };
     document.addEventListener("keydown", onKey);
     document.addEventListener("mousedown", onDown);
     return () => { document.removeEventListener("keydown", onKey); document.removeEventListener("mousedown", onDown); };
-  }, [menu]);
+  }, [menu, skipOpen]);
 
   // When the source box opens, focus it; clicking anywhere outside compresses it again.
   useEffect(() => {
@@ -452,6 +464,14 @@ export default function ClueEditor({ cc, name, clue, prefill, onClose, onSaved, 
       <div className="ed-foot">
         {problems.length > 0 && <p className="muted problems">{problems[0]}</p>}
         <button type="button" className="btn ghost" onClick={requestClose}>Cancel</button>
+        {onSkip && skipTo?.length > 0 && <div className="ed-skip" ref={skipRef}>
+          <button type="button" className="btn ghost ed-skip-caret" aria-haspopup="menu" aria-expanded={skipOpen}
+            aria-label="Skip to a section" title="Skip to a section" disabled={saving} onClick={() => setSkipOpen((o) => !o)}>▴</button>
+          {skipOpen && <div className="ed-skip-menu" role="menu" aria-label="Skip to a section">
+            {skipTo.map((s) => <button key={s.key} type="button" role="menuitem" className="ed-skip-item"
+              onClick={() => { setSkipOpen(false); s.go(); }}>Skip to {s.label}</button>)}
+          </div>}
+        </div>}
         {onSkip && <button type="button" className="btn ghost" disabled={saving} onClick={onSkip}>Skip</button>}
         <button type="button" className="btn" title={problems[0]} disabled={saving || problems.length > 0} onClick={save}>{saving ? "Saving…" : "Save clue"}</button>
       </div>

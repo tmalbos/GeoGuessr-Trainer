@@ -114,7 +114,7 @@ export default function ClueList({ id, name, editing, query }) {
   const [ids, setIds] = useState(() => idsOf(qIds)); // the "From report" filter
   const [drag, setDrag] = useState(null); // { id, key } of the clue being dragged
   const [over, setOver] = useState(null); // id of the clue it is hovering
-  const [imp, setImp] = useState(null); // running import: { token, index, total, clue, file, err }
+  const [imp, setImp] = useState(null); // running import: { token, index, total, sections, clue, file, err }
   const [wait, setWait] = useState(0); // seconds Plonkit makes us wait before the next clue
   const pending = useRef(new Map()); // key -> { cc, clueId }, deletes waiting out their undo window
   const [fslot, setFslot] = useState(null); // the side panel element the tools render into
@@ -198,8 +198,9 @@ export default function ClueList({ id, name, editing, query }) {
   };
 
   // ── Import from Plonkit: one clue at a time; the server keeps the next two ready ──
-  const loadImport = async (token, index, total) => {
-    setImp({ token, index, total, clue: null, file: null, err: "" });
+  // `sections` = [{ step, title, index }] from the start call: the guide's sections and where each one begins.
+  const loadImport = async (token, index, total, sections) => {
+    setImp({ token, index, total, sections, clue: null, file: null, err: "" });
     try {
       const d = await api(`/import/plonkit/${token}/${index}`);
       let file = null;
@@ -218,7 +219,7 @@ export default function ClueList({ id, name, editing, query }) {
     try {
       const r = await api("/import/plonkit/start", { method: "POST", body: { cc: id } });
       setForm(null);
-      loadImport(r.token, 0, r.total);
+      loadImport(r.token, 0, r.total, r.sections ?? []);
     } catch (e) { toast.push(errorText(e), { kind: "err", ms: 6000 }); }
   };
 
@@ -226,7 +227,14 @@ export default function ClueList({ id, name, editing, query }) {
     const p = impRef.current;
     if (!p) return;
     if (p.index + 1 >= p.total) { toast.push("Import finished", { kind: "ok" }); stopImport(); return; }
-    loadImport(p.token, p.index + 1, p.total);
+    loadImport(p.token, p.index + 1, p.total, p.sections);
+  };
+
+  // "Skip to <section>": jump to the first clue of a later section, leaving the rest of this one (and any in between) out.
+  const skipTo = (section) => {
+    const p = impRef.current;
+    if (!p) return;
+    loadImport(p.token, section.index, p.total, p.sections);
   };
 
   const importSaved = () => {
@@ -372,6 +380,8 @@ export default function ClueList({ id, name, editing, query }) {
 
   const showFilter = !!items && (visible.length >= 4 || !!(cat || loc || scope || ids || qScope || qLoc || qIds));
   const ic = imp?.clue;
+  // The guide sections that start after the clue on screen, for the "Skip to <section>" dropdown.
+  const laterSections = imp ? (imp.sections ?? []).filter((s) => s.index > imp.index) : [];
 
   return <>
     {/* Normally the button lives in the side panel; this is only a fallback if that panel isn't there. */}
@@ -390,7 +400,7 @@ export default function ClueList({ id, name, editing, query }) {
     {imp && !ic && <div className="modal-back"><div className="modal">
       {imp.err
         ? <>
-            <ErrorBox message={imp.err} onRetry={() => loadImport(imp.token, imp.index, imp.total)} />
+            <ErrorBox message={imp.err} onRetry={() => loadImport(imp.token, imp.index, imp.total, imp.sections)} />
             <div className="modal-actions">
               <button type="button" className="btn ghost" onClick={stopImport}>Close</button>
               <button type="button" className="btn" onClick={advance}>Skip</button>
@@ -408,6 +418,7 @@ export default function ClueList({ id, name, editing, query }) {
         mediaError: ic.scope === "reg" ? ic.street_view_error : "", areaFile: imp.file,
         progress: `Plonkit ${imp.index + 1} of ${imp.total}`,
       }}
+      skipTo={laterSections.map((s) => ({ key: s.step, label: s.title, go: () => skipTo(s) }))}
       onClose={stopImport} onSaved={importSaved} onSkip={advance} />}
   </>;
 }
