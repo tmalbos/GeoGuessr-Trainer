@@ -13,8 +13,10 @@ How it works (why it is fast after the first load):
   2. Choosing a country reads the file once more (nodes + ways, node locations cached by osmium), keeps ONLY the
      ways that admin relations use (and, when the app has an outline for the country, only those near it),
      assembles the boundaries with shapely and keeps the ones whose inside point lies in the country.
-  3. Everything lives in memory, grouped by level. Changing levels / simplification never touches the PBF again;
-     simplified + serialised features are cached per (level, simplification).
+     A second pass reads the natural=coastline ways.
+  3. Everything lives in memory, grouped by level. Boundaries are cut to land with the coastlines the first time a
+     level is requested (only the polygons that touch a coastline are processed). Changing levels / simplification
+     never touches the PBF again; simplified + serialised features are cached per (level, simplification).
 """
 
 from __future__ import annotations
@@ -22,6 +24,7 @@ from __future__ import annotations
 import json
 import logging
 import math
+import operator
 import tempfile
 import threading
 from array import array
@@ -36,7 +39,9 @@ from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 from starlette.responses import Response
 
-log = logging.getLogger(__name__)
+log = logging.getLogger(
+    "uvicorn.error"
+)  # same logger uvicorn prints, so these lines show in the console
 router = APIRouter()
 
 MAX_DATASETS = 3
@@ -47,6 +52,7 @@ BBOX_PAD = 0.5  # degrees around the app's country outline when picking ways
 FALLBACK_BUFFER = (
     0.05  # degrees: the app's outline is coarse, so widen it when it is used for "inside"
 )
+MIN_LEFTOVER = 1e-12  # deg2: smaller uncovered bits of a boundary are numerical noise
 CACHE_DIR = Path(tempfile.gettempdir()) / "geoguessr-pbf-admin"
 _LEVEL_COLORS = (
     "#4e79a7",
@@ -64,6 +70,7 @@ _LEVEL_COLORS = (
 _DATASETS: OrderedDict[str, dict] = OrderedDict()
 _LOCK = threading.Lock()
 _COMPUTE = threading.Lock()  # one extraction at a time (CPU / memory heavy)
+_LAND = threading.Lock()  # one coastline cut at a time
 _OUTLINES: dict[str, object] = {}
 
 
@@ -276,6 +283,46 @@ def _read_ways(path: Path, wanted: set[int], bbox) -> dict[int, np.ndarray]:
     return out
 
 
+def _read_coast(path: Path, bbox) -> tuple[np.ndarray, np.ndarray]:
+    """One pass over the file. Returns the natural=coastline ways as directed LineStrings (land is on their left)
+    and the OSM id of each way.
+    """
+    import osmium
+
+    fp = osmium.FileProcessor(str(path), osmium.osm.NODE | osmium.osm.WAY).with_locations()
+    try:
+        fp = fp.with_filter(osmium.filter.EmptyTagFilter().enable_for(osmium.osm.NODE))
+        fp = fp.with_filter(
+            osmium.filter.TagFilter(("natural", "coastline")).enable_for(osmium.osm.WAY)
+        )
+    except Exception:  # older pyosmium: slower, same result
+        log.warning("osmium filters unavailable, reading without them", exc_info=True)
+
+    lines: list = []
+    way_ids: list = []
+    for o in fp:
+        if not o.is_way() or o.tags.get("natural") != "coastline":
+            continue
+        try:
+            xy = np.array([(n.lon, n.lat) for n in o.nodes], dtype=float)
+        except Exception:  # noqa: BLE001  # a node location is unknown
+            continue
+        if len(xy) < 2:
+            continue
+        if bbox is not None and (
+            xy[:, 0].max() < bbox[0]
+            or xy[:, 0].min() > bbox[2]
+            or xy[:, 1].max() < bbox[1]
+            or xy[:, 1].min() > bbox[3]
+        ):
+            continue
+        lines.append(shapely.linestrings(xy))
+        way_ids.append(o.id)
+    arr = np.empty(len(lines), dtype=object)
+    arr[:] = lines
+    return arr, np.array(way_ids, dtype=np.int64)
+
+
 def _faces(way_ids, ways: dict[int, np.ndarray]):
     """Filled polygon(s) of a set of ways. Fast path: the ways chain end to end into closed rings (the normal case)
     and no noding is needed. Otherwise the slower polygonize path.
@@ -326,10 +373,10 @@ def _assemble(rel: dict, ways: dict[int, np.ndarray]):
 
 
 def _extract(ds: dict, country: str) -> dict:
-    cid_text = next((c["id"] for c in ds["countries"] if c["id"] == country), None)
-    if cid_text is None:
+    country_name = next((c["name"] for c in ds["countries"] if c["id"] == country), None)
+    if country_name is None:
         raise HTTPException(404, "That country is no longer in the open file.")
-    cid = int(cid_text)
+    cid = int(country)
     code = next((c["code"] for c in ds["countries"] if c["id"] == country), "")
 
     rels: dict[int, dict] = ds["rels"]
@@ -391,11 +438,29 @@ def _extract(ds: dict, country: str) -> dict:
             )
         by_level[level] = {"props": props, "geoms": arr[idx[sel]]}
 
+    # Coastlines (second pass) near the country, to cut the maritime part off the boundaries.
+    cminx, cminy, cmaxx, cmaxy = country_geom.bounds
+    cbox = (cminx - BBOX_PAD, cminy - BBOX_PAD, cmaxx + BBOX_PAD, cmaxy + BBOX_PAD)
+    coast = None
+    coast_ids = None
+    tree = None
+    try:
+        coast, coast_ids = _read_coast(ds["path"], cbox)
+        tree = shapely.STRtree(coast) if len(coast) else None
+    except Exception:
+        log.warning("Could not read the coastlines; boundaries are left uncut", exc_info=True)
+
     minx, miny, maxx, maxy = country_geom.bounds
     return {
+        "country": country_name,
         "by_level": by_level,
         "levels": [{"level": level, "count": len(v["props"])} for level, v in by_level.items()],
         "diag": max(math.hypot(maxx - minx, maxy - miny), 1e-9),
+        "coast": coast,
+        "coast_ids": coast_ids,
+        "tree": tree,
+        "cbox": cbox,
+        "land": {},  # level -> {"props", "geoms"} cut to land
         "cache": OrderedDict(),
     }
 
@@ -423,6 +488,174 @@ def _load(ds: dict, country: str) -> dict:
             while len(ds["extracted"]) > MAX_COUNTRIES:
                 ds["extracted"].popitem(last=False)
         return data
+
+
+# ── land only: cut boundaries with the coastlines ──────────────────────────
+
+
+def _is_land(px: float, py: float, coast: np.ndarray, tree, cbox) -> tuple[bool | None, int | None]:
+    """Is the point on land? Exact, no tuning: walk from the point to the nearest coastline and look at which
+    side of that (directed) coastline the point is on. OSM: land is on the LEFT of the way direction.
+    Between two coastline crossings the answer cannot change, so the nearest crossing decides.
+    East is tried first, then west, north, south. Returns (land, index of the deciding coastline); land is None
+    when no coastline is reachable in any direction.
+    """
+    w, s, e, n = cbox
+    tf = (  # (along the ray, across the ray)
+        operator.itemgetter((slice(None), 0), (slice(None), 1)),
+        lambda a: (-a[:, 0], a[:, 1]),
+        operator.itemgetter((slice(None), 1), (slice(None), 0)),
+        lambda a: (-a[:, 1], a[:, 0]),
+    )
+    ends = ((e, py), (w, py), (px, n), (px, s))
+    p = np.array([[px, py]])
+    for k, (tx, ty) in enumerate(ends):
+        cand = tree.query(shapely.linestrings([(px, py), (tx, ty)]), predicate="intersects")
+        if not len(cand):
+            continue
+        xy, li = shapely.get_coordinates(coast[cand], return_index=True)
+        same = li[1:] == li[:-1]
+        a, b = xy[:-1][same], xy[1:][same]
+        owner = cand[li[:-1][same]]
+        ax_, ay_ = tf[k](a)
+        bx_, by_ = tf[k](b)
+        pxk, pyk = (v[0] for v in tf[k](p))
+        crossing = ((ay_ <= pyk) & (by_ > pyk)) | ((by_ <= pyk) & (ay_ > pyk))
+        if not crossing.any():
+            continue
+        t = (pyk - ay_[crossing]) / (by_[crossing] - ay_[crossing])
+        xc = ax_[crossing] + t * (bx_[crossing] - ax_[crossing])
+        ahead = xc > pxk
+        if not ahead.any():
+            continue
+        i = np.flatnonzero(crossing)[ahead][np.argmin(xc[ahead])]
+        cross = (b[i, 0] - a[i, 0]) * (py - a[i, 1]) - (b[i, 1] - a[i, 1]) * (px - a[i, 0])
+        if cross != 0:
+            return bool(cross > 0), int(owner[i])
+    return None, None
+
+
+def _land_only(g, coast: np.ndarray, tree, cbox) -> tuple:
+    """(land part of boundary `g` or None when none of it is land, removed sea parts, coastline gaps).
+    Each removed part is (area deg2, lat, lon, index of the coastline that decided it).
+    Each gap is (length km, lat, lon, index of the coastline): a coastline that ends in the middle of `g`
+    instead of closing, which lets land and sea run into each other.
+
+    The boundary is split by the coastlines that touch it into faces (so nothing is cut when no coastline
+    touches it). Whatever the split does not cover is added back as extra parts, so the parts always add up
+    to the whole boundary and nothing can get lost silently. Every part is then tested with _is_land and only
+    the parts that are certainly sea are removed.
+    """
+    shapely.prepare(g)
+    hits = tree.query(g, predicate="intersects")
+    parts: list = []
+    gaps: list = []
+    if len(hits):
+        # The coastlines are NOT cut to `g`: they are noded together with its boundary, so every crossing becomes
+        # a node of both lines and the faces close exactly. (Cutting them first leaves ends that miss the
+        # boundary by rounding, and those become loose ends.) They are only trimmed to a box around `g` for speed.
+        w, s_, e, n = g.bounds
+        margin = 0.1
+        lines = shapely.clip_by_rect(
+            shapely.multilinestrings(coast[hits]), w - margin, s_ - margin, e + margin, n + margin
+        )
+        noded = shapely.union_all([shapely.boundary(g), lines])
+        poly_c, _cuts, dangles, _bad = shapely.polygonize_full(shapely.get_parts(noded))
+        faces = [
+            f for f in shapely.get_parts(poly_c) if f.geom_type == "Polygon" and not f.is_empty
+        ]
+        for d in shapely.get_parts(dangles):
+            if d.is_empty or d.length < 5e-4:
+                continue
+            mid = shapely.line_interpolate_point(d, 0.5, normalized=True)
+            if not shapely.covers(g, mid):
+                continue
+            km = d.length * 111.32 * math.cos(math.radians(mid.y))
+            gaps.append((km, mid.y, mid.x, int(tree.nearest(mid))))
+        gaps.sort(reverse=True)
+        gaps = gaps[:5]
+        if faces:
+            farr = np.empty(len(faces), dtype=object)
+            farr[:] = faces
+            farr = farr[np.asarray(shapely.covers(g, shapely.point_on_surface(farr)), dtype=bool)]
+            parts = list(farr)
+            if len(farr):
+                try:
+                    rest = shapely.difference(g, shapely.union_all(farr))
+                    parts += [
+                        q
+                        for q in shapely.get_parts(rest)
+                        if q.geom_type == "Polygon" and q.area > MIN_LEFTOVER
+                    ]
+                except Exception:
+                    log.warning("Could not check the coastline split for coverage", exc_info=True)
+    if not parts:
+        parts = [q for q in shapely.get_parts(g) if q.geom_type == "Polygon" and not q.is_empty]
+
+    land, sea = [], []
+    for q in parts:
+        pt = shapely.point_on_surface(q)
+        is_land, way = _is_land(pt.x, pt.y, coast, tree, cbox)
+        if is_land is False:
+            sea.append((q.area, pt.y, pt.x, way))
+        else:
+            land.append(q)
+    if not sea:
+        return g, sea, gaps
+    return (_polys(shapely.union_all(land)) if land else None), sea, gaps
+
+
+def _land_level(data: dict, level: int) -> dict:
+    """One level's boundaries cut to land (cached). Boundaries that are entirely sea are dropped."""
+    with _LAND:
+        hit = data["land"].get(level)
+        if hit is not None:
+            return hit
+        lv = data["by_level"][level]
+        if data["tree"] is None:
+            hit = lv
+        else:
+            props, geoms = [], []
+            for p, g in zip(lv["props"], lv["geoms"], strict=True):
+                try:
+                    ng, sea, gaps = _land_only(g, data["coast"], data["tree"], data["cbox"])
+                except Exception:
+                    log.warning("Coastline cut failed for %s", p["name"], exc_info=True)
+                    ng, sea, gaps = g, [], []
+                if sea:
+                    kept = 0.0 if ng is None else 100 * ng.area / (g.area or 1e-12)
+                    log.info(
+                        "Coast cut ADM%d %s: %d sea part(s) removed, %.1f%% of its area kept",
+                        level,
+                        p["name"],
+                        len(sea),
+                        kept,
+                    )
+                    for area, lat, lon, way in sea:
+                        km2 = area * 111.32**2 * math.cos(math.radians(lat))
+                        log.info(
+                            "    removed %.3f km2 at %.5f, %.5f (decided by coastline way %s)",
+                            km2,
+                            lat,
+                            lon,
+                            data["coast_ids"][way],
+                        )
+                for km, lat, lon, way in gaps:
+                    log.info(
+                        "    coastline ends unclosed (%.2f km of loose line) near %.5f, %.5f (way %s)",
+                        km,
+                        lat,
+                        lon,
+                        data["coast_ids"][way],
+                    )
+                if ng is not None and not ng.is_empty:
+                    props.append(p)
+                    geoms.append(ng)
+            arr = np.empty(len(geoms), dtype=object)
+            arr[:] = geoms
+            hit = {"props": props, "geoms": arr}
+        data["land"][level] = hit
+        return hit
 
 
 # ── step 3: preview / export (from memory) ─────────────────────────────────
@@ -458,7 +691,7 @@ def _preview_features(data: dict, level: int, pct: int) -> list[str]:
     key = (level, pct)
     hit = data["cache"].get(key)
     if hit is None:
-        lv = data["by_level"][level]
+        lv = _land_level(data, level)
         geoms = _simplify(lv["geoms"], _tol(data, pct))
         gj = shapely.to_geojson(geoms)
         hit = [
@@ -499,12 +732,22 @@ def _export(data: dict, country_label: str, levels: list[int], simplify: int) ->
         raise HTTPException(422, "Pick at least one admin level")
     feats = []
     for lv in chosen:
-        item = data["by_level"][lv]
+        item = _land_level(data, lv)
         geoms = _simplify(item["geoms"], _tol(data, simplify))
         for p, g in zip(item["props"], geoms, strict=True):
             feats.append(
-                {"type": "Feature", "properties": p, "geometry": json.loads(shapely.to_geojson(g))}
+                {
+                    "type": "Feature",
+                    "properties": {
+                        "COUNTRY": data["country"],
+                        "ISO": p["iso"],
+                        "SUBDIVISION_NAME": p["name"],
+                    },
+                    "geometry": json.loads(shapely.to_geojson(g)),
+                }
             )
+    if not feats:
+        raise HTTPException(422, "Nothing of these levels is on land.")
     topology = Topology({"type": "FeatureCollection", "features": feats}, object_name="ADM")
     return topology.to_json(), f"{country_label}-ADM{'-'.join(map(str, chosen))}.topojson"
 
