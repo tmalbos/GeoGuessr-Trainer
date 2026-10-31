@@ -22,8 +22,9 @@ const tiers = (g) => {
 };
 
 /** layers: array of GeoJSON geometries. If the country outline can't be loaded, the region is drawn alone.
- *  stains (optional): [{ id, geometry, shade, active }] drawn one by one on top of the layers. With `onStain(id)`
- *  each one can be clicked (or Enter / Space) to switch it off and on; an inactive stain is drawn dark and faint. */
+ *  stains (optional): [{ id, label?, geometry, shade, active }] drawn one by one on top of the layers. Each stain is ONE
+ *  polygon. With `onStain(id)` each one can be clicked (or Enter / Space) to switch it off and on; an inactive stain is
+ *  drawn grey, faint and dashed. */
 export default function RegionPreview({ cc, layers, stains, onStain, style, align, label = "Map of the country with the region painted on it" }) {
   const [base, setBase] = useState(undefined); // undefined = loading, null = not available
   useEffect(() => {
@@ -75,14 +76,15 @@ export default function RegionPreview({ cc, layers, stains, onStain, style, alig
     {(stains ?? []).map((s) => {
       const op = s.active && s.shade ? 0.85 * shadeFactor(s.shade, stainTop) : null;
       const toggle = () => onStain?.(s.id);
+      const name = s.label ?? s.id;
       return <path key={s.id} className={`cl-poly cl-stain ${s.active ? "" : "off"}`} d={shapes(s.geometry, project).polys}
         fillRule="evenodd" style={op != null ? { fillOpacity: op, strokeOpacity: op } : undefined}
         {...(onStain ? {
-          role: "button", tabIndex: 0, "aria-pressed": s.active, "aria-label": `${s.id}: ${s.active ? "included" : "left out"}`,
+          role: "button", tabIndex: 0, "aria-pressed": s.active, "aria-label": `${name}: ${s.active ? "included" : "left out"}`,
           onClick: toggle,
           onKeyDown: (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggle(); } },
         } : {})}>
-        {onStain && <title>{s.id} · click to {s.active ? "leave it out" : "include it"}</title>}
+        {onStain && <title>{name} · click to {s.active ? "leave it out" : "include it"}</title>}
       </path>;
     })}
   </svg>;

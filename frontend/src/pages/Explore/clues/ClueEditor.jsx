@@ -67,7 +67,7 @@ const Tag = ({ t, kind, on, caret, onClick, ...rest }) =>
  *  `prefill` (import) = a new clue with its fields already filled in: { scope, info, general, location, source,
  *  image (a staged image), mediaText (a Street View link for the media slot), mediaError, areaFile (picture of the
  *  map for the region slot), progress }. `onSkip` adds a Skip button next to Save; `skipTo` ([{ key, label, go }])
- *  adds a small dropdown left of it with one "Skip to <label>" entry each (import: the guide's later sections).
+ *  turns it into a split button (Skip | ▾) whose caret opens one "Skip to <label>" entry each (import: the guide's later sections).
  *  The top part has the same layout as the clue card (image left; tags, text and sentences right);
  *  everything else sits below it. */
 export default function ClueEditor({ cc, name, clue, prefill, onClose, onSaved, onSkip, skipTo }) {
@@ -464,15 +464,19 @@ export default function ClueEditor({ cc, name, clue, prefill, onClose, onSaved, 
       <div className="ed-foot">
         {problems.length > 0 && <p className="muted problems">{problems[0]}</p>}
         <button type="button" className="btn ghost" onClick={requestClose}>Cancel</button>
-        {onSkip && skipTo?.length > 0 && <div className="ed-skip" ref={skipRef}>
-          <button type="button" className="btn ghost ed-skip-caret" aria-haspopup="menu" aria-expanded={skipOpen}
-            aria-label="Skip to a section" title="Skip to a section" disabled={saving} onClick={() => setSkipOpen((o) => !o)}>▴</button>
-          {skipOpen && <div className="ed-skip-menu" role="menu" aria-label="Skip to a section">
-            {skipTo.map((s) => <button key={s.key} type="button" role="menuitem" className="ed-skip-item"
-              onClick={() => { setSkipOpen(false); s.go(); }}>Skip to {s.label}</button>)}
-          </div>}
-        </div>}
-        {onSkip && <button type="button" className="btn ghost" disabled={saving} onClick={onSkip}>Skip</button>}
+        {/* Split button: "Skip" with the section dropdown glued to its right edge. */}
+        {onSkip && (skipTo?.length > 0
+          ? <div className="ed-skip" ref={skipRef}>
+              <button type="button" className="btn ghost ed-skip-main" disabled={saving} onClick={onSkip}>Skip</button>
+              <button type="button" className="btn ghost ed-skip-caret" aria-haspopup="menu" aria-expanded={skipOpen}
+                aria-label="Skip to a section" title="Skip to a section" disabled={saving} onClick={() => setSkipOpen((o) => !o)}>
+                <span aria-hidden="true">{skipOpen ? "▴" : "▾"}</span></button>
+              {skipOpen && <div className="ed-skip-menu" role="menu" aria-label="Skip to a section">
+                {skipTo.map((s) => <button key={s.key} type="button" role="menuitem" className="ed-skip-item"
+                  onClick={() => { setSkipOpen(false); s.go(); }}>Skip to {s.label}</button>)}
+              </div>}
+            </div>
+          : <button type="button" className="btn ghost" disabled={saving} onClick={onSkip}>Skip</button>)}
         <button type="button" className="btn" title={problems[0]} disabled={saving || problems.length > 0} onClick={save}>{saving ? "Saving…" : "Save clue"}</button>
       </div>
     </div>

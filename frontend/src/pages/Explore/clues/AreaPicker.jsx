@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { api, errorText } from "../../../lib/api.js";
 import { discardStaged, stagePath, stagedUrl } from "./imageTools.js";
 import { parseStreetView, streetViewShot } from "./mediaKinds.js";
@@ -29,12 +29,36 @@ const withShades = (feats) => {
   return feats.map((f, i) => ({ ...f, properties: { ...f.properties, shade: shades[i] } }));
 };
 
-// The stains of a stain-tool result (everything but the base map), each with its tag as id.
+// The stains of a stain-tool result (everything but the base map): one feature per colour.
 const stainsOf = (res) => (res?.geojson?.features ?? []).filter((f) => !f.properties?.base);
+
+// Every single polygon of every stain, as its own switchable part. A stain (colour) with several polygons
+// becomes several parts: `id` is unique per polygon, `tag` is the colour it belongs to (it decides the shade).
+const partsOf = (res) => stainsOf(res).flatMap((f) => {
+  const g = f.geometry;
+  const polys = g?.type === "MultiPolygon" ? g.coordinates : g?.type === "Polygon" ? [g.coordinates] : [];
+  const tag = f.properties.tag;
+  return polys.map((coords, i) => ({
+    id: `${tag}#${i + 1}`,
+    tag,
+    hex: f.properties.hex ?? f.properties.color,
+    label: polys.length > 1 ? `${tag} · part ${i + 1} of ${polys.length}` : tag,
+    geometry: { type: "Polygon", coordinates: coords },
+  }));
+});
+
+// Shade per colour, ranked among the colours that still have at least one part switched on.
+const shadesOf = (parts, off) => {
+  const hexOf = new Map();
+  for (const p of parts) if (!off.includes(p.id) && !hexOf.has(p.tag)) hexOf.set(p.tag, p.hex);
+  const tags = [...hexOf.keys()];
+  const shaded = withShades(tags.map((t) => ({ properties: { hex: hexOf.get(t) } })));
+  return new Map(tags.map((t, i) => [t, shaded[i].properties.shade]));
+};
 
 /** The region slot below the media: an SVG, CSV or geometry file, or a picture of the map, which is
  *  run through the stain tool for this country. The result is shown once, on the country (FilePicker's preview),
- *  and every stain can be clicked there to leave it out of the clue (click again to bring it back).
+ *  and every single polygon of every stain can be clicked there to leave it out of the clue (click again to bring it back).
  *  The picture itself only appears when the map has to be boxed by hand (not found / low confidence) or on request.
  *  A mapmaking.app export dropped / pasted / browsed into the same box is recognised: its locations inside this
  *  country are listed by tag, one tag becomes the region (shape tuned under "Customize"). */
@@ -42,7 +66,7 @@ export default function AreaPicker({ cc, value, current, onChange, stage, initia
   const [up, setUp] = useState(null);       // { token, url, map } — the picture sent to the stain tool
   const [crop, setCrop] = useState(null);   // [x0, y0, x1, y1] as fractions of the picture, drawn by hand
   const [res, setRes] = useState(null);     // stain result
-  const [off, setOff] = useState([]);       // tags of the stains the user left out
+  const [off, setOff] = useState([]);       // ids of the polygons the user left out
   const [draft, setDraft] = useState(null);
   const [adjust, setAdjust] = useState(false); // user asked to see the picture
   const [busy, setBusy] = useState(false);
@@ -136,7 +160,7 @@ export default function AreaPicker({ cc, value, current, onChange, stage, initia
   }, [mm, sel, params, cc]);
 
   // Look for the map (and read its colours) whenever the picture or the hand-drawn box changes.
-  // Staging the region from the result is done by the effect below, so it also follows the stains the user switches off.
+  // Staging the region from the result is done by the effect below, so it also follows the polygons the user switches off.
   useEffect(() => {
     if (!up) return undefined;
     if (up.map?.found === false && !crop) { setRes(null); setBusy(false); return undefined; }
@@ -156,15 +180,24 @@ export default function AreaPicker({ cc, value, current, onChange, stage, initia
     return () => { stale = true; clearTimeout(t); };
   }, [up, crop, cc]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // The region = the stains that are switched on. Re-staged whenever the result or the switches change.
+  // Every polygon of every stain, each one switchable on its own.
+  const parts = useMemo(() => partsOf(res), [res]);
+
+  // The region = the polygons that are switched on. Re-staged whenever the result or the switches change.
   useEffect(() => {
     if (!res) return undefined;
-    const active = stainsOf(res).filter((f) => !off.includes(f.properties.tag));
-    if (!active.length) return undefined; // the last stain can't be switched off (see toggleStain)
+    const active = parts.filter((p) => !off.includes(p.id));
+    if (!active.length) return undefined; // the last polygon can't be switched off (see toggleStain)
+    const shade = shadesOf(parts, off);
     let stale = false;
     const t = setTimeout(async () => {
       try {
-        const file = new File([JSON.stringify({ type: "FeatureCollection", features: withShades(active) })], "regions.geojson", { type: "application/geo+json" });
+        const features = active.map((p) => ({
+          type: "Feature",
+          properties: { tag: p.tag, shade: shade.get(p.tag) ?? 0 },
+          geometry: p.geometry,
+        }));
+        const file = new File([JSON.stringify({ type: "FeatureCollection", features })], "regions.geojson", { type: "application/geo+json" });
         const next = await stageRef.current({ file });
         if (stale) { discardStaged(next?.token); return; }
         discardStaged(staged.current);
@@ -173,28 +206,27 @@ export default function AreaPicker({ cc, value, current, onChange, stage, initia
       } catch (e) { if (!stale) setErr(errorText(e)); }
     }, 150);
     return () => { stale = true; clearTimeout(t); };
-  }, [res, off]);
+  }, [res, parts, off]);
 
-  const allStains = stainsOf(res);
-  const toggleStain = (tag) => setOff((o) => {
-    if (o.includes(tag)) return o.filter((t) => t !== tag);
-    return allStains.length - o.length <= 1 ? o : [...o, tag]; // at least one stain stays on
+  const toggleStain = (id) => setOff((o) => {
+    if (o.includes(id)) return o.filter((x) => x !== id);
+    return parts.length - o.length <= 1 ? o : [...o, id]; // at least one polygon stays on
   });
 
   // The stain preview replaces the default one, but only while the region on screen is the one made from the stains.
   let stainPreview;
-  if (res && value && value.token === staged.current && allStains.length) {
-    const active = allStains.filter((f) => !off.includes(f.properties.tag));
-    const shade = new Map(withShades(active).map((f) => [f.properties.tag, f.properties.shade]));
-    const stains = allStains.map((f) => ({
-      id: f.properties.tag,
-      geometry: f.geometry,
-      shade: shade.get(f.properties.tag) ?? 0,
-      active: !off.includes(f.properties.tag),
+  if (res && value && value.token === staged.current && parts.length) {
+    const shade = shadesOf(parts, off);
+    const stains = parts.map((p) => ({
+      id: p.id,
+      label: p.label,
+      geometry: p.geometry,
+      shade: shade.get(p.tag) ?? 0,
+      active: !off.includes(p.id),
     }));
     stainPreview = <div className="fp-prev">
       <RegionPreview cc={cc} layers={[]} stains={stains} onStain={toggleStain} />
-      <div className="muted">Click an area to leave it out of the clue, click it again to include it. At least one stays on.</div>
+      <div className="muted">Click an area to leave it out of the clue (it turns grey and dashed), click it again to include it. Each click affects one area only. At least one stays on.</div>
     </div>;
   }
 
@@ -263,7 +295,7 @@ export default function AreaPicker({ cc, value, current, onChange, stage, initia
         <span className="muted">
           {busy ? "Looking for the map…"
             : err ? err
-              : res ? `${allStains.length - off.length}${off.length ? ` of ${allStains.length}` : ""} areas included${showShot ? ". Drag a box around the map to search again." : ""}`
+              : res ? `${parts.length - off.length}${off.length ? ` of ${parts.length}` : ""} areas included${showShot ? ". Drag a box around the map to search again." : ""}`
                 : "The map wasn't found: drag a box around it."}
         </span>
         {res && !needBox && <button type="button" className="btn ghost" onClick={() => setAdjust((a) => !a)}>{adjust ? "Hide picture" : "Adjust"}</button>}
