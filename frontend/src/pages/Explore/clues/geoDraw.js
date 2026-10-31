@@ -23,13 +23,15 @@ export function bboxOf(gj) {
   return x0 === Infinity ? null : [x0, y0, x1, y1];
 }
 
-/** Fit a lon/lat bbox into W×H, keeping proportions (used for standalone thumbnails). */
-export function fitProjection(bbox, W, H, pad = 6) {
+/** Fit a lon/lat bbox into W×H, keeping proportions (used for standalone thumbnails).
+ *  `right` pushes the drawing against the right edge instead of centring it (tall, narrow countries
+ *  leave side margins, and on a clue photo the map should sit in the corner, not float in the middle). */
+export function fitProjection(bbox, W, H, pad = 6, right = false) {
   const [x0, y0, x1, y1] = bbox;
   const k = Math.cos((((y0 + y1) / 2) * Math.PI) / 180) || 1;
   const w = Math.max((x1 - x0) * k, 1e-6), h = Math.max(y1 - y0, 1e-6);
   const s = Math.min((W - 2 * pad) / w, (H - 2 * pad) / h);
-  const ox = (W - w * s) / 2, oy = (H - h * s) / 2;
+  const ox = right ? W - pad - w * s : (W - w * s) / 2, oy = (H - h * s) / 2;
   return ([lon, lat]) => [ox + (lon - x0) * k * s, oy + (y1 - lat) * s];
 }
 

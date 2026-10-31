@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import ConfirmDialog from "../../../components/ConfirmDialog.jsx";
 import Flag from "../../../components/Flag.jsx";
 import { api, errorText } from "../../../lib/api.js";
@@ -9,10 +9,11 @@ import ClueMap from "./ClueMap.jsx";
 import { Preview } from "./FilePicker.jsx";
 import RatingDots from "./RatingDots.jsx";
 import RelatePicker from "./RelatePicker.jsx";
+import RichEditor from "./RichEditor.jsx";
 import { useCountries } from "./countries.js";
 import fileUrl from "./fileUrl.js";
 import { discardStaged, stageFile, stagePath } from "./imageTools.js";
-import { kindOfFile, kindOfName, parseStreetView, streetViewShot } from "./mediaKinds.js";
+import { kindOfFile, kindOfName, resolveStreetView, streetViewShot } from "./mediaKinds.js";
 import { NOTE_TYPES, REL_LABEL, VERBS, joinNames, sameRel, uniq, verbFor } from "./relations.js";
 import { LocationIcon } from "./tagUi.jsx";
 import { CATEGORY_ICONS, DEFAULT_LOCATION, GENERAL_TAGS, LOCATION_TAGS, RATINGS, VISIBILITIES, tagHue } from "./tags.js";
@@ -102,7 +103,7 @@ export default function ClueEditor({ cc, name, clue, prefill, onClose, onSaved, 
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState("");
   const [confirm, setConfirm] = useState(false);
-  const areaEl = useRef(null);
+  const textEd = useRef(null);
   const slot = useRef(null);
   const skipRef = useRef(null);
   const colRef = useRef(null);
@@ -122,21 +123,6 @@ export default function ClueEditor({ cc, name, clue, prefill, onClose, onSaved, 
   const requestClose = () => (dirty ? setConfirm(true) : onClose());
   const closeRef = useRef(requestClose);
   closeRef.current = requestClose;
-
-  const wrap = (before, after = before) => {
-    const el = areaEl.current;
-    const { selectionStart: a, selectionEnd: b } = el;
-    setInfo(info.slice(0, a) + before + info.slice(a, b) + after + info.slice(b));
-    requestAnimationFrame(() => { el.focus(); el.setSelectionRange(a + before.length, b + before.length); });
-  };
-
-  // The text box grows with what is typed, like the paragraph on the card.
-  useLayoutEffect(() => {
-    const el = areaEl.current;
-    if (!el) return;
-    el.style.height = "auto";
-    el.style.height = `${el.scrollHeight + 2}px`;
-  }, [info]);
 
   // Escape closes the open tag menu / skip menu first, then asks before throwing work away.
   useEffect(() => {
@@ -216,9 +202,9 @@ export default function ClueEditor({ cc, name, clue, prefill, onClose, onSaved, 
   // Anything pasted into the media slot ends up here, except plain images (ClueImage edits those itself).
   const stageInput = async (input) => {
     const raw = input.file ? "" : String(input.path ?? input.text ?? "").trim().replace(/^"|"$/g, "");
-    const link = input.file ? null : parseStreetView(raw);
+    // Short links (maps.app.goo.gl) are followed by the backend; this throws if one can't be opened.
+    const link = input.file ? null : await resolveStreetView(raw);
     if (link) {
-      if (link.short) throw new Error("Short Google Maps links can't be read. Open the link and copy the full address.");
       if (!streetViewAvailable()) throw new Error("Street View isn't available with the current map source. Pick one in Settings.");
       const up = await stageFile(await streetViewShot(link));
       return { ...up, kind: "image" };
@@ -350,6 +336,9 @@ export default function ClueEditor({ cc, name, clue, prefill, onClose, onSaved, 
     if (k === "nat" && area.upload) takeArea(null);
   };
 
+  // Toolbar buttons must not steal the text selection from the editor.
+  const keepSel = (e) => e.preventDefault();
+
   return <div className="modal-back" onMouseDown={(e) => { if (e.target === e.currentTarget) requestClose(); }}>
     <div className="modal wide" role="dialog" aria-modal="true" aria-label={`${clue ? "Edit" : "Add"} clue for ${name}`}>
       <div className="modal-head">
@@ -413,14 +402,14 @@ export default function ClueEditor({ cc, name, clue, prefill, onClose, onSaved, 
               {VISIBILITIES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select>
           </div>
 
-          <textarea id="cl-info" className="ed-info" ref={areaEl} rows={4} value={info} aria-label="Info"
-            onChange={(e) => setInfo(e.target.value)} placeholder="What does this clue teach?" />
+          {/* Bold / italic / underline show formatted as you type; only links stay as [text](url). */}
+          <RichEditor ref={textEd} value={info} onChange={setInfo} label="Info" placeholder="What does this clue teach?" />
           <div className="rt-row">
             <div className="rt-bar" role="toolbar" aria-label="Text formatting">
-              <button type="button" title="Bold" aria-label="Bold" onClick={() => wrap("**")}><b>B</b></button>
-              <button type="button" title="Italic" aria-label="Italic" onClick={() => wrap("*")}><i>I</i></button>
-              <button type="button" title="Underline" aria-label="Underline" onClick={() => wrap("__")}><u>U</u></button>
-              <button type="button" title="Link" aria-label="Link" onClick={() => wrap("[", "](https://)")}><LinkIcon /></button>
+              <button type="button" title="Bold (Ctrl+B)" aria-label="Bold" onMouseDown={keepSel} onClick={() => textEd.current.format("bold")}><b>B</b></button>
+              <button type="button" title="Italic (Ctrl+I)" aria-label="Italic" onMouseDown={keepSel} onClick={() => textEd.current.format("italic")}><i>I</i></button>
+              <button type="button" title="Underline (Ctrl+U)" aria-label="Underline" onMouseDown={keepSel} onClick={() => textEd.current.format("underline")}><u>U</u></button>
+              <button type="button" title="Link" aria-label="Link" onMouseDown={keepSel} onClick={() => textEd.current.link()}><LinkIcon /></button>
             </div>
             {/* The card's source chip (site icon). Click it to edit the link: it widens into a text box. */}
             <div className={`chip neutral src ed-src ${srcOpen ? "open" : ""} ${srcBad ? "bad" : ""}`} ref={srcRef}>

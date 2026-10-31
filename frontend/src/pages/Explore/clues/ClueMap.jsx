@@ -21,6 +21,7 @@ function csvLevels(rows) {
 // The country with the areas a clue applies to painted on it.
 // - Geometry files (polygons / lines / points): drawn on the country's own outline and borders (RegionPreview).
 // - CSV: the country's first-level subdivisions, painted.
+// align="right": the map sits against the right edge of its box (overlay on a clue photo).
 export default function ClueMap({ cc, clue, align }) {
   const [map, setMap] = useState(null);
   const [geo, setGeo] = useState({});
@@ -52,6 +53,7 @@ export default function ClueMap({ cc, clue, align }) {
   const levels = clue.csv_rows ? csvLevels(clue.csv_rows) : new Map();
   const pad = 8;
   return <svg className="cl-svg" viewBox={`${-pad} ${-pad} ${map.w + pad * 2} ${map.h + pad * 2}`} role="img"
+    preserveAspectRatio={align === "right" ? "xMaxYMid meet" : undefined}
     aria-label={`Map of ${map.name} showing where this clue applies`}>
     {map.regions.map((r) => {
       const cls = `cl-r ${levels.get(norm(r.name)) ?? ""}`;

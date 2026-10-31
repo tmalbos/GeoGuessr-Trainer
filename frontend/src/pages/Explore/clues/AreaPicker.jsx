@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api, errorText } from "../../../lib/api.js";
 import { discardStaged, stagePath, stagedUrl } from "./imageTools.js";
-import { parseStreetView, streetViewShot } from "./mediaKinds.js";
+import { resolveStreetView, streetViewShot } from "./mediaKinds.js";
 import FilePicker from "./FilePicker.jsx";
 import RegionPreview from "./RegionPreview.jsx";
 import ShapeControls, { SHAPE_DEFAULTS } from "../../Technical/ShapeControls.jsx";
@@ -90,9 +90,8 @@ export default function AreaPicker({ cc, value, current, onChange, stage, initia
   const pictureOf = async (input) => {
     if (input.file) return input.file;
     const raw = strip(input.text ?? input.path);
-    const link = parseStreetView(raw);
+    const link = await resolveStreetView(raw); // follows short maps.app.goo.gl links
     if (!link) return null; // a local path: the server reads it
-    if (link.short) throw new Error("Short Google Maps links can't be read. Open the link and copy the full address.");
     return streetViewShot(link);
   };
 

@@ -1,0 +1,4 @@
+/* Text box of the clue editor: shows bold / italic / underline formatted. Grows with its content. */
+.rich-ed { min-height: 150px; padding: 9px 12px; border: 1px solid var(--line); border-radius: 6px; background: var(--raise);
+  font-size: 18px; line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere; cursor: text; }
+.rich-ed:empty::before { content: attr(data-placeholder); color: var(--mute); pointer-events: none; }

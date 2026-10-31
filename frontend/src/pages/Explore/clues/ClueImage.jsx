@@ -9,6 +9,7 @@ import { isPathLike, kindOfFile, kindOfName } from "./mediaKinds.js";
 import "./editor.css";
 
 const MIN_H = 120; // smallest height limit the handle can set (px)
+const IMG_MAX_H = 700; // a loaded image is never taller than this on the card
 const ANY_ACCEPT = "image/*,.svg,.csv,.geojson,.json,.gpkg,.zip,.parquet,.kml";
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
 
@@ -38,6 +39,9 @@ const HANDLES = [
 // A press this many pixels from a side (or corner) of the crop box resizes it; anything further
 // inside moves the whole box. Wide enough that the edges are easy to grab, on the handles or not.
 const EDGE_PX = 12;
+
+// Text boxes (inputs and the rich text editor) keep their own paste / Enter behaviour.
+const isTextField = (el) => !!el && (el.isContentEditable || /^(INPUT|TEXTAREA)$/.test(el.tagName ?? ""));
 
 /** Which drag starts at (px, py) — pixels inside the crop area. "w"/"e"/"n"/"s" (or two of them for a
  *  corner) resize, "move" moves the box, "" does nothing. */
@@ -71,7 +75,9 @@ function dragCrop(kind, s, dx, dy, min) {
  *  ref.resolve() -> staging token of the image to save, or null when the clue's current image is untouched.
  *  onState(has, sig): has = there is an image; sig changes whenever the image does (dirty tracking).
  *  `preview` (SVG / CSV / geometry) takes the picture's place; `incoming` is a staged image to adopt;
- *  anything that is not an image is handed to onOtherFile / onOtherText. */
+ *  anything that is not an image is handed to onOtherFile / onOtherText.
+ *  Height: any image that is loaded is capped at IMG_MAX_H (it gets narrower instead of taller). Cropping an image
+ *  that was already there caps the result at the height the original had. */
 const ClueImage = forwardRef(function ClueImage({ current, blur, onBlur, maxH, onMaxH, colRef, onState, overlay: badges,
   preview, incoming, onOtherFile, onOtherText, onRemove }, ref) {
   const toast = useToast();
@@ -111,6 +117,7 @@ const ClueImage = forwardRef(function ClueImage({ current, blur, onBlur, maxH, o
     work.current = null; setHist([]); showUrl(null);
     setSrc({ token: incoming.token, url: stagedUrl(incoming.token) });
     setMode("view");
+    loadImage(stagedUrl(incoming.token)).then((i) => keepHeight(0, i.naturalWidth, i.naturalHeight)).catch(() => {});
   }, [incoming]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useImperativeHandle(ref, () => ({
@@ -125,6 +132,22 @@ const ClueImage = forwardRef(function ClueImage({ current, blur, onBlur, maxH, o
     },
   }), []);
 
+  // ── height kept across edits ──
+  // How tall the image is on screen right now (the height limit counts; in crop mode the limit is off, so min() it).
+  const shownHeight = () => {
+    const h = img.current?.clientHeight || 0;
+    return h && maxH ? Math.min(maxH, h) : h;
+  };
+  // prevH = height of the original image when this is a crop of it, 0 for a freshly loaded image (then IMG_MAX_H).
+  // nw / nh = size of the new picture. Taller than the limit at the column's width -> it gets that height as its limit.
+  const keepHeight = (prevH, nw, nh) => {
+    if (!nw) return;
+    const limit = prevH || IMG_MAX_H;
+    const full = ((colRef.current?.clientWidth || 560) * nh) / nw;
+    if (full > limit + 4) onMaxH(Math.max(MIN_H, Math.round(limit)));
+    else if (!prevH || (maxH && maxH >= full - 4)) onMaxH(null);
+  };
+
   // ── pixels ──
   const showUrl = (u) => {
     if (blobUrl.current) URL.revokeObjectURL(blobUrl.current);
@@ -135,17 +158,19 @@ const ClueImage = forwardRef(function ClueImage({ current, blur, onBlur, maxH, o
     if (!work.current) work.current = toCanvas(await loadImage(live.current.src?.url ?? current));
     return work.current;
   };
-  const commit = async (next) => {
+  const commit = async (next, prevH = 0) => {
     const prev = work.current;
     showUrl(URL.createObjectURL(await toBlob(next)));
     work.current = next;
     setHist((h) => [...h, prev]);
+    keepHeight(prevH, next.width, next.height);
   };
   const run = async (fn) => {
+    const prevH = shownHeight(); // measured before anything changes (crop mode still shows the full-width image)
     setBusy(true); setErr("");
     try {
       const next = await fn(await getWork());
-      if (next) await commit(next);
+      if (next) await commit(next, prevH);
     } catch (e) { setErr(e.message || "Could not edit the image"); } finally { setBusy(false); }
   };
   const undo = async () => {
@@ -177,7 +202,7 @@ const ClueImage = forwardRef(function ClueImage({ current, blur, onBlur, maxH, o
     if (mode !== "crop") return undefined;
     const onKey = (e) => {
       if (e.key === "Escape") { e.stopPropagation(); e.preventDefault(); cancelCrop(); }
-      else if (e.key === "Enter" && !/^(INPUT|TEXTAREA|SELECT|BUTTON)$/.test(e.target?.tagName ?? "")) { e.preventDefault(); confirmCrop(); }
+      else if (e.key === "Enter" && !isTextField(e.target) && !/^(SELECT|BUTTON)$/.test(e.target?.tagName ?? "")) { e.preventDefault(); confirmCrop(); }
     };
     document.addEventListener("keydown", onKey, true);
     return () => document.removeEventListener("keydown", onKey, true);
@@ -192,6 +217,10 @@ const ClueImage = forwardRef(function ClueImage({ current, blur, onBlur, maxH, o
       work.current = null; setHist([]); showUrl(null);
       setSrc({ token: r.token, url: stagedUrl(r.token) });
       setMode("view");
+      try {
+        const i = await loadImage(stagedUrl(r.token));
+        keepHeight(0, i.naturalWidth, i.naturalHeight);
+      } catch { /* the image reports its own loading problems */ }
     } catch (e) { setErr(e.message); } finally { setBusy(false); }
   };
   const pickFile = (f) => {
@@ -213,7 +242,7 @@ const ClueImage = forwardRef(function ClueImage({ current, blur, onBlur, maxH, o
   // Ctrl+V anywhere in the editor (outside text fields): an image, a file path or a Street View link.
   useEffect(() => {
     const onPaste = (e) => {
-      if (/^(INPUT|TEXTAREA)$/.test(e.target?.tagName ?? "")) return;
+      if (isTextField(e.target)) return;
       const f = e.clipboardData?.files?.[0];
       if (f) { e.preventDefault(); pickRef.current.pickFile(f); return; }
       const t = (e.clipboardData?.getData("text") ?? "").trim();

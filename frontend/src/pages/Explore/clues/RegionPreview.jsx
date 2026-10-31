@@ -24,7 +24,8 @@ const tiers = (g) => {
 /** layers: array of GeoJSON geometries. If the country outline can't be loaded, the region is drawn alone.
  *  stains (optional): [{ id, label?, geometry, shade, active }] drawn one by one on top of the layers. Each stain is ONE
  *  polygon. With `onStain(id)` each one can be clicked (or Enter / Space) to switch it off and on; an inactive stain is
- *  drawn grey, faint and dashed. */
+ *  drawn grey, faint and dashed.
+ *  align="right": the country is drawn against the right edge of the box (used by the overlay on a clue photo). */
 export default function RegionPreview({ cc, layers, stains, onStain, style, align, label = "Map of the country with the region painted on it" }) {
   const [base, setBase] = useState(undefined); // undefined = loading, null = not available
   useEffect(() => {
@@ -46,13 +47,13 @@ export default function RegionPreview({ cc, layers, stains, onStain, style, alig
   const k = Math.cos((((bb[1] + bb[3]) / 2) * Math.PI) / 180) || 1;
   const ratio = (bb[3] - bb[1]) / Math.max((bb[2] - bb[0]) * k, 1e-6);
   const H = Math.round(Math.min(1400, Math.max(200, W * ratio)));
-  const project = fitProjection(bb, W, H, 6);
+  // A tall country is narrower than the viewBox: fitProjection would centre it, so right-align it there
+  // (and preserveAspectRatio below does the same when the box itself is wider than the drawing).
+  const project = fitProjection(bb, W, H, 6, align === "right");
   const land = outline ? shapes(outline, project).polys : "";
   const borders = base?.borders ? shapes(base.borders, project).lines : "";
   const stainTop = Math.max(0, ...(stains ?? []).filter((s) => s.active).map((s) => s.shade ?? 0));
 
-  // fitProjection centres a country that is too tall for the height cap, leaving side margins: `align="right"`
-  // pushes the drawing against the box's right edge (used by the overlay on a clue photo).
   return <svg className="cl-svg" style={style} viewBox={`0 0 ${W} ${H}`} role="img" aria-label={label}
     preserveAspectRatio={align === "right" ? "xMaxYMid meet" : undefined}>
     {land && <path className="cl-r" d={land} fillRule="evenodd" />}

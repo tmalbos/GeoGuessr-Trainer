@@ -5,12 +5,17 @@ every request answers 404 and the UI hides the photo.
 
 Photos are kept in memory for the life of the server only: nothing is written to disk and the
 browser is told not to store them either, so a server restart always refetches.
+
+GET /streetview/resolve?url=... follows a shortened Google Maps link (maps.app.goo.gl, goo.gl) and
+returns the full URL, which carries the coordinates and view angle.
 """
 
 import logging
 from collections import OrderedDict
 from typing import Annotated
+from urllib.parse import parse_qs, urlparse
 
+import httpx
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import Response
 
@@ -22,6 +27,39 @@ router = APIRouter()
 
 _PHOTOS: OrderedDict[tuple, bytes] = OrderedDict()
 _PHOTOS_MAX = 200
+
+SHORT_HOSTS = {"maps.app.goo.gl", "goo.gl"}
+BROWSER_UA = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/124.0 Safari/537.36"
+)
+
+
+@router.get("/streetview/resolve")
+async def streetview_resolve(request: Request, url: str):
+    """Full URL behind a short Google Maps link. Only Google's own short hosts are followed."""
+    parts = urlparse(url.strip())
+    if parts.scheme not in {"http", "https"} or (parts.hostname or "").lower() not in SHORT_HOSTS:
+        raise HTTPException(422, "Only short Google Maps links can be resolved.")
+    client = get_ctx(request).http_client
+    if client is None:
+        raise HTTPException(503, "The app is still starting. Try again in a moment.")
+    try:
+        r = await client.get(
+            url.strip(),
+            headers={"User-Agent": BROWSER_UA},
+            follow_redirects=True,
+            timeout=20,
+        )
+    except httpx.HTTPError as e:
+        raise HTTPException(502, "Could not open that Google Maps link.") from e
+    final = str(r.url)
+    host = urlparse(final).hostname or ""
+    if "consent." in host:  # Google's consent page wraps the real URL
+        cont = parse_qs(urlparse(final).query).get("continue")
+        if cont:
+            final = cont[0]
+    return {"url": final}
 
 
 @router.get("/streetview/photo")

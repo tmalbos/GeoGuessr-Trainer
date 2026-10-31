@@ -35,7 +35,8 @@ const ASPECT = 16 / 9; // keep equal to PHOTO_ASPECT in src/geo/map_providers.py
 const verticalFov = (h) => (2 * Math.atan(Math.tan((h * Math.PI) / 360) / ASPECT) * 180) / Math.PI;
 
 /** A Google Maps / Street View link -> { lat, lng, heading, pitch, fov } (fov vertical, may be null).
- *  Returns { short: true } for the shortened maps.app.goo.gl links, whose coordinates are not in the URL. */
+ *  Returns { short: true } for the shortened maps.app.goo.gl links, whose coordinates are not in the URL
+ *  (use resolveStreetView to follow those). */
 export function parseStreetView(text) {
   const s = String(text ?? "").trim();
   if (!/^https?:\/\//i.test(s)) return null;
@@ -86,6 +87,19 @@ export function parseStreetView(text) {
     pitch: Math.max(-90, Math.min(90, pitch ?? 0)),
     fov: fov == null ? null : Math.max(10, Math.min(120, verticalFov(fov))),
   };
+}
+
+/** Like parseStreetView, but shortened links (maps.app.goo.gl) are followed through the backend first.
+ *  Returns null when the text isn't a Google Maps link; throws when a link can't be opened or has no position. */
+export async function resolveStreetView(text) {
+  const first = parseStreetView(text);
+  if (!first?.short) return first;
+  const r = await fetch(`/api/streetview/resolve?url=${encodeURIComponent(String(text).trim())}`);
+  if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || "Could not open that Google Maps link.");
+  const { url } = await r.json();
+  const view = parseStreetView(url);
+  if (!view || view.short) throw new Error("That Google Maps link has no readable position.");
+  return view;
 }
 
 /** The Street View picture at that spot, as a File ready for the image staging endpoint. */
