@@ -244,6 +244,9 @@ class PolyBody(BaseModel):
     density_km: float = Field(
         100, ge=1, le=3000
     )  # "rare" = few other points within this distance (shades only)
+    hole_km2: float = Field(
+        10000, ge=0, le=1_000_000
+    )  # holes inside a shape smaller than this are filled (0 = keep all)
 
 
 def _thin(xy: np.ndarray, p: PolyBody) -> np.ndarray:
@@ -299,6 +302,24 @@ def _smooth(g, sigma: float):
     return shapely.union_all(parts) if parts else g
 
 
+def _fill_holes(g, max_km2: float):
+    """Fill the interior holes of a (multi)polygon that are smaller than max_km2. The outer edge is untouched."""
+    if g is None or g.is_empty or max_km2 <= 0:
+        return g
+    parts = []
+    for pg in shapely.get_parts(g):
+        if pg.geom_type != "Polygon":
+            continue
+        keep = []
+        for ring in pg.interiors:
+            hole = shapely.Polygon(ring)
+            km2 = hole.area * KM_PER_DEG**2 * math.cos(math.radians(hole.centroid.y))
+            if km2 > max_km2:
+                keep.append(ring)
+        parts.append(shapely.Polygon(pg.exterior, keep))
+    return shapely.union_all(parts) if parts else g
+
+
 def _shape(xy: np.ndarray, p: PolyBody):
     link = p.link_km / KM_PER_DEG
     pad = max(p.pad_km / KM_PER_DEG, 1e-4)
@@ -306,6 +327,7 @@ def _shape(xy: np.ndarray, p: PolyBody):
     # Grow by pad + link/2, shrink by link/2: gaps up to ~link get closed, nothing else moves.
     g = shapely.union_all(shapely.buffer(pts, pad + link / 2, quad_segs=QUAD))
     g = shapely.buffer(g, -link / 2, quad_segs=QUAD)
+    g = _fill_holes(g, p.hole_km2)
     return _smooth(g, p.curve * 0.25 * link)
 
 
@@ -397,6 +419,7 @@ def _run(ds: dict, p: PolyBody, local, gen: int | None) -> tuple[list[dict], lis
                 round(p.curve, 2),
                 p.shades,
                 p.density_km,
+                p.hole_km2,
                 local is not None,
             )
             hit = ds["cache"].get(key)
