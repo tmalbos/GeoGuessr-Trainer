@@ -2,7 +2,10 @@
 
 POST   /import/plonkit/start          {cc} -> {token, total, sections}   (fetches the guide page once)
                                          sections = [{step, title, index}]: the guide's sections that have clues,
-                                         `index` = position of the section's first clue (used by "Skip to <section>")
+                                         `index` = position of the section's first clue (used by "Skip to <section>").
+                                         A section is a guide step OR a "divider" inside a step (e.g. Landscape,
+                                         Infrastructure), so it matches what the Plonkit page shows. `step` here is
+                                         just a unique running number of the section.
 GET    /import/plonkit/{token}/{i}    -> the clue prefilled for the editor. Only a window of 2 clues
                                          (the current one + the next) is ever downloaded / kept in memory.
 GET    /import/plonkit/{token}/{i}/image -> the raw Plonkit image (used as the region picture of regional clues)
@@ -10,7 +13,8 @@ DELETE /import/plonkit/{token}        -> end the import and throw staged files a
 
 A clue is regional when the map detector finds a drawn map in its image AND the tip has a Street View link
 we can open. A map without a usable Street View link falls back to a national clue (the image as it is).
-Tags and text come from scripts/import_plonkit_clues.py (same rules). The source is page#step.
+Tags and text come from scripts/import_plonkit_clues.py (same rules). The source is page#step
+(the guide step the clue lives in, not the section number).
 """
 
 import asyncio
@@ -74,17 +78,22 @@ def _slug(name: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", s).strip("-")
 
 
-def _section_title(step: dict, number: int) -> str:
-    """The name of a guide section, or "Section N" when the step carries no readable title."""
+def _title_of(node: dict) -> str | None:
+    """The readable title of a step or divider, or None when it carries none."""
     for key in TITLE_KEYS:
-        v = step.get(key)
+        v = node.get(key)
         if isinstance(v, str) and v.strip():
             return v.strip()
         if isinstance(v, list):
             text = " ".join(x.strip() for x in v if isinstance(x, str) and x.strip())
             if text:
                 return text
-    return f"Section {number}"
+    return None
+
+
+def _section_title(step: dict, number: int) -> str:
+    """The name of a guide step, or "Section N" when the step carries no readable title."""
+    return _title_of(step) or f"Section {number}"
 
 
 def _find_link(data: dict) -> str | None:
@@ -280,18 +289,28 @@ async def plonkit_start(body: StartBody, request: Request):
     if guide is None:
         raise HTTPException(404, f"Plonkit has no guide for {name}.")
 
+    # Sections = what the Plonkit page shows: each step, plus each "divider" inside a step
+    # (Landscape, Infrastructure...). A section is only listed once it has a clue we can import,
+    # and `index` is where that first clue sits in `tips`.
     tips = []
-    titles: dict[int, str] = {}
+    sections: list[dict] = []
     for step_no, step in enumerate(guide.get("steps") or [], start=1):
-        titles[step_no] = _section_title(step, step_no)
+        pending = _section_title(step, step_no)  # title waiting for its first importable clue
         for item in step.get("items") or []:
-            if item.get("kind") != "tip":
+            kind = item.get("kind")
+            if kind == "divider":
+                pending = _title_of(item) or pending
+                continue
+            if kind != "tip":
                 continue
             data = item.get("data") or {}
             image_url = (data.get("image") or {}).get("imageUrl")
             text = mod.clean_text(data.get("text") or [])
             if not text or not image_url:
                 continue  # nothing to import without text and a picture
+            if pending is not None:
+                sections.append({"step": len(sections) + 1, "title": pending, "index": len(tips)})
+                pending = None
             tips.append(
                 {
                     "id": item.get("id") or uuid4().hex[:8],
@@ -304,15 +323,6 @@ async def plonkit_start(body: StartBody, request: Request):
             )
     if not tips:
         raise HTTPException(404, f"The Plonkit guide for {name} has no clues to import.")
-
-    # Sections that actually have clues, with the index of their first clue (for "Skip to <section>").
-    sections: list[dict] = []
-    seen: set[int] = set()
-    for idx, tip in enumerate(tips):
-        if tip["step"] in seen:
-            continue
-        seen.add(tip["step"])
-        sections.append({"step": tip["step"], "title": titles[tip["step"]], "index": idx})
 
     token = uuid4().hex
     s = {
