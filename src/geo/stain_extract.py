@@ -49,7 +49,7 @@ outline and first-level borders are known:
                    is. Only text and thin lines (neither a colour nor a blend) are filled from the
                    nearest labelled pixel. A pixel has exactly one label, so stains never overlap.
                    The small islands the fit outline leaves out (see _prep_outline) are added to the
-                   area that gets labelled, but they never define the colours.
+                   area that gets labelled; a colour found only there is added after the main ones.
   5. polygons      each label -> polygon straight from its pixels, so neighbouring stains share the
                    exact same boundary. No per-stain growing: the only changes are an optional
                    gap-free simplification (sub-pixel tolerance) when the polygons form a valid
@@ -1660,7 +1660,7 @@ def analyze(
         msg = "The map was placed outside the crop. Try a bigger crop."
         raise StainError(msg)
     # The fit outline leaves out the small islands (Tasmania, Tierra del Fuego...). They are added here so a
-    # stain on them is read too, but only the main outline defines the colours (below), so nothing else moves.
+    # stain on them is read too, but the colours of the main outline are found first, so they don't change.
     inside = inside_main
     if reg.get("placed_extra") is not None:
         extra = affine_transform(reg["placed_extra"], to_full)
@@ -1678,10 +1678,26 @@ def analyze(
     if not len(centers):
         msg = "No colours were found inside the map."
         raise StainError(msg)
+    # Colours that only exist on the small islands (a stain on Tierra del Fuego or Tasmania has no pixel in the
+    # main outline). Only island pixels that are not already one of the colours above can add one.
+    flat_all = _open(_grad(img) <= flat_t, rad(1))
+    if inside is not inside_main and len(centers) < max_classes:
+        # No flatness test here: a stain on an island is only a few pixels, and its edge is most of it.
+        ipix = img[inside & ~inside_main]
+        if len(ipix):
+            gap = (
+                np.abs(ipix[:, None, :].astype(np.int16) - np.rint(centers).astype(np.int16)[None])
+                .sum(2)
+                .min(1)
+            )
+            ipix = ipix[gap > tol]
+            if len(ipix):
+                more = _find_centers(ipix, tol, max_classes - len(centers), 0.0)
+                centers = np.vstack([centers, more])
 
     # 3b. ONE label per pixel. Every pixel that is one of the colours (or a blend of two) takes it: nothing
     # is eroded, opened or dropped, so a painted pixel always ends up in its stain, however thin the stain.
-    flat_region = _open(_grad(img) <= flat_t, rad(1)) & region
+    flat_region = flat_all & region
     lab = _assign(img, region, centers, cap * tol, seg_tol, flat_region, rad(near_px), blend_tol)
     lab = _fill_nearest(
         lab, inside
