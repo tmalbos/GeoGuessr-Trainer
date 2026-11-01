@@ -1,14 +1,13 @@
-"""osm_extract.py — Technical tool: open any .osm.pbf, pick what to extract, export it as GeoJSON.
+"""osm_extract.py — Technical tool: open any .osm.pbf, pick what to extract, export it as TopoJSON.
 Also splits a multi-country file into one .osm.pbf per country.
 
 Flow:
-    POST /technical/osm/open       {path}                          -> token + layers
-    POST /technical/osm/upload     (raw body, ?filename=)          -> same, for a file picked in the browser
+    (the file is opened by /technical/pbf/open or /technical/pbf/upload; the token is shared)
     POST /technical/osm/countries  {token}                         -> countries whose boundary is complete in the file
     POST /technical/osm/split      {token, countries, folder, strategy} -> one .osm.pbf per country (needs osmium-tool)
     POST /technical/osm/fields     {token, layer, sample}          -> every field (column + tag key) with its common values
     POST /technical/osm/preview    {token, layer, filters, limit}  -> a few features to look at on the map
-    POST /technical/osm/export     {token, layer, filters, fields} -> GeoJSON download
+    POST /technical/osm/export     {token, layer, filters, fields, name} -> TopoJSON download
 
 Reading goes through GDAL's OSM driver (pyogrio): layers points / lines / multilinestrings / multipolygons,
 the same ones extract_roads.py uses. A "field" is a GDAL column or a key inside other_tags; a filter is
@@ -24,14 +23,13 @@ import shutil
 import subprocess
 import tempfile
 import threading
-from collections import Counter, OrderedDict
+from collections import Counter
 from pathlib import Path
 from typing import Literal
-from uuid import uuid4
 
 import numpy as np
 import shapely
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 from starlette.responses import Response
@@ -41,15 +39,13 @@ from src.api.routers import pbf_admin as pbf
 log = logging.getLogger("uvicorn.error")
 router = APIRouter()
 
-_scan_relations = pbf._scan  # noqa: SLF001
 _read_ways = pbf._read_ways  # noqa: SLF001
 _assemble = pbf._assemble  # noqa: SLF001
 _clean = pbf._clean  # noqa: SLF001
 _oneline = pbf._oneline  # noqa: SLF001
 
-MAX_DATASETS = 3
 MAX_VALUES = 2000  # distinct values remembered per key while scanning
-TOP_VALUES = 15
+TOP_VALUES = 30
 MAX_KEYS = 500
 SKIP_VALUES = {
     "osm_id",
@@ -59,16 +55,8 @@ SKIP_VALUES = {
 GEOM_OK = [0, 1, 3, 4, 5, 6]  # point, line, polygon and their multi versions
 SPLIT_SIMPLIFY = 0.0003  # degrees (~30 m) on the country polygon handed to osmium
 PALETTE = ("#6cc0e5", "#ff7357", "#cdbf93", "#3fb97a", "#b07aa1", "#edc948", "#76b7b2", "#f28e2b")
-LAYERS = [
-    {"id": "multipolygons", "label": "Areas (polygons)"},
-    {"id": "lines", "label": "Lines (ways)"},
-    {"id": "multilinestrings", "label": "Route relations"},
-    {"id": "points", "label": "Points"},
-]
-LAYER_IDS = {x["id"] for x in LAYERS}
+LAYER_IDS = {"multipolygons", "lines", "multilinestrings", "points"}
 
-_DATASETS: OrderedDict[str, dict] = OrderedDict()
-_LOCK = threading.Lock()
 _GDAL = threading.Lock()  # one pass over the file at a time
 _COMPUTE = threading.Lock()  # country detection / splitting
 
@@ -105,13 +93,7 @@ def _stem(path: Path) -> str:
     return name
 
 
-def _dataset(token: str) -> dict:
-    with _LOCK:
-        ds = _DATASETS.get(token)
-        if ds is None:
-            raise HTTPException(410, "That file expired. Open it again.")
-        _DATASETS.move_to_end(token)
-        return ds
+_dataset = pbf._dataset  # noqa: SLF001  (same open file as the admin tool)
 
 
 def _check_layer(layer: str) -> None:
@@ -135,7 +117,7 @@ class Filter(BaseModel):
 
 
 def _columns(ds: dict, layer: str) -> list[str]:
-    cols = ds["cols"].get(layer)
+    cols = ds.setdefault("cols", {}).get(layer)
     if cols is None:
         import pyogrio
 
@@ -206,71 +188,8 @@ def _feature(props: dict, geom_text: str) -> str:
     )
 
 
-# ── open ───────────────────────────────────────────────────────────────────
-
-
-def _open(path_text: str, temporary: bool = False, display_name: str | None = None) -> dict:
-    path = Path(path_text.strip().strip('"'))
-    if not path.is_file():
-        raise HTTPException(404, f"No file at {path}")
-    if not path.name.lower().endswith(".pbf"):
-        raise HTTPException(422, "That is not an .osm.pbf file")
-    try:
-        import pyogrio  # noqa: F401
-    except ImportError as e:  # pragma: no cover
-        raise HTTPException(503, "The pyogrio package is not installed on the server.") from e
-    token = uuid4().hex
-    ds = {
-        "token": token,
-        "path": path,
-        "name": display_name or path.name,
-        "size": path.stat().st_size,
-        "temporary": temporary,
-        "cols": {},
-        "gen": 0,
-        "countries": None,
-        "polys": {},
-    }
-    with _LOCK:
-        _DATASETS[token] = ds
-        while len(_DATASETS) > MAX_DATASETS:
-            _, old = _DATASETS.popitem(last=False)
-            if old.get("temporary"):
-                old["path"].unlink(missing_ok=True)
-    return {
-        "token": token,
-        "file": {"name": ds["name"], "size": ds["size"]},
-        "layers": LAYERS,
-    }
-
-
-class OpenBody(BaseModel):
-    path: str = Field(min_length=1)
-
-
 class TokenBody(BaseModel):
     token: str
-
-
-@router.post("/technical/osm/open")
-async def open_osm(body: OpenBody):
-    return await run_in_threadpool(_guard, "read this file", _open, body.path)
-
-
-@router.post("/technical/osm/upload")
-async def upload_osm(request: Request, filename: str | None = None):
-    pbf.CACHE_DIR.mkdir(parents=True, exist_ok=True)
-    path = pbf.CACHE_DIR / f"osm-{uuid4().hex}.osm.pbf"
-    try:
-        with path.open("wb") as f:
-            async for chunk in request.stream():
-                f.write(chunk)
-        if path.stat().st_size == 0:
-            raise HTTPException(422, "Empty file")
-        return await run_in_threadpool(_open, str(path), True, filename)
-    except Exception:
-        path.unlink(missing_ok=True)
-        raise
 
 
 # ── fields ─────────────────────────────────────────────────────────────────
@@ -346,12 +265,13 @@ class ViewBody(TokenBody):
     filters: list[Filter] = Field(default_factory=list, max_length=20)
     fields: list[str] = Field(default_factory=list, max_length=300)
     limit: int = Field(2000, ge=1, le=20000)
+    name: str = Field("osm", max_length=60)
 
 
 def _preview(ds: dict, body: ViewBody, gen: int) -> str:
     keys = list(dict.fromkeys(["name", *[f.key for f in body.filters]]))
     with _GDAL:
-        if gen != ds["gen"]:  # a newer request replaced this one: skip the pass over the file
+        if gen != ds.get("gen"):  # a newer request replaced this one: skip the pass over the file
             return '{"stale":true}'
         geoms, vals = _table(ds, body.layer, body.filters, keys, body.limit)
     texts = shapely.to_geojson(geoms) if len(geoms) else []
@@ -371,6 +291,10 @@ def _preview(ds: dict, body: ViewBody, gen: int) -> str:
 
 
 def _export(ds: dict, body: ViewBody) -> str:
+    try:
+        from topojson import Topology
+    except ImportError as e:  # pragma: no cover
+        raise HTTPException(503, "The topojson package is not installed on the server.") from e
     fields = list(dict.fromkeys(body.fields))
     with _GDAL:
         geoms, vals = _table(ds, body.layer, body.filters, fields, None)
@@ -379,15 +303,16 @@ def _export(ds: dict, body: ViewBody) -> str:
         _feature({k: vals[k][i] for k in fields if vals[k][i]}, g) for i, g in enumerate(texts)
     ]
     if not feats:
-        raise HTTPException(422, "Nothing matches these filters.")
-    return '{"type":"FeatureCollection","features":[' + ",".join(feats) + "]}"
+        raise HTTPException(422, "Nothing matches this selection.")
+    fc = json.loads('{"type":"FeatureCollection","features":[' + ",".join(feats) + "]}")
+    return Topology(fc, object_name=_safe(body.name)).to_json()
 
 
 @router.post("/technical/osm/preview")
 async def preview_osm(body: ViewBody):
     ds = _dataset(body.token)
     _check_layer(body.layer)
-    ds["gen"] += 1
+    ds["gen"] = ds.get("gen", 0) + 1
     text = await run_in_threadpool(_guard, "read this layer", _preview, ds, body, ds["gen"])
     return Response(content=text, media_type="application/json")
 
@@ -397,10 +322,10 @@ async def export_osm(body: ViewBody):
     ds = _dataset(body.token)
     _check_layer(body.layer)
     text = await run_in_threadpool(_guard, "export this layer", _export, ds, body)
-    filename = f"{_safe(_stem(ds['path']))}-{body.layer}.geojson"
+    filename = f"{_safe(_stem(ds['path']))}-{_safe(body.name)}.topojson"
     return Response(
         content=text,
-        media_type="application/geo+json",
+        media_type="application/topojson+json",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
@@ -413,19 +338,18 @@ def _load_countries(ds: dict) -> None:
     neighbours; those are not countries you could split out). One pass over the boundary ways, cached.
     """
     with _COMPUTE:
-        if ds["countries"] is not None:
+        if ds.get("split_countries") is not None:
             return
-        countries, rels = _scan_relations(ds["path"])
-        rels = {k: v for k, v in rels.items() if v["level"] == 2}
+        rels = {k: v for k, v in ds["rels"].items() if v["level"] == 2}
         wanted: set[int] = set()
-        for c in countries:
+        for c in ds["countries"]:
             r = rels.get(int(c["id"]))
             if r:
                 wanted.update(r["outer"])
                 wanted.update(r["inner"])
         ways = _read_ways(ds["path"], wanted, None) if wanted else {}
         polys = {}
-        for c in countries:
+        for c in ds["countries"]:
             r = rels.get(int(c["id"]))
             try:
                 g = _assemble(r, ways) if r else None
@@ -434,15 +358,15 @@ def _load_countries(ds: dict) -> None:
                 g = None
             if g is not None and not g.is_empty:
                 polys[c["id"]] = g
-        ds["polys"] = polys
-        ds["countries"] = [c for c in countries if c["id"] in polys]
+        ds["split_polys"] = polys
+        ds["split_countries"] = [c for c in ds["countries"] if c["id"] in polys]
 
 
 @router.post("/technical/osm/countries")
 async def countries_osm(body: TokenBody):
     ds = _dataset(body.token)
     await run_in_threadpool(_guard, "check the countries", _load_countries, ds)
-    return {"countries": ds["countries"]}
+    return {"countries": ds["split_countries"]}
 
 
 class SplitBody(TokenBody):
@@ -458,7 +382,7 @@ def _split(ds: dict, body: SplitBody) -> dict:
             503, "osmium-tool isn't installed or not on PATH. Install it, then restart."
         )
     _load_countries(ds)
-    chosen = [c for c in ds["countries"] if c["id"] in set(body.countries)]
+    chosen = [c for c in ds["split_countries"] if c["id"] in set(body.countries)]
     if not chosen:
         raise HTTPException(422, "Pick at least one country.")
     folder = body.folder.strip().strip('"')
@@ -475,7 +399,7 @@ def _split(ds: dict, body: SplitBody) -> dict:
             if label in used:
                 label = f"{label}_{c['id']}"
             used.add(label)
-            geom = shapely.simplify(ds["polys"][c["id"]], SPLIT_SIMPLIFY)
+            geom = shapely.simplify(ds["split_polys"][c["id"]], SPLIT_SIMPLIFY)
             poly = tmp / f"{label}.geojson"
             poly.write_text(
                 json.dumps(

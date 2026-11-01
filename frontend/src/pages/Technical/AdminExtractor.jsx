@@ -1,17 +1,21 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import ErrorBox from "../../components/ErrorBox.jsx";
 import { api, errorText } from "../../lib/api.js";
+import ExtractPanel, { MODES } from "./ExtractPanel.jsx";
 import { download } from "./export.js";
 import PolyMap from "./PolyMap.jsx";
+import SplitCard from "./SplitCard.jsx";
 import "./technical.css";
 
 const COLORS = ["#4e79a7", "#f28e2b", "#e15759", "#76b7b2", "#59a14f", "#edc948", "#b07aa1", "#ff9da7", "#9c755f", "#bab0ac"];
 const colorOf = (level) => COLORS[level % COLORS.length];
 const PREVIEW_PCT = 5; // same floor as the server
-const memo = { ds: null, country: "", levels: [], simplify: 0 };
+const memo = { ds: null, mode: "admin", country: "", levels: [], simplify: 0 };
 
 export default function AdminExtractor() {
   const [ds, setDs] = useState(memo.ds);
+  const [mode, setMode] = useState(memo.mode); // "admin" or one of the kinds in ExtractPanel
+  const [view, setView] = useState(null); // { res, busy } of the preview of a non-admin kind
   const [country, setCountry] = useState(memo.country);
   const [levels, setLevels] = useState(memo.levels);
   const [simplify, setSimplify] = useState(memo.simplify);
@@ -29,11 +33,11 @@ export default function AdminExtractor() {
   const input = useRef(null);
   const cache = useRef(new Map()); // `${token}|${country}|${level}|${pct}` -> features (a level is fetched once)
   const last = useRef({ k: "", fc: null });
-  memo.ds = ds; memo.country = country; memo.levels = levels; memo.simplify = simplify;
+  memo.ds = ds; memo.mode = mode; memo.country = country; memo.levels = levels; memo.simplify = simplify;
 
   const accept = (d) => {
     cache.current.clear();
-    setDs(d); setCountry(""); setLevels([]); setInfo(null); setErr("");
+    setDs(d); setCountry(""); setLevels([]); setInfo(null); setErr(""); setView(null);
   };
 
   const upload = async (file) => {
@@ -47,10 +51,10 @@ export default function AdminExtractor() {
   };
 
   // A file already on this machine: nothing is copied, so big files open much faster.
-  const openPath = async () => {
-    if (!path.trim()) return;
+  const openPath = async (p = path) => {
+    if (!p.trim()) return;
     setLoading(true); setErr("");
-    try { accept(await api("/technical/pbf/open", { method: "POST", body: { path } })); }
+    try { accept(await api("/technical/pbf/open", { method: "POST", body: { path: p } })); }
     catch (e) { setErr(errorText(e)); } finally { setLoading(false); }
   };
 
@@ -127,6 +131,9 @@ export default function AdminExtractor() {
 
   const toggleLevel = (level) => setLevels((ls) => (ls.includes(level) ? ls.filter((x) => x !== level) : [...ls, level].sort((a, b) => a - b)));
 
+  const admin = mode === "admin";
+  const other = view?.res;
+
   return <div className="tp">
     <div className="tp-side">
       <div className={`tp-drop ${over ? "over" : ""}`}
@@ -140,11 +147,23 @@ export default function AdminExtractor() {
         <div className="tp-row">
           <input id="pbf-path" value={path} placeholder="C:\maps\argentina-latest.osm.pbf" onChange={(e) => setPath(e.target.value)}
             onKeyDown={(e) => { if (e.key === "Enter") openPath(); }} />
-          <button type="button" className="btn ghost" disabled={loading || !path.trim()} onClick={openPath}>Open</button>
+          <button type="button" className="btn ghost" disabled={loading || !path.trim()} onClick={() => openPath()}>Open</button>
         </div>
       </div>
 
+      {ds && <SplitCard ds={ds} onOpen={(p) => { setPath(p); openPath(p); }} />}
+
       {ds && <>
+        <h3>What to extract</h3>
+        <div className="tabs">
+          {MODES.map((m) => <button key={m.id} type="button" className={m.id === mode ? "on" : ""} aria-pressed={m.id === mode}
+            onClick={() => { setMode(m.id); setErr(""); }}>{m.label}</button>)}
+        </div>
+      </>}
+
+      {ds && !admin && <ExtractPanel ds={ds} mode={mode} onView={setView} />}
+
+      {ds && admin && <>
         <h3>Country</h3>
         <input type="search" aria-label="Search countries" placeholder="Search countries" value={search} onChange={(e) => setSearch(e.target.value)} />
         <div className="tp-tags">
@@ -184,8 +203,16 @@ export default function AdminExtractor() {
 
     <div className="tp-main">
       {err && <ErrorBox message={err} />}
-      {(extracting || busy) && <p className="muted">{extracting ? "Building this country…" : "Loading…"}</p>}
-      {ds && country && <PolyMap features={fc} fitKey={fc ? `${ds.token}|${country}` : null} />}
+      {admin && (extracting || busy) && <p className="muted">{extracting ? "Building this country…" : "Loading…"}</p>}
+      {admin && ds && country && <PolyMap features={fc} fitKey={fc ? `${ds.token}|${country}` : null} />}
+      {!admin && ds && <>
+        <PolyMap features={other?.geojson?.features.length ? other.geojson : null} fitKey={other?.key} />
+        <div className="tp-stats muted">
+          {view?.busy ? "Searching the file…" : other
+            ? (other.count ? `${other.count.toLocaleString()} shown${other.truncated ? " (preview limit; the export has all of them)" : ""}` : "Nothing matches.")
+            : ""}
+        </div>
+      </>}
     </div>
   </div>;
 }

@@ -1,6 +1,5 @@
 import { navigate } from "../../lib/router.js";
 import AdminExtractor from "./AdminExtractor.jsx";
-import OsmExtractor from "./OsmExtractor.jsx";
 import Polygonizer from "./Polygonizer.jsx";
 import StainTool from "./StainTool.jsx";
 
@@ -9,7 +8,6 @@ const TOOLS = [
   { id: "polygonizer", label: "Polygonizer", Component: Polygonizer },
   { id: "stain", label: "Stain to polygons", Component: StainTool },
   { id: "admin", label: "Admin boundaries", Component: AdminExtractor },
-  { id: "osm", label: "OSM extractor", Component: OsmExtractor },
 ];
 
 export default function Technical({ seg }) {
