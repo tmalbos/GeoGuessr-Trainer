@@ -21,6 +21,8 @@ Relations: a clue has `relations: [{type, cc, id}]` (same_as | similar_to | grou
          `max_height`: px cap for the clue image on the card (only kept when the clue has an image).
 Shades:  a polygons file may carry a `shade` column (0 = the main tone, 1..4 = lighter = rarer part of the region).
          The geo preview / GET /clues/{CC}/geo/{file} then adds a `shades` list next to the geometries.
+Stats:   staging a geometry file also returns `stats` (see src/geo/region_stats.py): the editor uses them to
+         pre-fill the ratings of a new clue.
 Needs:   Pillow, geopandas, shapely (>= 2.1 for gap-free coverage simplification), pyarrow, pyyaml.
 """
 
@@ -47,6 +49,7 @@ from PIL import Image, ImageOps
 from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 
+from src.geo.region_stats import region_stats
 from src.geo.subcontinents import SUBCONTINENTS
 
 CLUES_DIR = Path(__file__).parents[3] / "data" / "clues"
@@ -364,6 +367,7 @@ def _process_geo(data: bytes, suffix: str, token: str) -> tuple[str, dict]:
         "bytes_out": out.stat().st_size,
         "bbox": [float(v) for v in shapely.total_bounds(parts)],
         "geojson": _to_geojson(parts, PREVIEW_MAX_FEATURES, shades),
+        "stats": region_stats(parts, shades, kind),  # pre-fills the ratings of a new clue
     }
 
 

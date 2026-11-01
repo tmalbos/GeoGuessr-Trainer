@@ -20,6 +20,7 @@ Tags and text come from scripts/import_plonkit_clues.py (same rules). The source
 import asyncio
 import contextlib
 import importlib.util
+import io
 import logging
 import math
 import re
@@ -32,6 +33,7 @@ from urllib.parse import parse_qs, urlparse
 from uuid import uuid4
 
 from fastapi import APIRouter, HTTPException, Request, Response
+from PIL import Image
 from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
@@ -52,6 +54,7 @@ UA = (
 WINDOW = 2
 MAX_SESSIONS = 3
 PAUSE_S = 2.0
+AREA_MAX = 800  # longest side of the picture the stain tool reads, px (the size the guide shows it)
 MAPS_RE = re.compile(
     r"https?://(?:maps\.app\.goo\.gl|goo\.gl/maps|(?:www\.)?google\.[a-z.]+/maps)\S*", re.IGNORECASE
 )
@@ -136,6 +139,25 @@ def _has_map(data: bytes) -> bool:
     except StainError:
         return False
     return detect_map(work).get("found") is True
+
+
+def _area_picture(data: bytes) -> bytes:
+    """The clue picture at the size the guide shows it: the originals are ~2200 px wide, and the stain
+    tool reads those differently from the copy the page displays.
+    """
+    try:
+        img = Image.open(io.BytesIO(data))
+    except Exception:  # noqa: BLE001
+        return data
+    if max(img.size) <= AREA_MAX:
+        return data
+    s = AREA_MAX / max(img.size)
+    img = img.convert("RGBA").resize(
+        (max(1, round(img.width * s)), max(1, round(img.height * s))), Image.LANCZOS
+    )
+    buf = io.BytesIO()
+    img.save(buf, "PNG")
+    return buf.getvalue()
 
 
 def _drop(res: dict | None) -> None:
@@ -229,8 +251,8 @@ async def _build(ctx, s: dict, i: int) -> dict:
                 "has_image": True,
                 "street_view_url": street_view_url,
                 "street_view_error": "",
-                "_image": data if regional else None,
-                "_media": r.headers.get("content-type", "image/png"),
+                "_image": await run_in_threadpool(_area_picture, data) if regional else None,
+                "_media": "image/png",
             }
             if not regional:
                 try:

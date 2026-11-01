@@ -17,7 +17,7 @@ const memo = { country: "" }; // remembered while you move between pages
 // Small, bounded steps for the stain constants. `tol` is sent separately (it is a top-level API field).
 const TUNING = [
   { key: "tol", label: "TOL · shade merge", min: 8, max: 120, step: 1, digits: 0 },
-  { key: "cap", label: "CAP · colour reach", min: 0.5, max: 5, step: 0.05, digits: 2 },
+  { key: "cap", label: "CAP · colour reach", min: 0.1, max: 5, step: 0.05, digits: 2 },
   { key: "seg_tol", label: "SEG_TOL · blend reach", min: 0, max: 150, step: 0.5, digits: 1 },
   { key: "near_px", label: "NEAR_PX · nearby colours", min: 1, max: 12, step: 1, digits: 0 },
   { key: "grow_px", label: "GROW_PX · beyond outline", min: 0, max: 20, step: 1, digits: 0 },

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import ConfirmDialog from "../../../components/ConfirmDialog.jsx";
 import Flag from "../../../components/Flag.jsx";
 import { api, errorText } from "../../../lib/api.js";
@@ -10,6 +10,7 @@ import { Preview } from "./FilePicker.jsx";
 import RatingDots from "./RatingDots.jsx";
 import RelatePicker from "./RelatePicker.jsx";
 import RichEditor from "./RichEditor.jsx";
+import { MAPMAKING_FILE, autoRatings } from "./autoRatings.js";
 import { useCountries } from "./countries.js";
 import fileUrl from "./fileUrl.js";
 import { discardStaged, stageFile, stagePath } from "./imageTools.js";
@@ -70,7 +71,10 @@ const Tag = ({ t, kind, on, caret, onClick, ...rest }) =>
  *  map for the region slot), progress }. `onSkip` adds a Skip button next to Save; `skipTo` ([{ key, label, go }])
  *  turns it into a split button (Skip | ▾) whose caret opens one "Skip to <label>" entry each (import: the guide's later sections).
  *  The top part has the same layout as the clue card (image left; tags, text and sentences right);
- *  everything else sits below it. */
+ *  everything else sits below it.
+ *  Ratings: on a NEW clue (created or imported) they are filled automatically (see autoRatings.js) and follow the text,
+ *  the relations and the region until the user sets that rating by hand (× on a rating gives it back to the automation).
+ *  Each rating is independent. Editing an existing clue never touches its ratings. */
 export default function ClueEditor({ cc, name, clue, prefill, onClose, onSaved, onSkip, skipTo }) {
   const { nameOf } = useCountries();
   const [scope, setScope] = useState(clue?.scope ?? prefill?.scope ?? "nat");
@@ -81,6 +85,8 @@ export default function ClueEditor({ cc, name, clue, prefill, onClose, onSaved, 
   const [menu, setMenu] = useState(null); // null | "cat" | "loc"
   const [skipOpen, setSkipOpen] = useState(false); // the "Skip to <section>" dropdown
   const [rating, setRating] = useState(() => Object.fromEntries(RATINGS.map(([k]) => [k, clue?.[k] != null ? String(clue[k]) : ""])));
+  // manual[k] = the user set this rating by hand, so the automation leaves it alone. An existing clue is all manual.
+  const [manual, setManual] = useState(() => Object.fromEntries(RATINGS.map(([k]) => [k, !!clue])));
   const [visibility, setVisibility] = useState(clue?.visibility ?? "visible");
   const [blur, setBlur] = useState(!!clue?.blur || prefill?.general === "License Plate");
   const [maxH, setMaxH] = useState(clue?.max_height ?? null); // px cap for the image on the card
@@ -116,7 +122,30 @@ export default function ClueEditor({ cc, name, clue, prefill, onClose, onSaved, 
   const mainKind = media.kind ?? (img.has ? "image" : null); // what the media slot is showing now
   const isImage = mainKind === "image";
   const showArea = scope === "reg" && isImage; // a photo needs a region; an SVG/CSV/geometry is its own
-  const snapshot = () => JSON.stringify([scope, info, general, location, rating, visibility, blur, maxH,
+
+  // ── automatic ratings (new clues only) ──
+  // The region's numbers come from the geometry the server staged (polygons, shades, separate pieces, spread).
+  const regionUp = scope === "reg" ? (showArea ? area.upload : mainKind === "geometry" ? media.upload : null) : null;
+  const auto = useMemo(() => autoRatings({
+    scope, info, relations, stats: regionUp?.stats ?? null, fromMapmaking: regionUp?.name === MAPMAKING_FILE,
+  }), [scope, info, relations, regionUp]);
+  useEffect(() => {
+    if (clue) return;
+    setRating((r) => {
+      const next = { ...r };
+      let changed = false;
+      for (const [k] of RATINGS) if (!manual[k] && next[k] !== auto[k]) { next[k] = auto[k]; changed = true; }
+      return changed ? next : r;
+    });
+  }, [auto, manual, clue]);
+  const setRatingByHand = (k, v) => {
+    setRating((r) => ({ ...r, [k]: v }));
+    // Setting a value takes the rating over; clearing it (×) hands it back to the automation (new clues only).
+    setManual((m) => ({ ...m, [k]: !!clue || v !== "" }));
+  };
+
+  // Only ratings set by hand count as "changes": the automatic ones alone shouldn't make a fresh form look dirty.
+  const snapshot = () => JSON.stringify([scope, info, general, location, RATINGS.map(([k]) => (manual[k] ? rating[k] : null)), visibility, blur, maxH,
     img.sig, source, relations, notes, badge, mainKind, media.upload?.token ?? "", area.kind, area.upload?.token ?? ""]);
   const initial = useRef(snapshot());
   const dirty = snapshot() !== initial.current;
@@ -445,7 +474,8 @@ export default function ClueEditor({ cc, name, clue, prefill, onClose, onSaved, 
       <div className="ed-extra">
         <div className="rates-dots">
           {RATINGS.map(([k, label, lo, hi]) => <RatingDots key={k} label={label} lo={lo} hi={hi} value={rating[k]}
-            onChange={(v) => setRating((r) => ({ ...r, [k]: v }))} />)}
+            onChange={(v) => setRatingByHand(k, v)} />)}
+          {!clue && <p className="muted">Ratings fill in by themselves until you set one. × gives it back to the automation.</p>}
         </div>
       </div>
 

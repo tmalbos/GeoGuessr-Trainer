@@ -61,7 +61,9 @@ const shadesOf = (parts, off) => {
  *  and every single polygon of every stain can be clicked there to leave it out of the clue (click again to bring it back).
  *  The picture itself only appears when the map has to be boxed by hand (not found / low confidence) or on request.
  *  A mapmaking.app export dropped / pasted / browsed into the same box is recognised: its locations inside this
- *  country are listed by tag, one tag becomes the region (shape tuned under "Customize"). */
+ *  country are listed by tag, one tag becomes the region (shape tuned under "Customize"). The staged region then
+ *  carries `stats.spread_km` from the server (average distance between the points of each polygon, shades ignored),
+ *  which the editor uses to rate the frequency. */
 export default function AreaPicker({ cc, value, current, onChange, stage, initialPicture }) {
   const [up, setUp] = useState(null);       // { token, url, map } — the picture sent to the stain tool
   const [crop, setCrop] = useState(null);   // [x0, y0, x1, y1] as fractions of the picture, drawn by hand
@@ -152,7 +154,9 @@ export default function AreaPicker({ cc, value, current, onChange, stage, initia
         const file = new File([JSON.stringify(r.features)], "mapmaking.geojson", { type: "application/geo+json" });
         const next = await stageRef.current({ file });
         if (stale) { discardStaged(next?.token); return; }
-        changeRef.current(next);
+        // The real spread (from the points of each polygon) replaces the editor's outline-based estimate.
+        const withSpread = next && r.spread_km != null ? { ...next, stats: { ...next.stats, spread_km: r.spread_km } } : next;
+        changeRef.current(withSpread);
       } catch (e) { if (!stale) setMmErr(errorText(e)); } finally { if (!stale) setMmBusy(false); }
     }, 400);
     return () => { stale = true; clearTimeout(t); };

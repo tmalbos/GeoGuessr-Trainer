@@ -111,7 +111,7 @@ def _prepare(data: bytes) -> dict:
 class StainParams(BaseModel):
     """Live overrides of the stain step (the map registration is reused)."""
 
-    cap: float = Field(CAP, ge=0.5, le=5.0)
+    cap: float = Field(CAP, ge=0.1, le=5.0)
     seg_tol: float = Field(SEG_TOL, ge=0.0, le=150.0)
     near_px: int = Field(NEAR_PX, ge=1, le=12)
     grow_px: int = Field(GROW_PX, ge=0, le=20)

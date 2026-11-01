@@ -5,6 +5,8 @@ Flow:  POST /technical/mapmaking   -> raw JSON file in the body; parsed and kept
                                       (used by the clue editor)
        POST /technical/polygonize  -> {token, tags, link_km, pad_km, curve} -> one GeoJSON feature per selected tag
        POST /technical/polygonize/base -> {.., code?} -> countries spanned, or that country + the shapes cut to it (image export)
+                                      With `code` it also returns `spread_km` (see _spread_km), used by the clue editor
+                                      to rate the frequency of a mapmaking region.
 Datasets live in memory only (last few uploads); a server restart means loading the file again (410).
 Distances are approximated in degrees (1 deg ~ 111 km), fine for a first pass but loose near the poles.
 """
@@ -230,6 +232,7 @@ CLIP_MARGIN = 0.5  # degrees of land kept around the shape when clipping
 HIT_SHARE = (
     0.05  # a country counts for an image export when it holds at least this share of the shape
 )
+SPREAD_SAMPLE = 400  # a cluster with more points than this is measured on an evenly spaced subset
 
 
 class PolyBody(BaseModel):
@@ -548,11 +551,45 @@ def _countries_hit(local, g) -> list[dict]:
     return sorted(out, key=lambda x: -x["share"])
 
 
+def _mean_pairwise_km(xy: np.ndarray) -> float:
+    """Mean distance between the points of one cluster, in km. One point = 0."""
+    if len(xy) < 2:
+        return 0.0
+    if len(xy) > SPREAD_SAMPLE:
+        xy = xy[:: -(-len(xy) // SPREAD_SAMPLE)]
+    k = math.cos(math.radians(float(xy[:, 1].mean())))
+    p = np.column_stack([xy[:, 0] * k, xy[:, 1]]) * KM_PER_DEG
+    d = np.hypot(p[:, None, 0] - p[None, :, 0], p[:, None, 1] - p[None, :, 1])
+    n = len(p)
+    return float(d.sum() / (n * (n - 1)))
+
+
+def _spread_km(polys: list, xy: np.ndarray) -> float | None:
+    """Average, over the polygons, of the mean distance between the points inside each polygon (km).
+
+    A cluster is one individual polygon of the generated shape. Every point goes to the polygon(s)
+    that contain it; points left outside every polygon (cut away by the country) are ignored.
+    """
+    if not polys or not len(xy):
+        return None
+    hits = shapely.STRtree(polys).query(shapely.points(xy), predicate="intersects")
+    spreads = []
+    for j in range(len(polys)):
+        mine = xy[hits[0][hits[1] == j]]
+        if len(mine):
+            spreads.append(_mean_pairwise_km(mine))
+    return round(float(np.mean(spreads)), 3) if spreads else None
+
+
 def _base(ds: dict, body: BaseBody, local) -> dict:
     feats, _ = _run(ds, body, local, None)
     if not feats:
         raise HTTPException(422, "There is nothing to export yet.")
     items = [(f, shapely.from_geojson(json.dumps(f["geometry"]))) for f in feats]
+    # The spread ignores the shades: it is measured on the flat shape (what shades = 0 would give).
+    flat = None
+    if body.code is not None:
+        flat = _run(ds, body.model_copy(update={"shades": 0}), local, None)[0]
     with _COMPUTE:
         if body.code is None:
             return {"countries": _countries_hit(local, shapely.union_all([g for _, g in items]))}
@@ -565,11 +602,19 @@ def _base(ds: dict, body: BaseBody, local) -> dict:
             part = _polys(_intersect(g, shapely.clip_by_rect(full, *g.bounds)))
             if part is not None:
                 out.append({**f, "geometry": json.loads(shapely.to_geojson(part))})
+        clusters = []
+        for f in flat or []:
+            g = shapely.from_geojson(json.dumps(f["geometry"]))
+            part = _polys(_intersect(g, shapely.clip_by_rect(full, *g.bounds)))
+            if part is not None:
+                clusters.extend(q for q in shapely.get_parts(part) if q.geom_type == "Polygon")
+        xy = np.unique(np.vstack([ds["xy"][t] for t in body.tags]), axis=0)
         borders = _borders(local, code)
         return {
             "outline": json.loads(shapely.to_geojson(shapely.simplify(full, 0.005))),
             "borders": None if borders is None else json.loads(shapely.to_geojson(borders)),
             "features": {"type": "FeatureCollection", "features": out},
+            "spread_km": _spread_km(clusters, xy),
         }
 
 
