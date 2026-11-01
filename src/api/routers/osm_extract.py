@@ -4,7 +4,7 @@ Also splits a multi-country file into one .osm.pbf per country.
 Flow:
     (the file is opened by /technical/pbf/open or /technical/pbf/upload; the token is shared)
     POST /technical/osm/countries  {token}                         -> countries whose boundary is complete in the file
-    POST /technical/osm/split      {token, countries, folder, strategy} -> one .osm.pbf per country (needs osmium-tool)
+    POST /technical/osm/split      {token, countries, folder} -> one .osm.pbf per country (pure Python, cut at the border)
     POST /technical/osm/fields     {token, layer, sample}          -> every field (column + tag key) with its common values
     POST /technical/osm/preview    {token, layer, filters, limit}  -> a few features to look at on the map
     POST /technical/osm/export     {token, layer, filters, fields, name} -> TopoJSON download
@@ -19,13 +19,9 @@ from __future__ import annotations
 import json
 import logging
 import re
-import shutil
-import subprocess
-import tempfile
 import threading
 from collections import Counter
 from pathlib import Path
-from typing import Literal
 
 import numpy as np
 import shapely
@@ -35,6 +31,7 @@ from starlette.concurrency import run_in_threadpool
 from starlette.responses import Response
 
 from src.api.routers import pbf_admin as pbf
+from src.geo.osm_split import split_pbf
 
 log = logging.getLogger("uvicorn.error")
 router = APIRouter()
@@ -53,7 +50,6 @@ SKIP_VALUES = {
     "z_order",
 }  # listed as fields, but their values are not useful as filters
 GEOM_OK = [0, 1, 3, 4, 5, 6]  # point, line, polygon and their multi versions
-SPLIT_SIMPLIFY = 0.0003  # degrees (~30 m) on the country polygon handed to osmium
 PALETTE = ("#6cc0e5", "#ff7357", "#cdbf93", "#3fb97a", "#b07aa1", "#edc948", "#76b7b2", "#f28e2b")
 LAYER_IDS = {"multipolygons", "lines", "multilinestrings", "points"}
 
@@ -372,15 +368,9 @@ async def countries_osm(body: TokenBody):
 class SplitBody(TokenBody):
     countries: list[str] = Field(min_length=1)
     folder: str = ""
-    strategy: Literal["smart", "complete_ways", "simple"] = "smart"
 
 
 def _split(ds: dict, body: SplitBody) -> dict:
-    exe = shutil.which("osmium")
-    if exe is None:
-        raise HTTPException(
-            503, "osmium-tool isn't installed or not on PATH. Install it, then restart."
-        )
     _load_countries(ds)
     chosen = [c for c in ds["split_countries"] if c["id"] in set(body.countries)]
     if not chosen:
@@ -389,68 +379,24 @@ def _split(ds: dict, body: SplitBody) -> dict:
     if ds["temporary"] and not folder:
         raise HTTPException(422, "Enter a folder to save the country files in.")
     out_dir = Path(folder) if folder else ds["path"].parent / f"{_stem(ds['path'])}-countries"
-    out_dir.mkdir(parents=True, exist_ok=True)
 
-    tmp = Path(tempfile.mkdtemp(prefix="osm-split-"))
-    try:
-        extracts, labels, used = [], {}, set()
-        for c in chosen:
-            label = _safe(c["code"] or c["name"])
-            if label in used:
-                label = f"{label}_{c['id']}"
-            used.add(label)
-            geom = shapely.simplify(ds["split_polys"][c["id"]], SPLIT_SIMPLIFY)
-            poly = tmp / f"{label}.geojson"
-            poly.write_text(
-                json.dumps(
-                    {
-                        "type": "Feature",
-                        "properties": {},
-                        "geometry": json.loads(shapely.to_geojson(geom)),
-                    }
-                ),
-                encoding="utf-8",
-            )
-            out_name = f"{label}.osm.pbf"
-            labels[out_name] = c["name"]
-            extracts.append(
-                {"output": out_name, "polygon": {"file_name": str(poly), "file_type": "geojson"}}
-            )
-        cfg = tmp / "config.json"
-        cfg.write_text(
-            json.dumps({"directory": str(out_dir), "extracts": extracts}), encoding="utf-8"
-        )
-        proc = subprocess.run(
-            [
-                exe,
-                "extract",
-                "--config",
-                str(cfg),
-                "--strategy",
-                body.strategy,
-                "--overwrite",
-                str(ds["path"]),
-            ],
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            check=False,
-        )
-        if proc.returncode != 0:
-            lines = (proc.stderr or proc.stdout or "").strip().splitlines()
-            raise HTTPException(
-                500, f"osmium failed: {(lines[-1] if lines else 'unknown error')[:120]}"
-            )
-    finally:
-        shutil.rmtree(tmp, ignore_errors=True)
+    polys, names, used = {}, {}, set()
+    for c in chosen:
+        label = _safe(c["code"] or c["name"])
+        if label in used:
+            label = f"{label}_{c['id']}"
+        used.add(label)
+        polys[label] = ds["split_polys"][c["id"]]
+        names[label] = c["name"]
+    with _GDAL:
+        stats = split_pbf(ds["path"], polys, out_dir)
 
     files = []
-    for name, country in labels.items():
-        p = out_dir / name
+    for label, st in stats.items():
+        p = Path(st["path"])
         if p.is_file():
             files.append(
-                {"name": name, "path": str(p), "size": p.stat().st_size, "country": country}
+                {"name": p.name, "path": str(p), "size": p.stat().st_size, "country": names[label]}
             )
     return {"folder": str(out_dir), "files": files}
 
