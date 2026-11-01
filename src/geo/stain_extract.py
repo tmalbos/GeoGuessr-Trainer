@@ -48,6 +48,8 @@ outline and first-level borders are known:
                    opened or dropped, so a painted pixel always ends up in its stain, however thin it
                    is. Only text and thin lines (neither a colour nor a blend) are filled from the
                    nearest labelled pixel. A pixel has exactly one label, so stains never overlap.
+                   The small islands the fit outline leaves out (see _prep_outline) are added to the
+                   area that gets labelled, but they never define the colours.
   5. polygons      each label -> polygon straight from its pixels, so neighbouring stains share the
                    exact same boundary. No per-stain growing: the only changes are an optional
                    gap-free simplification (sub-pixel tolerance) when the polygons form a valid
@@ -961,6 +963,10 @@ def _polish(sub: np.ndarray, uv, uvb, r: dict) -> dict | None:
 
 
 def _prep_outline(outline):
+    """(fit, clip, extra): the outline used to MATCH the screenshot (small islands dropped: they only add
+    noise), the full outline used to clip the results, and the small islands the fit leaves out
+    (None when there are none). `extra` is where stains on those islands are read.
+    """
     parts = _polys(shapely.make_valid(outline))
     if not parts:
         msg = "That country has no outline to match against"
@@ -968,7 +974,11 @@ def _prep_outline(outline):
     big = max(p.area for p in parts)
     fit = shapely.simplify(shapely.union_all([p for p in parts if p.area >= 0.02 * big]), 0.01)
     clip = shapely.make_valid(shapely.simplify(shapely.union_all(parts), 0.003))
-    return fit, clip
+    small = [p for p in parts if p.area < 0.02 * big]
+    extra = shapely.simplify(shapely.union_all(small), 0.003) if small else None
+    if extra is not None and extra.is_empty:
+        extra = None
+    return fit, clip, extra
 
 
 def register(sub: np.ndarray, outline, borders, projection: str, hint=None) -> dict:
@@ -985,7 +995,7 @@ def register(sub: np.ndarray, outline, borders, projection: str, hint=None) -> d
     search and nudges the final choice; it never excludes a placement.
     """
     hgt, wid = sub.shape[:2]
-    fit_outline, clip_outline = _prep_outline(outline)
+    fit_outline, clip_outline, extra_outline = _prep_outline(outline)
     bounds = fit_outline.bounds
     inner = None
     if borders is not None and not borders.is_empty:
@@ -1026,7 +1036,7 @@ def register(sub: np.ndarray, outline, borders, projection: str, hint=None) -> d
         uv = shapely.transform(fit_outline, fwd)
         uvb = shapely.transform(inner, fwd) if inner is not None else None
         cands.extend(
-            {**c, "name": nm, "uv": uv, "uvb": uvb, "inv": inv}
+            {**c, "name": nm, "uv": uv, "uvb": uvb, "inv": inv, "fwd": fwd}
             for c in _candidates(e_coarse, light_coarse, f, uv, uvb, hint_coarse)
         )
     if not cands:
@@ -1072,7 +1082,16 @@ def register(sub: np.ndarray, outline, borders, projection: str, hint=None) -> d
             r["score"] = r["lift"]
         bx0, by0, bw, bh = _placed_box(c["uv"], r["A"], r["t"])
         r["prior"] = float(_hint_prior(bx0, by0, bw, bh, hint))
-        refined.append({**r, "name": c["name"], "uv": c["uv"], "uvb": c["uvb"], "inv": c["inv"]})
+        refined.append(
+            {
+                **r,
+                "name": c["name"],
+                "uv": c["uv"],
+                "uvb": c["uvb"],
+                "inv": c["inv"],
+                "fwd": c["fwd"],
+            }
+        )
 
     def hint_nudge(r: dict) -> float:
         return 1 - HINT_FINAL_WEIGHT + HINT_FINAL_WEIGHT * r.get("prior", 1.0)
@@ -1096,6 +1115,12 @@ def register(sub: np.ndarray, outline, borders, projection: str, hint=None) -> d
         "inv": best["inv"],
         "placed": affine_transform(best["uv"], m),
         "placed_b": affine_transform(best["uvb"], m) if best["uvb"] is not None else None,
+        # small islands the fit outline leaves out, placed with the same projection and transform
+        "placed_extra": (
+            None
+            if extra_outline is None
+            else affine_transform(shapely.transform(extra_outline, best["fwd"]), m)
+        ),
         "clip_outline": clip_outline,
         "fit_outline": fit_outline,
         "dt": dt,
@@ -1618,7 +1643,8 @@ def analyze(
     fy_1 = max(fy_0 + 1, min(big_h, round(y1 * ky)))
     img = full[fy_0:fy_1, fx_0:fx_1]
     hgt, wid = img.shape[:2]
-    placed = affine_transform(reg["placed"], [kx, 0, 0, ky, x0 * kx - fx_0, y0 * ky - fy_0])
+    to_full = [kx, 0, 0, ky, x0 * kx - fx_0, y0 * ky - fy_0]
+    placed = affine_transform(reg["placed"], to_full)
 
     def to_lonlat(xy):
         sx = (xy[:, 0] + fx_0) / kx - x0  # back to crop-local work-image px
@@ -1629,10 +1655,16 @@ def analyze(
     def rad(n: int) -> int:  # a radius that is n px on the work image, in full-res px
         return max(0, round(n * scale))
 
-    inside = _raster(placed, (hgt, wid))
-    if inside.sum() < 100:
+    inside_main = _raster(placed, (hgt, wid))
+    if inside_main.sum() < 100:
         msg = "The map was placed outside the crop. Try a bigger crop."
         raise StainError(msg)
+    # The fit outline leaves out the small islands (Tasmania, Tierra del Fuego...). They are added here so a
+    # stain on them is read too, but only the main outline defines the colours (below), so nothing else moves.
+    inside = inside_main
+    if reg.get("placed_extra") is not None:
+        extra = affine_transform(reg["placed_extra"], to_full)
+        inside = inside_main | _raster(extra, (hgt, wid))
     # The fitted outline can sit a pixel or two inside the drawn coast, so colours are read a little
     # beyond it. What ends up outside the country is cut away at the end.
     region = _dilate(inside, rad(grow_px))
@@ -1640,8 +1672,8 @@ def analyze(
     # 3. the colours of the map: peaks of the FLAT pixels inside it (the base map is one of them)
     # Borders, text and the coast stroke are thin, so they never define a colour. A stain that is thin in one
     # place still has its colour: it is wide somewhere else, and every thin pixel is matched to it below.
-    flat = _open((_grad(img) <= flat_t) & inside, rad(1))
-    pool = img[flat] if flat.sum() >= 100 else img[inside]
+    flat = _open((_grad(img) <= flat_t) & inside_main, rad(1))
+    pool = img[flat] if flat.sum() >= 100 else img[inside_main]
     centers = _find_centers(_subsample(pool, CENTER_SAMPLE), tol, max_classes, min_share)
     if not len(centers):
         msg = "No colours were found inside the map."
