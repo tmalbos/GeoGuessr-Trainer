@@ -220,6 +220,7 @@ export default function ScriptsTrainer({ onExit }) {
     const bestFor = {};
     for (const h of history ?? []) bestFor[h.time_limit_sec] = Math.max(bestFor[h.time_limit_sec] ?? 0, h.good);
     return <div className="sc" style={style}>
+      <button className="btn ghost" onClick={() => setScreen("lang")}>← Scripts</button>
       <h2>{lang.name} <span className="sc-native" lang={lang.id} dir={lang.dir} style={{ fontFamily: lang.fontFamily }}>{lang.native}</span> <span className={`sc-tag ${lang.difficulty.level}`}>{lang.difficulty.label}</span></h2>
       <p className="muted">{lang.lead}</p>
       <div className="sc-setup">
@@ -234,7 +235,6 @@ export default function ScriptsTrainer({ onExit }) {
       <div className="sc-list">
         <button className="btn" onClick={start}>Start practicing</button>
         <button className="btn ghost" onClick={() => setScreen("ref")}>Reference table</button>
-        <button className="btn ghost" onClick={() => setScreen("lang")}>← Change language</button>
       </div>
       <div className="sc-hist">
         <h3>History</h3>
