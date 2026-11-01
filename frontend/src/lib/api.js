@@ -24,6 +24,7 @@ function messageFor(status, detail) {
   return GENERIC[status] ?? "Something went wrong. Try again.";
 }
 
+// Pass { signal } in opts to cancel a request. A cancelled request rejects with the original AbortError.
 export const api = async (path, opts = {}) => {
   let r;
   try {
@@ -32,7 +33,8 @@ export const api = async (path, opts = {}) => {
       ...opts,
       body: opts.body && JSON.stringify(opts.body),
     });
-  } catch {
+  } catch (e) {
+    if (e?.name === "AbortError") throw e;
     throw new ApiError("Can't reach the app server. Make sure it's running, then retry.", { detail: "Network error" });
   }
   if (!r.ok) {

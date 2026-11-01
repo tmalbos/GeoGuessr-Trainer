@@ -34,9 +34,10 @@ export default function Analysis({ seg, query }) {
   useEffect(() => {
     if (!usable) return undefined;
     let off = false;
+    const ac = new AbortController();
     setLevels(null); setData(null); setErr("");
-    api(`/analysis/levels?${qs}`).then((l) => !off && setLevels(l)).catch((e) => !off && setErr(errorText(e)));
-    return () => { off = true; };
+    api(`/analysis/levels?${qs}`, { signal: ac.signal }).then((l) => !off && setLevels(l)).catch((e) => !off && setErr(errorText(e)));
+    return () => { off = true; ac.abort(); };
   }, [usable, qs, attempt]);
 
   const level = levels?.find((l) => l.level === seg[0])?.level ?? levels?.[0]?.level;
@@ -44,9 +45,10 @@ export default function Analysis({ seg, query }) {
   useEffect(() => {
     if (!level) return undefined;
     let off = false;
+    const ac = new AbortController();
     setData(null);
-    api(`/analysis/${level}?${qs}`).then((d) => !off && setData(d)).catch((e) => !off && setErr(errorText(e)));
-    return () => { off = true; };
+    api(`/analysis/${level}?${qs}`, { signal: ac.signal }).then((d) => !off && setData(d)).catch((e) => !off && setErr(errorText(e)));
+    return () => { off = true; ac.abort(); };
   }, [level, qs, attempt]);
 
   // Few zones: show everything open. Many: start collapsed, except the one a link pointed at (?q=Spain).

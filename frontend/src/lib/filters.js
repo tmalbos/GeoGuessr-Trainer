@@ -2,14 +2,14 @@ import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { api, errorText } from "./api.js";
 import { tlKey } from "./format.js";
 
-// Filters shared by History, Analysis and the Explore stats. Remembered in localStorage.
+// Filters shared by History, Analysis and the Explore stats. Remembered per tab in sessionStorage.
 export const MAX_TOTAL = 25000; // 5 rounds x 5000
 const KEY = "ggt.filters.v1";
 export const DEFAULTS = { matchType: "", moveType: "", timeLimit: "any", minScore: 0, maxScore: MAX_TOTAL };
 const FIELDS = ["matchType", "moveType", "timeLimit"];
 
 const read = () => {
-  try { return { ...DEFAULTS, ...JSON.parse(localStorage.getItem(KEY) || "{}") }; } catch { return { ...DEFAULTS }; }
+  try { return { ...DEFAULTS, ...JSON.parse(sessionStorage.getItem(KEY) || "{}") }; } catch { return { ...DEFAULTS }; }
 };
 let state = read();
 const subs = new Set();
@@ -17,7 +17,7 @@ const subscribe = (cb) => { subs.add(cb); return () => subs.delete(cb); };
 
 export function setFilters(patch) {
   state = { ...state, ...patch };
-  try { localStorage.setItem(KEY, JSON.stringify(state)); } catch { /* storage unavailable */ }
+  try { sessionStorage.setItem(KEY, JSON.stringify(state)); } catch { /* storage unavailable */ }
   subs.forEach((cb) => cb());
 }
 export const resetFilters = () => setFilters({ ...DEFAULTS });
