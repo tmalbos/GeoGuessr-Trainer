@@ -260,8 +260,9 @@ export default function ClueList({ id, name, editing, query }) {
     setForm("new");
   };
 
-  // The server appends new clues at the end. Move the new one right after the last clue of ITS OWN section
-  // (national, or its category) that is above the middle of the screen; if the section starts below it, put it first.
+  // The server appends new clues at the end. Move the new one into ITS OWN section (national, or its category),
+  // one clue further down than the last clue above the middle of the screen: right after the first clue that is
+  // below that line. If there is none below, it goes after the last one; if none is above, after the first one.
   const placeNew = async (before) => {
     const at = addAt.current;
     addAt.current = null;
@@ -278,9 +279,9 @@ export default function ClueList({ id, name, editing, query }) {
         .sort((a, b) => at.ys[a.id] - at.ys[b.id]);
       if (!section.length) return; // nothing to be near: the end is fine
       const above = section.filter((c) => at.ys[c.id] <= at.ref);
+      const anchor = section[Math.min(above.length, section.length - 1)]; // one more below, when there is one
       const ids = fresh.map((c) => c.id).filter((i) => i !== entry.id);
-      const idx = above.length ? ids.indexOf(above[above.length - 1].id) + 1 : ids.indexOf(section[0].id);
-      ids.splice(idx, 0, entry.id);
+      ids.splice(ids.indexOf(anchor.id) + 1, 0, entry.id);
       await api(`/clues/${id}/reorder`, { method: "POST", body: { ids } });
     } catch (ex) { toast.push(errorText(ex), { kind: "err", ms: 6000 }); }
   };

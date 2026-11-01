@@ -10,6 +10,12 @@ Flow:    POST /clues/stage/{kind}  -> file is converted/simplified into data/clu
          GET  /clues/subcontinents -> subcontinents with the countries that have clues (for relating clues)
 Relations: a clue has `relations: [{type, cc, id}]` (same_as | similar_to | group). They are two-way: saving or
          deleting a clue also updates the clue on the other end (even in another country's yaml).
+         They also propagate when a link is ADDED (see _close_equivalence):
+           same_as     is an equivalence: everything the clue is the same as is the same as each other.
+           similar_to  is shared across a same_as class: if A is the same as B and A is similar to C, then B is
+                       similar to C too (and to whatever C is the same as).
+           group       stays inside one country and is transitive (see _close_group).
+         Removing a link only removes that link.
          `relation_notes: {same_as|similar_to: {verb, text}}` is the sentence the card shows.
          `badge`: "subcontinent" | "world" (manual uniqueness badge).
          `max_height`: px cap for the clue image on the card (only kept when the clue has an image).
@@ -546,6 +552,88 @@ def _set_rels(clue: dict, rels: list[dict]) -> None:
         clue.pop("relation_notes", None)
 
 
+def _get_clue(items_of, node: tuple[str, str]) -> dict | None:
+    code, cid = node
+    return next((c for c in items_of(code) if c.get("id") == cid), None)
+
+
+def _neighbours(items_of, node: tuple[str, str], rtype: str) -> list[tuple[str, str]]:
+    c = _get_clue(items_of, node)
+    if c is None:
+        return []
+    return [(r["cc"], r["id"]) for r in c.get("relations") or [] if r["type"] == rtype]
+
+
+def _same_class(items_of, start: tuple[str, str]) -> set[tuple[str, str]]:
+    """Every clue connected to `start` through same_as links (start included)."""
+    seen = {start}
+    todo = [start]
+    while todo:
+        n = todo.pop()
+        for m in _neighbours(items_of, n, "same_as"):
+            if m not in seen and _get_clue(items_of, m) is not None:
+                seen.add(m)
+                todo.append(m)
+    return seen
+
+
+def _link(items_of, a: tuple[str, str], b: tuple[str, str], rtype: str, note: dict | None) -> None:
+    """Make a and b point at each other with `rtype`. The sentence is copied only where one is missing."""
+    if a == b:
+        return
+    ca, cb = _get_clue(items_of, a), _get_clue(items_of, b)
+    if ca is None or cb is None:
+        return
+    for other, clue in ((b, ca), (a, cb)):
+        rels = list(clue.get("relations") or [])
+        rel = {"type": rtype, "cc": other[0], "id": other[1]}
+        if rel not in rels:
+            rels.append(rel)
+        clue["relations"] = rels
+        if note:
+            notes = clue.get("relation_notes") or {}
+            notes.setdefault(rtype, dict(note))
+            clue["relation_notes"] = notes
+
+
+def _close_equivalence(items_of, start: tuple[str, str], entry_notes: dict) -> None:
+    """After a same_as / similar_to link was added to `start`, spread it to the clues that are equal to it.
+
+    1. same_as: all clues in start's same_as class end up linked to each other.
+    2. similar_to: every clue of that class is similar to every clue that any member is similar to,
+       and to whatever those are the same as.
+    """
+
+    def note_for(rtype: str, nodes) -> dict | None:
+        if entry_notes.get(rtype):
+            return entry_notes[rtype]
+        for node in nodes:
+            c = _get_clue(items_of, node)
+            n = ((c or {}).get("relation_notes") or {}).get(rtype)
+            if n:
+                return n
+        return None
+
+    cls = sorted(_same_class(items_of, start))
+    same_note = note_for("same_as", cls)
+    for i, a in enumerate(cls):
+        for b in cls[i + 1 :]:
+            _link(items_of, a, b, "same_as", same_note)
+
+    targets: set[tuple[str, str]] = set()
+    for member in cls:
+        for t in _neighbours(items_of, member, "similar_to"):
+            if _get_clue(items_of, t) is not None:
+                targets |= _same_class(items_of, t)
+    similar_note = note_for("similar_to", [*cls, *targets])
+    for p in cls:
+        same_as_p = set(_neighbours(items_of, p, "same_as"))
+        for t in sorted(targets):
+            if t == p or t in same_as_p:
+                continue
+            _link(items_of, p, t, "similar_to", similar_note)
+
+
 def _sync_relations(
     books: dict[str, list[dict]], cc: str, entry: dict, old: list[dict], new: list[dict]
 ) -> None:
@@ -602,6 +690,9 @@ def _sync_relations(
 
     if any(t == "group" for t, _, _ in added):
         _close_group(items_of(cc), entry["id"], cc)
+
+    if any(t in NOTE_TYPES for t, _, _ in added):
+        _close_equivalence(items_of, (cc, entry["id"]), entry.get("relation_notes") or {})
 
 
 def _close_group(items: list[dict], start_id: str, cc: str) -> None:
