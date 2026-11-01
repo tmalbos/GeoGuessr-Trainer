@@ -14,6 +14,7 @@ from src.api.routers import (
     countries,
     coverage,
     history,
+    osm_extract,
     pbf_admin,
     plonkit_import,
     replay_report,
@@ -59,6 +60,7 @@ for router_module in (
     streetview,
     technical,
     pbf_admin,
+    osm_extract,
     stain,
     plonkit_import,
 ):

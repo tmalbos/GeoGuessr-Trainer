@@ -3,7 +3,7 @@ import { TILE, createMapEngine, fx, fy } from "../../lib/googleMap.js";
 import { attribution } from "../../lib/mapProviders.js";
 import { shadeFactor } from "../Explore/clues/geoDraw.js";
 
-// Polygons + places drawn on one canvas, redrawn on every frame of the shared map engine (lib/googleMap.js).
+// Polygons, lines + places drawn on one canvas, redrawn on every frame of the shared map engine (lib/googleMap.js).
 
 function featureBounds(fc) {
   let w = Infinity, s = Infinity, e = -Infinity, n = -Infinity;
@@ -15,8 +15,8 @@ function featureBounds(fc) {
   return Number.isFinite(w) ? { w, s, e, n } : null;
 }
 
-/** features: GeoJSON FeatureCollection | null. fitKey: refit the view to the polygons when it changes.
- *  A feature with properties.shade > 0 is a rarer part of its tag: drawn lighter. */
+/** features: GeoJSON FeatureCollection | null. fitKey: refit the view to the features when it changes.
+ *  A feature with properties.shade > 0 is a rarer part of its tag: drawn lighter. Lines are stroked, points are dots. */
 export default function PolyMap({ features, fitKey }) {
   const box = useRef(null);
   const tiles = useRef(null);
@@ -47,23 +47,43 @@ export default function PolyMap({ features, fitKey }) {
       for (const f of st.features?.features ?? []) top[f.properties.tag] = Math.max(top[f.properties.tag] ?? 0, f.properties.shade ?? 0);
       for (const f of st.features?.features ?? []) {
         const g = f.geometry;
-        const polys = g.type === "Polygon" ? [g.coordinates] : g.coordinates;
         const path = new Path2D();
-        for (const rings of polys) {
-          for (const ring of rings) {
-            ring.forEach(([lng, lat], i) => (i ? path.lineTo(X(lng), Y(lat)) : path.moveTo(X(lng), Y(lat))));
-            path.closePath();
+        const line = g.type === "LineString" || g.type === "MultiLineString";
+        const point = g.type === "Point" || g.type === "MultiPoint";
+        if (point) {
+          for (const [lng, lat] of g.type === "Point" ? [g.coordinates] : g.coordinates) {
+            path.moveTo(X(lng) + 3.5, Y(lat));
+            path.arc(X(lng), Y(lat), 3.5, 0, Math.PI * 2);
+          }
+        } else if (line) {
+          for (const pts of g.type === "LineString" ? [g.coordinates] : g.coordinates) {
+            pts.forEach(([lng, lat], i) => (i ? path.lineTo(X(lng), Y(lat)) : path.moveTo(X(lng), Y(lat))));
+          }
+        } else {
+          const polys = g.type === "Polygon" ? [g.coordinates] : g.coordinates;
+          for (const rings of polys) {
+            for (const ring of rings) {
+              ring.forEach(([lng, lat], i) => (i ? path.lineTo(X(lng), Y(lat)) : path.moveTo(X(lng), Y(lat))));
+              path.closePath();
+            }
           }
         }
         const k = shadeFactor(f.properties.shade ?? 0, top[f.properties.tag]);
-        ctx.globalAlpha = 0.6 * k;
-        ctx.fillStyle = f.properties.color;
-        ctx.fill(path, "evenodd");
-        ctx.globalAlpha = 0.7 * k;
-        ctx.strokeStyle = "#1a1a1a";
-        ctx.lineWidth = 1.2;
-        ctx.stroke(path);
-        st.hits.push({ path, tag: f.properties.tag });
+        if (line) {
+          ctx.globalAlpha = 0.9 * k;
+          ctx.strokeStyle = f.properties.color;
+          ctx.lineWidth = 2;
+          ctx.stroke(path);
+        } else {
+          ctx.globalAlpha = (point ? 0.9 : 0.6) * k;
+          ctx.fillStyle = f.properties.color;
+          ctx.fill(path, "evenodd");
+          ctx.globalAlpha = 0.7 * k;
+          ctx.strokeStyle = "#1a1a1a";
+          ctx.lineWidth = 1.2;
+          ctx.stroke(path);
+        }
+        st.hits.push({ path, tag: f.properties.tag, line });
       }
     };
 
@@ -78,8 +98,12 @@ export default function PolyMap({ features, fitKey }) {
       const x = e.clientX - r.left, y = e.clientY - r.top;
       const ctx = cv.getContext("2d");
       ctx.setTransform(st.dpr, 0, 0, st.dpr, 0, 0);
+      ctx.lineWidth = 8; // forgiving hit area for lines
       let hit = null;
-      for (let i = st.hits.length - 1; i >= 0 && !hit; i--) if (ctx.isPointInPath(st.hits[i].path, x * st.dpr, y * st.dpr, "evenodd")) hit = st.hits[i];
+      for (let i = st.hits.length - 1; i >= 0 && !hit; i--) {
+        const h = st.hits[i];
+        if (h.line ? ctx.isPointInStroke(h.path, x * st.dpr, y * st.dpr) : ctx.isPointInPath(h.path, x * st.dpr, y * st.dpr, "evenodd")) hit = h;
+      }
       if (!hit) return hide();
       tip.current.hidden = false;
       tip.current.textContent = hit.tag;
@@ -104,7 +128,7 @@ export default function PolyMap({ features, fitKey }) {
     api.current.engine.render(true);
   }, [features]);
 
-  // Fit to the polygons when fitKey changes (the Polygonizer changes it when the result for a new selection arrives).
+  // Fit to the features when fitKey changes (the tools change it when the result for a new selection arrives).
   const latest = useRef({});
   latest.current = { features };
   useEffect(() => {
@@ -113,7 +137,7 @@ export default function PolyMap({ features, fitKey }) {
     if (b) api.current.engine.fit(b, 30, 10, true);
   }, [fitKey]);
 
-  return <div ref={box} className="tp-map" role="img" aria-label="Map with the polygons">
+  return <div ref={box} className="tp-map" role="img" aria-label="Map with the features">
     <div ref={tiles} className="tp-tiles" />
     <canvas ref={canvas} className="tp-canvas" />
     <div className="tp-zoom">
