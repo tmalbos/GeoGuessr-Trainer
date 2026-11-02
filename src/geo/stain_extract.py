@@ -42,6 +42,9 @@ outline and first-level borders are known:
                    MAX_CLASSES; borders, text and anti-aliasing are not flat, so they never become a
                    colour). The most common colour is simply the base map: it is returned too, as a
                    stain flagged `base`, for the UI to leave unselected.
+  4a. dull colours greys, blacks, whites and very light blues are never a stain (they are text, borders,
+                   water, paper). They are removed from the colours found, except the most common colour
+                   (the base map), whatever it looks like. Their pixels join the nearest remaining colour.
   4b. labels       ONE label map covering the whole inside of the map (and a few px beyond the fitted
                    outline, which can sit inside the drawn coast). A pixel that is one of the colours,
                    or an anti-aliased blend of two of them, takes the nearest colour. NOTHING is eroded,
@@ -50,6 +53,11 @@ outline and first-level borders are known:
                    nearest labelled pixel. A pixel has exactly one label, so stains never overlap.
                    The small islands the fit outline leaves out (see _prep_outline) are added to the
                    area that gets labelled; a colour found only there is added after the main ones.
+  4c. scattered    a colour whose pixels form more than MAX_PARTS separate pieces is not a stain (it is
+                   border strokes, text, noise). It is dropped and its pixels are refilled from the
+                   nearest surviving colour. The base map is never dropped.
+  4d. border bits  a small piece of a colour that sits (almost) entirely on the known borders / coast is a
+                   stroke, not a stain: it is dropped and its pixels are refilled the same way.
   5. polygons      each label -> polygon straight from its pixels, so neighbouring stains share the
                    exact same boundary. No per-stain growing: the only changes are an optional
                    gap-free simplification (sub-pixel tolerance) when the polygons form a valid
@@ -61,6 +69,7 @@ The registration is a 2x3 affine in the projected plane: px = A @ (u, v) + t. A 
 """
 
 import base64
+import colorsys
 import io
 import json
 import math
@@ -84,6 +93,11 @@ try:  # blurred edge fields for the affine polish
     from scipy.ndimage import gaussian_filter
 except ImportError:  # pragma: no cover
     gaussian_filter = None
+
+try:  # connected pieces of a stain (the scattered-stain filter)
+    from scipy.ndimage import label as nd_label
+except ImportError:  # pragma: no cover
+    nd_label = None
 
 try:  # optimiser of the affine polish
     from scipy.optimize import minimize
@@ -146,6 +160,19 @@ FLAT_T = 25.0  # gradient magnitude (sum over channels) under which a pixel is "
 CAP = 1.4  # a pixel takes a colour only within CAP * tol of it; the rest is filled from neighbours
 HOLE_MIN = 30.0  # holes in a stain smaller than this (px² at work size) are filled
 MIN_POLY = 4.0  # polygons smaller than this (px² at work size) are dropped
+MAX_PARTS = 40  # a colour with more separate pieces than this is not a stain (0 = off)
+GREY_SPREAD = (
+    30  # max(R,G,B) - min(R,G,B) at or under this: grey / black / white, not a stain colour
+)
+BLACK_MAX = 70  # a colour whose brightest channel is under this is black
+LIGHT_BLUE_HUE = (170.0, 260.0)  # degrees
+LIGHT_BLUE_SAT_MAX = 0.5  # a blue this pale (low saturation) and this bright is "light blue"
+LIGHT_BLUE_VAL_MIN = 0.7
+BORDER_DIST = (
+    0.3  # "on the border" = within this % of the map diagonal of a known border / coast (0 = off)
+)
+BORDER_MAX_PCT = 0.3  # ...and smaller than this % of the country's area
+BORDER_SHARE = 0.9  # share of a piece that must be on the border for it to count as a stroke
 GROW_PX = (
     3  # colours are read this many px beyond the fitted outline (it can sit inside the drawn coast)
 )
@@ -1159,6 +1186,26 @@ def _find_centers(
     return np.array(centers).reshape(-1, 3)
 
 
+def _is_dull(c) -> bool:
+    """Grey / black / white, or a very light blue: colours that are not painted stains."""
+    r, g, b = (float(v) for v in c)
+    mx, mn = max(r, g, b), min(r, g, b)
+    if mx - mn <= GREY_SPREAD or mx < BLACK_MAX:
+        return True
+    h, sat, val = colorsys.rgb_to_hsv(r / 255.0, g / 255.0, b / 255.0)
+    return (
+        LIGHT_BLUE_HUE[0] <= h * 360.0 <= LIGHT_BLUE_HUE[1]
+        and sat <= LIGHT_BLUE_SAT_MAX
+        and val >= LIGHT_BLUE_VAL_MIN
+    )
+
+
+def _drop_dull(centers: np.ndarray, keep_first: bool) -> np.ndarray:
+    """Remove the dull colours. The first colour (the most common one, the base map) can be kept as is."""
+    keep = [c for i, c in enumerate(centers) if (keep_first and i == 0) or not _is_dull(c)]
+    return np.array(keep).reshape(-1, 3)
+
+
 def _blend_centres(ci: np.ndarray, tol: float) -> np.ndarray:
     """Bool per centre: True when it lies on the straight RGB segment between two OTHER centres."""
     n = len(ci)
@@ -1289,6 +1336,81 @@ def _fill_nearest(lab: np.ndarray, region: np.ndarray) -> np.ndarray:
     out = lab.copy()
     out[todo] = lab[iy[todo], ix[todo]]
     return out
+
+
+def _drop_scattered(
+    lab: np.ndarray, n_classes: int, max_parts: int, min_area: float, fill_region: np.ndarray
+) -> np.ndarray:
+    """Remove the colours that are not stains: a colour whose pixels form more than `max_parts`
+    separate pieces (pieces smaller than `min_area` px are not counted, they are dropped later
+    anyway). The biggest colour (the base map) is never removed. The pixels of a removed colour
+    take the nearest surviving label.
+    """
+    if max_parts <= 0 or nd_label is None or n_classes < 2 or not (lab >= 0).any():
+        return lab
+    counts = np.bincount(lab[lab >= 0], minlength=n_classes)
+    base = int(counts.argmax())
+    box8 = np.ones((3, 3), bool)
+    drop = []
+    for i in range(n_classes):
+        if i == base or counts[i] == 0:
+            continue
+        comp, n = nd_label(lab == i, structure=box8)
+        if n <= max_parts:
+            continue
+        sizes = np.bincount(comp.ravel(), minlength=n + 1)[1:]
+        if int((sizes >= min_area).sum()) > max_parts:
+            drop.append(i)
+    if not drop:
+        return lab
+    out = lab.copy()
+    out[np.isin(out, drop)] = -1
+    return _fill_nearest(out, fill_region)
+
+
+def _line_mask(geom, size: tuple[int, int]) -> np.ndarray:
+    """Lines (or polygon outlines) -> boolean mask of `size` = (h, w), 1 px wide."""
+    im = Image.new("L", (size[1], size[0]), 0)
+    dr = ImageDraw.Draw(im)
+    for ln in _line_parts(geom):
+        dr.line([tuple(c) for c in ln.coords], fill=255, width=1)
+    return np.asarray(im) > 0
+
+
+def _drop_border_bits(
+    lab: np.ndarray,
+    n_classes: int,
+    near: np.ndarray,
+    max_area: float,
+    share: float,
+    fill_region: np.ndarray,
+) -> np.ndarray:
+    """Remove the small pieces of a colour that lie (almost) entirely on a known border: a piece is
+    dropped when it has at most `max_area` px and at least `share` of its pixels are in `near`.
+    The biggest colour (the base map) is never touched. Dropped pixels take the nearest surviving label.
+    """
+    if nd_label is None or n_classes < 2 or not (lab >= 0).any():
+        return lab
+    counts = np.bincount(lab[lab >= 0], minlength=n_classes)
+    base = int(counts.argmax())
+    box8 = np.ones((3, 3), bool)
+    out = lab.copy()
+    changed = False
+    for i in range(n_classes):
+        if i == base or counts[i] == 0:
+            continue
+        comp, n = nd_label(lab == i, structure=box8)
+        if n == 0:
+            continue
+        flat = comp.ravel()
+        sizes = np.bincount(flat, minlength=n + 1)
+        on_border = np.bincount(flat, weights=near.ravel(), minlength=n + 1)
+        bad = (sizes <= max_area) & (on_border >= share * sizes)
+        bad[0] = False
+        if bad.any():
+            out[np.isin(comp, np.flatnonzero(bad))] = -1
+            changed = True
+    return _fill_nearest(out, fill_region) if changed else lab
 
 
 def _raster(poly_geom, size: tuple[int, int]) -> np.ndarray:
@@ -1606,6 +1728,9 @@ def analyze(
     min_share = float(tune.get("min_class_share", MIN_CLASS_SHARE))
     hole_min = float(tune.get("hole_min", HOLE_MIN))
     min_poly = float(tune.get("min_poly", MIN_POLY))
+    max_parts = int(tune.get("max_parts", MAX_PARTS))
+    border_dist = float(tune.get("border_dist", BORDER_DIST))
+    border_max_pct = float(tune.get("border_max_pct", BORDER_MAX_PCT))
     clip_px = int(tune.get("clip_px", CLIP_PX))
     simplify_px = float(tune.get("simplify_px", SIMPLIFY_PX))
     smooth_px = float(tune.get("smooth_px", SMOOTH_PX))
@@ -1675,6 +1800,8 @@ def analyze(
     flat = _open((_grad(img) <= flat_t) & inside_main, rad(1))
     pool = img[flat] if flat.sum() >= 100 else img[inside_main]
     centers = _find_centers(_subsample(pool, CENTER_SAMPLE), tol, max_classes, min_share)
+    if len(centers):
+        centers = _drop_dull(centers, keep_first=True)
     if not len(centers):
         msg = "No colours were found inside the map."
         raise StainError(msg)
@@ -1692,7 +1819,7 @@ def analyze(
             )
             ipix = ipix[gap > tol]
             if len(ipix):
-                more = _find_centers(ipix, tol, max_classes - len(centers), 0.0)
+                more = _drop_dull(_find_centers(ipix, tol, max_classes - len(centers), 0.0), False)
                 centers = np.vstack([centers, more])
 
     # 3b. ONE label per pixel. Every pixel that is one of the colours (or a blend of two) takes it: nothing
@@ -1702,6 +1829,26 @@ def analyze(
     lab = _fill_nearest(
         lab, inside
     )  # only text / thin lines are left: they take their nearest neighbour
+    # 3c. a colour made of lots of unrelated pieces is border / text noise, not a stain: drop it and
+    # let its pixels join the nearest real stain (or the base map)
+    # 3d. small pieces that sit on the known borders / coast are strokes: same treatment
+    if border_dist > 0 and border_max_pct > 0 and distance_transform_edt is not None:
+        lines = _line_mask(placed, (hgt, wid))
+        if reg.get("placed_b") is not None:
+            lines |= _line_mask(affine_transform(reg["placed_b"], to_full), (hgt, wid))
+        if lines.any():
+            pb = placed.bounds
+            reach = border_dist / 100.0 * math.hypot(pb[2] - pb[0], pb[3] - pb[1])
+            near = distance_transform_edt(~lines) <= max(1.0, reach)
+            lab = _drop_border_bits(
+                lab,
+                len(centers),
+                near,
+                border_max_pct / 100.0 * float(inside.sum()),
+                BORDER_SHARE,
+                inside,
+            )
+    lab = _drop_scattered(lab, len(centers), max_parts, min_poly * scale * scale, inside)
 
     # the app's own country outline, a few px wider: the drawn coast and the fitted one never agree exactly
     p0, p1 = to_lonlat(np.array([[wid / 2, hgt / 2], [wid / 2 + 1, hgt / 2]], float))

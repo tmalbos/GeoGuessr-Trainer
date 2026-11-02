@@ -51,7 +51,7 @@ UA = (
 )
 WINDOW = 2
 MAX_SESSIONS = 3
-PAUSE_S = 2.0
+PAUSE_S = 1.0
 MAPS_RE = re.compile(
     r"https?://(?:maps\.app\.goo\.gl|goo\.gl/maps|(?:www\.)?google\.[a-z.]+/maps)\S*", re.IGNORECASE
 )
