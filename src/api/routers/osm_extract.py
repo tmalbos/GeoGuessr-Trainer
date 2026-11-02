@@ -3,23 +3,35 @@ Also splits a multi-country file into one .osm.pbf per country.
 
 Flow:
     (the file is opened by /technical/pbf/open or /technical/pbf/upload; the token is shared)
-    POST /technical/osm/countries  {token}                         -> countries whose boundary is complete in the file
-    POST /technical/osm/split      {token, countries, folder} -> one .osm.pbf per country (pure Python, cut at the border)
+    GET  /technical/osm/osmium     -> is osmium-tool found?        PUT = save its path
+    POST /technical/osm/countries  {token}  -> starts a job: countries whose boundary is complete in the file
+    POST /technical/osm/split      {token, countries, folder} -> starts a job: one .osm.pbf per country
+    GET  /technical/osm/job?token= -> state of the running / last job (the UI polls it)
     POST /technical/osm/fields     {token, layer, sample}          -> every field (column + tag key) with its common values
     POST /technical/osm/preview    {token, layer, filters, limit}  -> a few features to look at on the map
     POST /technical/osm/export     {token, layer, filters, fields, name} -> TopoJSON download
 
-Reading goes through GDAL's OSM driver (pyogrio): layers points / lines / multilinestrings / multipolygons,
-the same ones extract_roads.py uses. A "field" is a GDAL column or a key inside other_tags; a filter is
-"key is one of these values" (no values = the key just has to exist). Filters are pushed down to GDAL.
+Splitting uses osmium-tool (C++), see src/geo/osmium_tool.py:
+  - countries: `osmium tags-filter` pulls only the admin_level=2 relations (+ their ways and nodes) into a small
+    cached file; the country shapes are built from that instead of re-reading the whole big file.
+  - split: ONE `osmium extract --strategy smart` run writes every country. Whatever touches a country is kept
+    whole (a road or lake crossing a border is complete in both countries; multipolygon relations are completed).
+
+Reading for preview / export goes through GDAL's OSM driver (pyogrio): layers points / lines / multilinestrings /
+multipolygons. A "field" is a GDAL column or a key inside other_tags; a filter is "key is one of these values"
+(no values = the key just has to exist). Filters are pushed down to GDAL.
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import re
+import shutil
+import tempfile
 import threading
+import time
 from collections import Counter
 from pathlib import Path
 
@@ -31,7 +43,7 @@ from starlette.concurrency import run_in_threadpool
 from starlette.responses import Response
 
 from src.api.routers import pbf_admin as pbf
-from src.geo.osm_split import split_pbf
+from src.geo import osmium_tool
 
 log = logging.getLogger("uvicorn.error")
 router = APIRouter()
@@ -40,6 +52,7 @@ _read_ways = pbf._read_ways  # noqa: SLF001
 _assemble = pbf._assemble  # noqa: SLF001
 _clean = pbf._clean  # noqa: SLF001
 _oneline = pbf._oneline  # noqa: SLF001
+CACHE_DIR = pbf.CACHE_DIR
 
 MAX_VALUES = 2000  # distinct values remembered per key while scanning
 TOP_VALUES = 30
@@ -52,9 +65,11 @@ SKIP_VALUES = {
 GEOM_OK = [0, 1, 3, 4, 5, 6]  # point, line, polygon and their multi versions
 PALETTE = ("#6cc0e5", "#ff7357", "#cdbf93", "#3fb97a", "#b07aa1", "#edc948", "#76b7b2", "#f28e2b")
 LAYER_IDS = {"multipolygons", "lines", "multilinestrings", "points"}
+SPLIT_SIMPLIFY_DEG = 0.0005  # ~50 m: country shapes are simplified before cutting (touching objects are kept whole anyway)
 
 _GDAL = threading.Lock()  # one pass over the file at a time
-_COMPUTE = threading.Lock()  # country detection / splitting
+_COMPUTE = threading.Lock()  # country detection
+_JOB_LOCK = threading.Lock()
 
 _TAG = re.compile(r'"((?:[^"\\]|\\.)*)"=>"((?:[^"\\]|\\.)*)"')
 
@@ -326,16 +341,120 @@ async def export_osm(body: ViewBody):
     )
 
 
+# ── osmium-tool ────────────────────────────────────────────────────────────
+
+
+class OsmiumBody(BaseModel):
+    path: str = Field("", max_length=500)
+
+
+@router.get("/technical/osm/osmium")
+async def osmium_status():
+    return await run_in_threadpool(osmium_tool.status)
+
+
+@router.put("/technical/osm/osmium")
+async def osmium_save(body: OsmiumBody):
+    try:
+        return await run_in_threadpool(osmium_tool.save, body.path)
+    except osmium_tool.OsmiumMissingError as e:
+        raise HTTPException(422, str(e)) from e
+
+
+def _need_osmium() -> None:
+    try:
+        osmium_tool.require()
+    except osmium_tool.OsmiumMissingError as e:
+        raise HTTPException(422, str(e)) from e
+
+
+# ── background jobs (countries / split can take many minutes) ──────────────
+
+
+def _job_view(ds: dict) -> dict:
+    j = ds.get("job")
+    if j is None:
+        return {"state": "idle"}
+    end = j.get("ended") or time.time()
+    return {
+        "kind": j["kind"],
+        "state": j["state"],
+        "stage": j["stage"],
+        "elapsed": round(end - j["started"]),
+        "result": j.get("result"),
+        "error": j.get("error"),
+        "detail": j.get("detail", ""),
+    }
+
+
+def _start_job(ds: dict, kind: str, fn) -> dict:
+    with _JOB_LOCK:
+        cur = ds.get("job")
+        if cur is not None and cur["state"] == "running":
+            raise HTTPException(409, "Another job on this file is still running.")
+        job = {"kind": kind, "state": "running", "stage": "Starting", "started": time.time()}
+        ds["job"] = job
+
+    def progress(stage: str) -> None:
+        job["stage"] = stage
+
+    def work() -> None:
+        try:
+            job["result"] = fn(progress)
+            job["state"] = "done"
+        except HTTPException as e:
+            job["error"], job["state"] = str(e.detail), "error"
+        except osmium_tool.OsmiumError as e:
+            job["error"], job["detail"], job["state"] = e.message, e.detail, "error"
+        except osmium_tool.OsmiumMissingError as e:
+            job["error"], job["state"] = str(e), "error"
+        except Exception as e:
+            log.exception("OSM %s job failed", kind)
+            job["error"], job["state"] = _oneline(e), "error"
+        finally:
+            job["ended"] = time.time()
+
+    threading.Thread(target=work, daemon=True, name=f"osm-{kind}").start()
+    return _job_view(ds)
+
+
+@router.get("/technical/osm/job")
+async def job_osm(token: str):
+    return _job_view(_dataset(token))
+
+
 # ── countries and splitting ────────────────────────────────────────────────
 
 
-def _load_countries(ds: dict) -> None:
+def _boundaries_file(ds: dict, progress) -> Path:
+    """Small .osm.pbf with only the admin_level=2 relations and the ways / nodes they use. Cached on disk,
+    keyed by the big file's path, size and modification time, so reopening the same file is instant.
+    """
+    src: Path = ds["path"]
+    st = src.stat()
+    key = hashlib.sha1(f"{src.resolve()}|{st.st_size}|{st.st_mtime_ns}".encode()).hexdigest()[:16]
+    out = CACHE_DIR / f"admin2-{key}.osm.pbf"
+    if out.is_file() and out.stat().st_size > 0:
+        return out
+    CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    part = CACHE_DIR / f"admin2-{key}.part.osm.pbf"
+    progress("Pulling the country borders out of the file")
+    osmium_tool.run(
+        ["tags-filter", str(src), "r/admin_level=2", "--output", str(part), "--overwrite"]
+    )
+    part.replace(out)
+    return out
+
+
+def _load_countries(ds: dict, progress) -> None:
     """Countries whose whole boundary is in the file (a country file also holds incomplete relations of its
-    neighbours; those are not countries you could split out). One pass over the boundary ways, cached.
+    neighbours; those are not countries you could split out). Built from the small filtered file, cached.
     """
     with _COMPUTE:
         if ds.get("split_countries") is not None:
             return
+        small = _boundaries_file(ds, progress)
+        progress("Building the country shapes")
         rels = {k: v for k, v in ds["rels"].items() if v["level"] == 2}
         wanted: set[int] = set()
         for c in ds["countries"]:
@@ -343,7 +462,7 @@ def _load_countries(ds: dict) -> None:
             if r:
                 wanted.update(r["outer"])
                 wanted.update(r["inner"])
-        ways = _read_ways(ds["path"], wanted, None) if wanted else {}
+        ways = _read_ways(small, wanted, None) if wanted else {}
         polys = {}
         for c in ds["countries"]:
             r = rels.get(int(c["id"]))
@@ -358,11 +477,16 @@ def _load_countries(ds: dict) -> None:
         ds["split_countries"] = [c for c in ds["countries"] if c["id"] in polys]
 
 
+def _countries_job(ds: dict, progress) -> dict:
+    _load_countries(ds, progress)
+    return {"countries": ds["split_countries"]}
+
+
 @router.post("/technical/osm/countries")
 async def countries_osm(body: TokenBody):
     ds = _dataset(body.token)
-    await run_in_threadpool(_guard, "check the countries", _load_countries, ds)
-    return {"countries": ds["split_countries"]}
+    _need_osmium()
+    return _start_job(ds, "countries", lambda progress: _countries_job(ds, progress))
 
 
 class SplitBody(TokenBody):
@@ -370,8 +494,8 @@ class SplitBody(TokenBody):
     folder: str = ""
 
 
-def _split(ds: dict, body: SplitBody) -> dict:
-    _load_countries(ds)
+def _split(ds: dict, body: SplitBody, progress) -> dict:
+    _load_countries(ds, progress)
     chosen = [c for c in ds["split_countries"] if c["id"] in set(body.countries)]
     if not chosen:
         raise HTTPException(422, "Pick at least one country.")
@@ -379,24 +503,63 @@ def _split(ds: dict, body: SplitBody) -> dict:
     if ds["temporary"] and not folder:
         raise HTTPException(422, "Enter a folder to save the country files in.")
     out_dir = Path(folder) if folder else ds["path"].parent / f"{_stem(ds['path'])}-countries"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
-    polys, names, used = {}, {}, set()
-    for c in chosen:
-        label = _safe(c["code"] or c["name"])
-        if label in used:
-            label = f"{label}_{c['id']}"
-        used.add(label)
-        polys[label] = ds["split_polys"][c["id"]]
-        names[label] = c["name"]
-    with _GDAL:
-        stats = split_pbf(ds["path"], polys, out_dir)
+    work = Path(tempfile.mkdtemp(prefix="split-", dir=CACHE_DIR))
+    names: dict[str, str] = {}
+    try:
+        extracts, used = [], set()
+        for c in chosen:
+            label = _safe(c["code"] or c["name"])
+            if label in used:
+                label = f"{label}_{c['id']}"
+            used.add(label)
+            names[label] = c["name"]
+            geom = shapely.simplify(ds["split_polys"][c["id"]], SPLIT_SIMPLIFY_DEG)
+            shape = work / f"{label}.geojson"
+            shape.write_text(
+                json.dumps(
+                    {
+                        "type": "Feature",
+                        "properties": {},
+                        "geometry": json.loads(shapely.to_geojson(geom)),
+                    }
+                ),
+                encoding="utf-8",
+            )
+            extracts.append(
+                {
+                    "output": f"{label}.osm.pbf",
+                    "output_format": "pbf",
+                    "polygon": {"file_name": str(shape), "file_type": "geojson"},
+                }
+            )
+        config = work / "extract.json"
+        config.write_text(
+            json.dumps({"directory": str(out_dir), "extracts": extracts}), encoding="utf-8"
+        )
+        progress(f"Cutting {len(extracts)} countries out of the file (3 passes, keep this running)")
+        osmium_tool.run(
+            [
+                "extract",
+                "--config",
+                str(config),
+                "--strategy",
+                "smart",
+                "--overwrite",
+                str(ds["path"]),
+            ]
+        )
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
 
     files = []
-    for label, st in stats.items():
-        p = Path(st["path"])
+    for label, country in names.items():
+        p = out_dir / f"{label}.osm.pbf"
         if p.is_file():
             files.append(
-                {"name": p.name, "path": str(p), "size": p.stat().st_size, "country": names[label]}
+                {"name": p.name, "path": str(p), "size": p.stat().st_size, "country": country}
             )
     return {"folder": str(out_dir), "files": files}
 
@@ -404,4 +567,5 @@ def _split(ds: dict, body: SplitBody) -> dict:
 @router.post("/technical/osm/split")
 async def split_osm(body: SplitBody):
     ds = _dataset(body.token)
-    return await run_in_threadpool(_guard, "split this file", _split, ds, body)
+    _need_osmium()
+    return _start_job(ds, "split", lambda progress: _split(ds, body, progress))

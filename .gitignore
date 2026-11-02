@@ -7,6 +7,7 @@ frontend/dist/*
 maps/*
 src/maps/fabdem/*
 src/maps/srtm_global/*
+tools/*
 venv/*
 *.egg-info/*
 __pycache__/
