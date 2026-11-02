@@ -17,8 +17,6 @@ const memo = { country: "" }; // remembered while you move between pages
 // Small, bounded steps for the stain constants. `tol` is sent separately (it is a top-level API field).
 const TUNING = [
   { key: "tol", label: "TOL · shade merge", min: 8, max: 120, step: 1, digits: 0 },
-  { key: "cap", label: "CAP · colour reach", min: 0.1, max: 5, step: 0.05, digits: 2 },
-  { key: "seg_tol", label: "SEG_TOL · blend reach", min: 0, max: 150, step: 0.5, digits: 1 },
   { key: "near_px", label: "NEAR_PX · nearby colours", min: 1, max: 12, step: 1, digits: 0 },
   { key: "grow_px", label: "GROW_PX · beyond outline", min: 0, max: 20, step: 1, digits: 0 },
   { key: "flat_t", label: "FLAT_T · flatness", min: 0, max: 150, step: 1, digits: 0 },
@@ -28,8 +26,8 @@ const TUNING = [
   { key: "hole_min", label: "HOLE_MIN · fill holes", min: 0, max: 1000, step: 5, digits: 0 },
   { key: "min_poly", label: "MIN_POLY · drop specks", min: 0, max: 200, step: 1, digits: 0 },
   { key: "clip_px", label: "CLIP_PX · past outline", min: 0, max: 20, step: 1, digits: 0 },
-  { key: "simplify_px", label: "SIMPLIFY_PX", min: 0, max: 5, step: 0.1, digits: 1 },
   { key: "smooth_px", label: "SMOOTH_PX", min: 0, max: 5, step: 0.1, digits: 1 },
+  { key: "min_stain_pct", label: "MIN_STAIN_PCT · % of country", min: 0, max: 10, step: 0.05, digits: 2 },
 ];
 
 // Wheel to zoom around the cursor, drag (on the caller's side) to pan. 1x is "fit".

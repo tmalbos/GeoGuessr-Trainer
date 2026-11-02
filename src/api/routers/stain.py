@@ -12,6 +12,7 @@ The maths is in src/geo/stain_extract.py; the "is there a map?" check is in src/
 """
 
 import contextlib
+import json
 import os
 import re
 import subprocess
@@ -31,20 +32,6 @@ from starlette.concurrency import run_in_threadpool
 from src.api.deps import get_ctx
 from src.geo.map_detect import detect_map
 from src.geo.stain_extract import (
-    BLEND_CENTRE_TOL,
-    CAP,
-    CLIP_PX,
-    FLAT_T,
-    GROW_PX,
-    HOLE_MIN,
-    MAX_CLASSES,
-    MIN_CLASS_SHARE,
-    MIN_POLY,
-    NEAR_PX,
-    SEG_TOL,
-    SIMPLIFY_PX,
-    SMOOTH_PX,
-    TOL,
     StainError,
     analyze,
     evaluate_warp,
@@ -53,6 +40,9 @@ from src.geo.stain_extract import (
 from src.geo.stain_scan import write_last_report
 
 router = APIRouter()
+
+DEFAULT_TOL = 30
+FIXED_PARAMS = {"cap": 1.0}  # no longer tunable
 
 MAX_UPLOADS = 5
 _UPLOADS: OrderedDict[str, dict] = OrderedDict()
@@ -111,19 +101,19 @@ def _prepare(data: bytes) -> dict:
 class StainParams(BaseModel):
     """Live overrides of the stain step (the map registration is reused)."""
 
-    cap: float = Field(CAP, ge=0.1, le=5.0)
-    seg_tol: float = Field(SEG_TOL, ge=0.0, le=150.0)
-    near_px: int = Field(NEAR_PX, ge=1, le=12)
-    grow_px: int = Field(GROW_PX, ge=0, le=20)
-    flat_t: float = Field(FLAT_T, ge=0.0, le=150.0)
-    blend_centre_tol: float = Field(BLEND_CENTRE_TOL, ge=0.0, le=150.0)
-    max_classes: int = Field(MAX_CLASSES, ge=1, le=14)
-    min_class_share: float = Field(MIN_CLASS_SHARE, ge=0.0, le=0.1)
-    hole_min: float = Field(HOLE_MIN, ge=0.0, le=1000.0)
-    min_poly: float = Field(MIN_POLY, ge=0.0, le=200.0)
-    clip_px: int = Field(CLIP_PX, ge=0, le=20)
-    simplify_px: float = Field(SIMPLIFY_PX, ge=0.0, le=5.0)
-    smooth_px: float = Field(SMOOTH_PX, ge=0.0, le=5.0)
+    near_px: int = Field(3, ge=1, le=12)
+    grow_px: int = Field(5, ge=0, le=20)
+    flat_t: float = Field(25.0, ge=0.0, le=150.0)
+    blend_centre_tol: float = Field(75.0, ge=0.0, le=150.0)
+    max_classes: int = Field(5, ge=1, le=14)
+    min_class_share: float = Field(0.0005, ge=0.0, le=0.1)
+    hole_min: float = Field(10.0, ge=0.0, le=1000.0)
+    min_poly: float = Field(4.0, ge=0.0, le=200.0)
+    clip_px: int = Field(5, ge=0, le=20)
+    smooth_px: float = Field(0.5, ge=0.0, le=5.0)
+    min_stain_pct: float = Field(
+        0.35, ge=0.0, le=10.0
+    )  # drop stains whose total area is below this % of the country
 
 
 @router.post("/technical/stain/upload")
@@ -153,8 +143,31 @@ async def stain_upload(request: Request, path: str | None = None):
         "width": w,
         "height": h,
         "map": up["map"],
-        "params": {**StainParams().model_dump(), "tol": TOL},
+        "params": {**StainParams().model_dump(), "tol": DEFAULT_TOL},
     }
+
+
+def _drop_small(res: dict, min_pct: float) -> dict:
+    """Remove final stains (all polygons of a colour together) smaller than min_pct % of the country area."""
+    if min_pct <= 0:
+        return res
+    total = shapely.from_geojson(json.dumps(res["base"]["outline"])).area
+    if total <= 0:
+        return res
+    keep = [
+        (c, f)
+        for c, f in zip(res["classes"], res["geojson"]["features"], strict=True)
+        if c["base"]
+        or shapely.from_geojson(json.dumps(f["geometry"])).area / total * 100 >= min_pct
+    ]
+    n = 0
+    for c, f in keep:
+        if not c["base"]:
+            n += 1
+            c["tag"] = f["properties"]["tag"] = f"Stain {n}"
+    res["classes"] = [c for c, _ in keep]
+    res["geojson"]["features"] = [f for _, f in keep]
+    return res
 
 
 class StainBody(BaseModel):
@@ -162,7 +175,9 @@ class StainBody(BaseModel):
     country: str
     crop: list[float] | None = Field(None, min_length=4, max_length=4)
     projection: Literal["auto", "equirect", "plate", "mercator", "lcc", "albers"] = "auto"
-    tol: int = Field(TOL, ge=8, le=120)  # shades closer than this are merged into one colour
+    tol: int = Field(
+        DEFAULT_TOL, ge=8, le=120
+    )  # shades closer than this are merged into one colour
     params: StainParams = Field(default_factory=StainParams)
     debug: bool = False  # also return the edge pixels the fit looks at
 
@@ -192,8 +207,10 @@ async def stain_analyze(body: StainBody, request: Request):
     if outline is None:
         raise HTTPException(422, f"No local outline for {code} (see scripts/convert_geo.py)")
     borders = await run_in_threadpool(_borders, local, code)
+    params = body.params.model_dump()
+    min_pct = params.pop("min_stain_pct")
     try:
-        return await run_in_threadpool(
+        res = await run_in_threadpool(
             analyze,
             up["arr"],
             up["full"],
@@ -205,8 +222,9 @@ async def stain_analyze(body: StainBody, request: Request):
             up["reg"].setdefault(code, {}),
             hint,
             body.debug,
-            body.params.model_dump(),
+            {**params, **FIXED_PARAMS},
         )
+        return _drop_small(res, min_pct)
     except StainError as e:
         raise HTTPException(422, str(e)) from e
 
