@@ -5,18 +5,19 @@ Flow:
     POST /technical/pbf/upload   (raw body, ?filename=)       -> same, for a file picked in the browser
     POST /technical/pbf/country  {token, country}             -> SLOW, once per country: builds every admin boundary of that
                                                                  country, returns the levels it really has (+ counts)
+    POST /technical/pbf/coast    {token, country, levels}     -> cuts the chosen levels to land (coastlines), on demand only
     POST /technical/pbf/preview  {token, country, levels, simplify} -> per-level GeoJSON features (fast, cached)
     POST /technical/pbf/export   {token, country, levels, simplify} -> TopoJSON download
 
 How it works (why it is fast after the first load):
   1. Opening the file reads only the relations (cheap) and remembers each admin relation's member ways.
   2. Choosing a country reads the file once more (nodes + ways, node locations cached by osmium), keeps ONLY the
-     ways that admin relations use (and, when the app has an outline for the country, only those near it),
-     assembles the boundaries with shapely and keeps the ones whose inside point lies in the country.
+     ways that admin relations use, and assembles every admin boundary of the file with shapely.
      A second pass reads the natural=coastline ways.
-  3. Everything lives in memory, grouped by level. Boundaries are cut to land with the coastlines the first time a
-     level is requested (only the polygons that touch a coastline are processed). Changing levels / simplification
-     never touches the PBF again; simplified + serialised features are cached per (level, simplification).
+  3. Everything lives in memory, grouped by level. Boundaries are NOT cut to land by default: that only happens for
+     the levels the user asks for with /technical/pbf/coast (only the polygons that touch a coastline are processed).
+     Preview and export use the cut version of a level once it has been cut. Changing levels / simplification
+     never touches the PBF again; simplified + serialised features are cached per (level, simplification, cut).
 """
 
 from __future__ import annotations
@@ -46,12 +47,9 @@ router = APIRouter()
 
 MAX_DATASETS = 3
 MAX_COUNTRIES = 3  # extracted countries kept in memory per file
-MAX_PREVIEW_CACHE = 60  # (level, pct) entries per country
+MAX_PREVIEW_CACHE = 60  # (level, pct, cut) entries per country
 PREVIEW_PCT = 5
-BBOX_PAD = 0.5  # degrees around the app's country outline when picking ways
-FALLBACK_BUFFER = (
-    0.05  # degrees: the app's outline is coarse, so widen it when it is used for "inside"
-)
+BBOX_PAD = 0.5  # degrees around the boundaries when picking coastlines for the cut
 MIN_LEFTOVER = 1e-12  # deg2: smaller uncovered bits of a boundary are numerical noise
 CACHE_DIR = Path(tempfile.gettempdir()) / "geoguessr-pbf-admin"
 _LEVEL_COLORS = (
@@ -71,7 +69,6 @@ _DATASETS: OrderedDict[str, dict] = OrderedDict()
 _LOCK = threading.Lock()
 _COMPUTE = threading.Lock()  # one extraction at a time (CPU / memory heavy)
 _LAND = threading.Lock()  # one coastline cut at a time
-_OUTLINES: dict[str, object] = {}
 
 
 # ── helpers ────────────────────────────────────────────────────────────────
@@ -225,29 +222,7 @@ def _open(path_text: str, temporary: bool = False, display_name: str | None = No
 # ── step 2: build one country ──────────────────────────────────────────────
 
 
-def _local_outline(code: str):
-    """The app's own (coarse) outline for the country: used for a bbox and as a fallback 'inside' test."""
-    if not code:
-        return None
-    if code in _OUTLINES:
-        return _OUTLINES[code]
-    path = Path(__file__).resolve().parents[3] / "data" / "geo" / "countries.parquet"
-    out = None
-    if path.is_file():
-        try:
-            import geopandas as gpd
-
-            rows = gpd.read_parquet(path, columns=["code", "geometry"])
-            hit = rows[rows["code"] == code]
-            if len(hit):
-                out = _polys(shapely.union_all(shapely.make_valid(hit.geometry.to_numpy())))
-        except Exception:
-            log.warning("Could not read the local outline for %s", code, exc_info=True)
-    _OUTLINES[code] = out
-    return out
-
-
-def _read_ways(path: Path, wanted: set[int], bbox) -> dict[int, np.ndarray]:
+def _read_ways(path: Path, wanted: set[int]) -> dict[int, np.ndarray]:
     """One pass over the file. Returns {way id: (n, 2) lon/lat array} for the wanted ways only.
     osmium filters out untagged nodes and unwanted ways before Python sees them (the node locations are still
     cached for the ways), so Python only touches the boundary ways.
@@ -271,13 +246,6 @@ def _read_ways(path: Path, wanted: set[int], bbox) -> dict[int, np.ndarray]:
         except Exception:  # noqa: BLE001  # a node location is unknown
             continue
         if len(xy) < 2:
-            continue
-        if bbox is not None and (
-            xy[:, 0].max() < bbox[0]
-            or xy[:, 0].min() > bbox[2]
-            or xy[:, 1].max() < bbox[1]
-            or xy[:, 1].min() > bbox[3]
-        ):
             continue
         out[o.id] = xy
     return out
@@ -376,8 +344,6 @@ def _extract(ds: dict, country: str) -> dict:
     country_name = next((c["name"] for c in ds["countries"] if c["id"] == country), None)
     if country_name is None:
         raise HTTPException(404, "That country is no longer in the open file.")
-    cid = int(country)
-    code = next((c["code"] for c in ds["countries"] if c["id"] == country), "")
 
     rels: dict[int, dict] = ds["rels"]
     wanted: set[int] = set()
@@ -385,13 +351,7 @@ def _extract(ds: dict, country: str) -> dict:
         wanted.update(r["outer"])
         wanted.update(r["inner"])
 
-    outline = _local_outline(code)
-    bbox = None
-    if outline is not None:
-        w, s, e, n = outline.bounds
-        bbox = (w - BBOX_PAD, s - BBOX_PAD, e + BBOX_PAD, n + BBOX_PAD)
-
-    ways = _read_ways(ds["path"], wanted, bbox)
+    ways = _read_ways(ds["path"], wanted)
     if not ways:
         raise HTTPException(422, "No boundary geometry could be read from this file.")
 
@@ -404,26 +364,12 @@ def _extract(ds: dict, country: str) -> dict:
             geoms.append(g)
     del ways
     if not geoms:
-        raise HTTPException(
-            422, "No complete administrative boundaries were found near this country."
-        )
-
-    country_geom = geoms[ids.index(cid)] if cid in ids else None
-    if country_geom is None:
-        if outline is None:
-            raise HTTPException(422, "That country has no usable outline in this file.")
-        country_geom = shapely.buffer(outline, FALLBACK_BUFFER)
+        raise HTTPException(422, "No complete administrative boundaries were found in this file.")
 
     arr = np.empty(len(geoms), dtype=object)
     arr[:] = geoms
-    shapely.prepare(country_geom)
-    keep = np.asarray(shapely.contains(country_geom, shapely.point_on_surface(arr)), dtype=bool)
-    if not keep.any():
-        raise HTTPException(422, "No boundaries fall inside this country in this file.")
-
-    idx = np.flatnonzero(keep)
-    areas = shapely.area(arr[idx])
-    lv = np.array([rels[ids[i]]["level"] for i in idx])
+    areas = shapely.area(arr)
+    lv = np.array([rels[i]["level"] for i in ids])
 
     by_level: dict[int, dict] = {}
     for level in sorted(set(lv.tolist())):
@@ -431,36 +377,28 @@ def _extract(ds: dict, country: str) -> dict:
         sel = sel[np.argsort(-areas[sel])]  # big areas first, so small ones are drawn on top
         props = []
         for k in sel:
-            rid = ids[idx[k]]
+            rid = ids[k]
             r = rels[rid]
             props.append(
                 {"name": r["name"], "admin_level": level, "osm_id": str(rid), "iso": r["iso"]}
             )
-        by_level[level] = {"props": props, "geoms": arr[idx[sel]]}
+        by_level[level] = {"props": props, "geoms": arr[sel]}
 
-    # Coastlines (second pass) near the country, to cut the maritime part off the boundaries.
-    cminx, cminy, cmaxx, cmaxy = country_geom.bounds
+    cminx, cminy, cmaxx, cmaxy = (float(v) for v in shapely.total_bounds(arr))
     cbox = (cminx - BBOX_PAD, cminy - BBOX_PAD, cmaxx + BBOX_PAD, cmaxy + BBOX_PAD)
-    coast = None
-    coast_ids = None
-    tree = None
-    try:
-        coast, coast_ids = _read_coast(ds["path"], cbox)
-        tree = shapely.STRtree(coast) if len(coast) else None
-    except Exception:
-        log.warning("Could not read the coastlines; boundaries are left uncut", exc_info=True)
 
-    minx, miny, maxx, maxy = country_geom.bounds
     return {
         "country": country_name,
         "by_level": by_level,
         "levels": [{"level": level, "count": len(v["props"])} for level, v in by_level.items()],
-        "diag": max(math.hypot(maxx - minx, maxy - miny), 1e-9),
-        "coast": coast,
-        "coast_ids": coast_ids,
-        "tree": tree,
+        "diag": max(math.hypot(cmaxx - cminx, cmaxy - cminy), 1e-9),
+        "path": ds["path"],
+        "coast_loaded": False,  # coastlines are read the first time the user cuts a level
+        "coast": None,
+        "coast_ids": None,
+        "tree": None,
         "cbox": cbox,
-        "land": {},  # level -> {"props", "geoms"} cut to land
+        "land": {},  # level -> {"props", "geoms"} cut to land (only levels the user asked for)
         "cache": OrderedDict(),
     }
 
@@ -651,11 +589,47 @@ def _land_level(data: dict, level: int) -> dict:
                 if ng is not None and not ng.is_empty:
                     props.append(p)
                     geoms.append(ng)
+                else:
+                    log.info("Coast cut ADM%d %s: DROPPED (nothing left on land)", level, p["name"])
             arr = np.empty(len(geoms), dtype=object)
             arr[:] = geoms
             hit = {"props": props, "geoms": arr}
         data["land"][level] = hit
         return hit
+
+
+def _ensure_coast(data: dict) -> None:
+    """Read the coastlines (second pass over the file) the first time a cut is requested."""
+    with _LAND:
+        if data["coast_loaded"]:
+            return
+        try:
+            coast, coast_ids = _read_coast(data["path"], data["cbox"])
+            data["coast"], data["coast_ids"] = coast, coast_ids
+            data["tree"] = shapely.STRtree(coast) if len(coast) else None
+        except Exception:
+            log.warning("Could not read the coastlines; boundaries are left uncut", exc_info=True)
+        data["coast_loaded"] = True
+
+
+def _cut_levels(data: dict, levels: list[int]) -> list[dict]:
+    """Run the coastline cut for these levels only. Returns [{level, before, after}]."""
+    _ensure_coast(data)
+    out = []
+    for lv in levels:
+        before = len(data["by_level"][lv]["props"])
+        after = len(_land_level(data, lv)["props"])
+        out.append({"level": lv, "before": before, "after": after})
+    return out
+
+
+def _levels_info(data: dict) -> list[dict]:
+    return [{**x, "cut": x["level"] in data["land"]} for x in data["levels"]]
+
+
+def _current(data: dict, level: int) -> dict:
+    """The level as it is now: cut to land if the user ran the cut for it, otherwise as assembled."""
+    return data["land"].get(level) or data["by_level"][level]
 
 
 # ── step 3: preview / export (from memory) ─────────────────────────────────
@@ -688,10 +662,11 @@ def _tol(data: dict, pct: int) -> float:
 
 def _preview_features(data: dict, level: int, pct: int) -> list[str]:
     """Serialised GeoJSON features of one level at one simplification; computed once, then cached."""
-    key = (level, pct)
+    cut = level in data["land"]
+    key = (level, pct, cut)
     hit = data["cache"].get(key)
     if hit is None:
-        lv = _land_level(data, level)
+        lv = _current(data, level)
         geoms = _simplify(lv["geoms"], _tol(data, pct))
         gj = shapely.to_geojson(geoms)
         hit = [
@@ -732,7 +707,7 @@ def _export(data: dict, country_label: str, levels: list[int], simplify: int) ->
         raise HTTPException(422, "Pick at least one admin level")
     feats = []
     for lv in chosen:
-        item = _land_level(data, lv)
+        item = _current(data, lv)
         geoms = _simplify(item["geoms"], _tol(data, simplify))
         for p, g in zip(item["props"], geoms, strict=True):
             feats.append(
@@ -769,6 +744,10 @@ class ExtractBody(CountryBody):
     simplify: int = Field(0, ge=0, le=100)
 
 
+class CoastBody(CountryBody):
+    levels: list[int] = Field(default_factory=list)
+
+
 def _levels(values: list[int]) -> list[int]:
     return sorted({int(v) for v in values if 1 <= int(v) <= 20})
 
@@ -798,7 +777,18 @@ async def upload_pbf(request: Request, filename: str | None = None):
 async def country_pbf(body: CountryBody):
     """Builds (or returns the cached) boundaries of one country. The slow step; the levels returned are that country's own."""
     data = await run_in_threadpool(_load, _dataset(body.token), body.country)
-    return {"levels": data["levels"], "total": sum(x["count"] for x in data["levels"])}
+    return {"levels": _levels_info(data), "total": sum(x["count"] for x in data["levels"])}
+
+
+@router.post("/technical/pbf/coast")
+async def coast_pbf(body: CoastBody):
+    """Cuts the chosen levels to land with the coastlines. Only runs when asked; only for those levels."""
+    data = await run_in_threadpool(_load, _dataset(body.token), body.country)
+    chosen = [lv for lv in _levels(body.levels) if lv in data["by_level"]]
+    if not chosen:
+        raise HTTPException(422, "Pick at least one admin level")
+    stats = await run_in_threadpool(_cut_levels, data, chosen)
+    return {"levels": _levels_info(data), "stats": stats, "no_coast": data["tree"] is None}
 
 
 @router.post("/technical/pbf/preview")

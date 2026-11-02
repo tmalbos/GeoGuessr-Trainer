@@ -20,12 +20,14 @@ export default function AdminExtractor() {
   const [levels, setLevels] = useState(memo.levels);
   const [simplify, setSimplify] = useState(memo.simplify);
   const [pct, setPct] = useState(Math.max(PREVIEW_PCT, memo.simplify)); // debounced preview simplification
-  const [info, setInfo] = useState(null); // { levels: [{ level, count }] } of the selected country only
+  const [info, setInfo] = useState(null); // { levels: [{ level, count, cut }] } of the selected country only
   const [path, setPath] = useState("");
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(false);
   const [extracting, setExtracting] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [cutting, setCutting] = useState(false);
+  const [cutMsg, setCutMsg] = useState("");
   const [exporting, setExporting] = useState(false);
   const [over, setOver] = useState(false);
   const [err, setErr] = useState("");
@@ -37,7 +39,7 @@ export default function AdminExtractor() {
 
   const accept = (d) => {
     cache.current.clear();
-    setDs(d); setCountry(""); setLevels([]); setInfo(null); setErr(""); setView(null);
+    setDs(d); setCountry(""); setLevels([]); setInfo(null); setErr(""); setView(null); setCutMsg("");
   };
 
   const upload = async (file) => {
@@ -60,7 +62,7 @@ export default function AdminExtractor() {
 
   // Step 1: build the selected country (slow once, instant when the server already has it).
   useEffect(() => {
-    setInfo(null);
+    setInfo(null); setCutMsg("");
     if (!ds || !country) { setExtracting(false); return undefined; }
     let stale = false;
     setExtracting(true); setErr("");
@@ -109,6 +111,22 @@ export default function AdminExtractor() {
     else if (last.current.k !== k) last.current = { k, fc: null };
     return last.current.fc;
   }, [ds, country, levels, pct, ver]);
+
+  // Cut the ticked levels to the coastline. Only runs on click, only for the ticked levels.
+  const cutCoast = async () => {
+    setCutting(true); setErr(""); setCutMsg("");
+    try {
+      const r = await api("/technical/pbf/coast", { method: "POST", body: { token: ds.token, country, levels } });
+      const prefix = `${ds.token}|${country}|`;
+      for (const k of [...cache.current.keys()]) {
+        if (k.startsWith(prefix) && levels.includes(Number(k.slice(prefix.length).split("|")[0]))) cache.current.delete(k);
+      }
+      setCutMsg(r.no_coast
+        ? "No coastline found for this country in the file, nothing was cut."
+        : r.stats.map((s) => `Level ${s.level}: ${s.before} → ${s.after}`).join(" · "));
+      setInfo((i) => ({ ...i, levels: r.levels }));
+    } catch (e) { setErr(errorText(e)); } finally { setCutting(false); }
+  };
 
   const exportTopo = async () => {
     setExporting(true); setErr("");
@@ -183,9 +201,13 @@ export default function AdminExtractor() {
             {info.levels.map((l) => <label className="tp-tag" key={l.level} title={`admin_level=${l.level}`}>
               <input type="checkbox" checked={levels.includes(l.level)} onChange={() => toggleLevel(l.level)} />
               <span className="tp-dot" style={{ background: colorOf(l.level) }} />
-              <span>Level {l.level}</span><span className="muted">{l.count.toLocaleString()}</span>
+              <span>Level {l.level}{l.cut ? " · cut to coast" : ""}</span><span className="muted">{l.count.toLocaleString()}</span>
             </label>)}
           </div>
+          <button type="button" className="btn ghost" disabled={!levels.length || cutting} onClick={cutCoast}>
+            {cutting ? "Cutting…" : "Cut selected levels to coastline"}
+          </button>
+          {cutMsg && <p className="muted">{cutMsg}</p>}
 
           <h3>Simplification</h3>
           <div className="tp-field">
@@ -203,7 +225,7 @@ export default function AdminExtractor() {
 
     <div className="tp-main">
       {err && <ErrorBox message={err} />}
-      {admin && (extracting || busy) && <p className="muted">{extracting ? "Building this country…" : "Loading…"}</p>}
+      {admin && (extracting || busy || cutting) && <p className="muted">{extracting ? "Building this country…" : cutting ? "Cutting to coastline…" : "Loading…"}</p>}
       {admin && ds && country && <PolyMap features={fc} fitKey={fc ? `${ds.token}|${country}` : null} />}
       {!admin && ds && <>
         <PolyMap features={other?.geojson?.features.length ? other.geojson : null} fitKey={other?.key} />
