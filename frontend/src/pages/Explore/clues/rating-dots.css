@@ -1,0 +1,2 @@
+/* Hover preview: the dots that would be added / dropped by a click are drawn lighter than the current value. */
+.rdots button.pv { background: color-mix(in srgb, var(--sea-hi) 40%, transparent); border-color: var(--sea-hi); }

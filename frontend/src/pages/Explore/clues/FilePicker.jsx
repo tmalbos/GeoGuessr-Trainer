@@ -56,10 +56,11 @@ export function Preview({ kind, v, cc }) {
  *  `cc` = country code, so geometries are previewed on the country.
  *  `extra` = something to show in the top-right corner of the box (e.g. the Blur checkbox).
  *  `preview` = a node that is shown instead of the default preview of `value` (used for clickable stains).
+ *  `inside` = anything that should live INSIDE the box, right under its title (e.g. the picture of the map).
  *  `stage` ({file} | {path}) = stage the input yourself and return the upload (undefined = the caller handled
  *  it some other way and nothing is replaced yet); `onImage` = take the
  *  image / Street View link instead of a file of `kind` (used by the region slot for the stain tool). */
-export default function FilePicker({ kind, label, hint, accept, value, onChange, current, extra, stage, onImage, cc, preview }) {
+export default function FilePicker({ kind, label, hint, accept, value, onChange, current, extra, stage, onImage, cc, preview, inside }) {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
   const [drag, setDrag] = useState(false);
@@ -104,6 +105,7 @@ export default function FilePicker({ kind, label, hint, accept, value, onChange,
     onDragOver={(e) => { e.preventDefault(); setDrag(true); }} onDragLeave={() => setDrag(false)}
     onDrop={(e) => { e.preventDefault(); setDrag(false); upload(e.dataTransfer.files[0]); }}>
     <div className="fp-head"><b>{label}</b>{hint && <Info text={hint} />}{extra}</div>
+    {inside}
     {value && (preview ?? <Preview kind={value.kind ?? kind} v={value} cc={cc} />)}
     {!value && current && <div className="fp-prev">
       {current.node ?? (current.src && <img className="fp-img" src={current.src} alt="Current file" />)}

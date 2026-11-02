@@ -1,9 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { api, errorText } from "../../../lib/api.js";
 import { discardStaged, stagePath, stagedUrl } from "./imageTools.js";
 import { resolveStreetView, streetViewShot } from "./mediaKinds.js";
+import ClueMap from "./ClueMap.jsx";
 import FilePicker from "./FilePicker.jsx";
 import RegionPreview from "./RegionPreview.jsx";
+import fileUrl from "./fileUrl.js";
 import ShapeControls, { SHAPE_DEFAULTS } from "../../Technical/ShapeControls.jsx";
 
 const ACCEPT = ".svg,.csv,.geojson,.json,.gpkg,.zip,.parquet,.kml,image/*";
@@ -57,20 +60,24 @@ const shadesOf = (parts, off) => {
 };
 
 /** The region slot below the media: an SVG, CSV or geometry file, or a picture of the map, which is
- *  run through the stain tool for this country. The result is shown once, on the country (FilePicker's preview),
- *  and every single polygon of every stain can be clicked there to leave it out of the clue (click again to bring it back).
- *  The picture itself only appears when the map has to be boxed by hand (not found / low confidence) or on request.
+ *  run through the stain tool for this country.
+ *  The region itself is NOT drawn here: it is drawn on the clue's photo (portal into `overlayEl`, the map box the
+ *  image column provides), exactly where the card shows it. Every single polygon of every stain can be clicked there
+ *  to leave it out of the clue (click again to bring it back).
+ *  The picture of the map is shown as soon as it is given (before it has been read), always, and a box can be dragged
+ *  on it to search again.
  *  A mapmaking.app export dropped / pasted / browsed into the same box is recognised: its locations inside this
  *  country are listed by tag, one tag becomes the region (shape tuned under "Customize"). The staged region then
  *  carries `stats.spread_km` from the server (average distance between the points of each polygon, shades ignored),
- *  which the editor uses to rate the frequency. */
-export default function AreaPicker({ cc, value, current, onChange, stage, initialPicture }) {
-  const [up, setUp] = useState(null);       // { token, url, map } — the picture sent to the stain tool
+ *  which the editor uses to rate the frequency.
+ *  `clue` = the clue being edited (its stored region is drawn when nothing new was picked). */
+export default function AreaPicker({ cc, value, current, onChange, stage, initialPicture, overlayEl, clue }) {
+  const [pic, setPic] = useState(null);     // { url, token? } — the picture shown right away
+  const [up, setUp] = useState(null);       // { token, map, ... } — the picture once the stain tool has it
   const [crop, setCrop] = useState(null);   // [x0, y0, x1, y1] as fractions of the picture, drawn by hand
   const [res, setRes] = useState(null);     // stain result
   const [off, setOff] = useState([]);       // ids of the polygons the user left out
   const [draft, setDraft] = useState(null);
-  const [adjust, setAdjust] = useState(false); // user asked to see the picture
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
   const shot = useRef(null);
@@ -105,7 +112,7 @@ export default function AreaPicker({ cc, value, current, onChange, stage, initia
   };
 
   const takePicture = async (input) => {
-    setBusy(true); setErr(""); setRes(null); setOff([]); setCrop(null); setAdjust(false);
+    setBusy(true); setErr(""); setRes(null); setOff([]); setCrop(null); setUp(null);
     try {
       const file = await pictureOf(input);
       let preview;
@@ -114,13 +121,14 @@ export default function AreaPicker({ cc, value, current, onChange, stage, initia
         const stagedPicture = await stagePath(strip(input.text ?? input.path));
         preview = { url: stagedUrl(stagedPicture.token), token: stagedPicture.token };
       }
-      const d = await upload(file, strip(input.text ?? input.path));
       if (shot.current) {
         if (shot.current.url?.startsWith("blob:")) URL.revokeObjectURL(shot.current.url);
         discardStaged(shot.current.token);
       }
       shot.current = preview;
-      setUp({ ...d, url: preview.url });
+      setPic(preview); // shown now, before the stain tool has read it
+      const d = await upload(file, strip(input.text ?? input.path));
+      if (shot.current === preview) setUp(d);
     } catch (e) { setErr(e.message); } finally { setBusy(false); }
   };
 
@@ -216,9 +224,11 @@ export default function AreaPicker({ cc, value, current, onChange, stage, initia
     return parts.length - o.length <= 1 ? o : [...o, id]; // at least one polygon stays on
   });
 
-  // The stain preview replaces the default one, but only while the region on screen is the one made from the stains.
-  let stainPreview;
-  if (res && value && value.token === staged.current && parts.length) {
+  // What goes on the photo (the same thing the card shows there). Stains first (clickable), then a freshly staged file,
+  // then the region the clue already has.
+  const stainsLive = !!(res && value && value.token === staged.current && parts.length);
+  let overlayNode = null;
+  if (stainsLive) {
     const shade = shadesOf(parts, off);
     const stains = parts.map((p) => ({
       id: p.id,
@@ -227,11 +237,23 @@ export default function AreaPicker({ cc, value, current, onChange, stage, initia
       shade: shade.get(p.tag) ?? 0,
       active: !off.includes(p.id),
     }));
-    stainPreview = <div className="fp-prev">
-      <RegionPreview cc={cc} layers={[]} stains={stains} onStain={toggleStain} />
-      <div className="muted">Click an area to leave it out of the clue (it turns grey and dashed), click it again to include it. Each click affects one area only. At least one stays on.</div>
-    </div>;
+    overlayNode = <RegionPreview cc={cc} layers={[]} stains={stains} onStain={toggleStain} align="right" />;
+  } else if (value) {
+    if (value.kind === "svg") overlayNode = <img src={stagedUrl(value.token, "svg")} alt="" />;
+    else if (value.kind === "csv") overlayNode = <ClueMap cc={cc} clue={{ id: value.token, csv_rows: value.rows }} align="right" />;
+    else if (value.geojson) overlayNode = <RegionPreview cc={cc} layers={[value.geojson]} align="right" />;
+  } else if (current && clue) {
+    overlayNode = clue.svg ? <img src={fileUrl(cc, clue.svg, clue.rev)} alt="" /> : <ClueMap cc={cc} clue={clue} align="right" />;
   }
+
+  // The little note in the Region box (the map itself is on the photo).
+  const note = value
+    ? <div className="fp-prev"><div className="muted">
+      {stainsLive
+        ? "Shown on the photo. Click an area there to leave it out of the clue (it turns grey and dashed), click it again to include it. At least one stays on."
+        : `${value.name} · shown on the photo`}
+    </div></div>
+    : undefined;
 
   // ── drawing the box ──
   const frac = (e) => {
@@ -262,15 +284,16 @@ export default function AreaPicker({ cc, value, current, onChange, stage, initia
     if (shot.current?.url?.startsWith("blob:")) URL.revokeObjectURL(shot.current.url);
     discardStaged(shot.current?.token);
     shot.current = null;
-    setUp(null); setRes(null); setOff([]); setCrop(null); setDraft(null); setErr(""); setAdjust(false);
+    setPic(null); setUp(null); setRes(null); setOff([]); setCrop(null); setDraft(null); setErr("");
   };
 
-  const needBox = up?.map?.found === false || !!err || (!!res && res.fit.confidence < 0.35);
-  const showShot = !!up?.url && (needBox || adjust);
+  let status;
+  if (busy) status = up ? "Looking for the map…" : "Loading the picture…";
+  else if (err) status = err;
+  else if (res) status = `${parts.length - off.length}${off.length ? ` of ${parts.length}` : ""} areas included. Drag a box around the map to search again.`;
+  else status = "The map wasn't found: drag a box around it.";
 
-  return <div className="ar">
-    <FilePicker kind="geometry" label="Region" hint={HINT} accept={ACCEPT} value={value} current={current}
-      onChange={onChange} stage={stageArea} onImage={takePicture} cc={cc} preview={stainPreview} />
+  const inside = <>
     {mm && <div className="ar-stain">
       <div className="clue-chips" role="group" aria-label="Tag" style={{ maxHeight: 150, overflowY: "auto" }}>
         {mm.tags.map((t) => <button key={t.name} type="button" className={`fchip ${sel === t.name ? "on" : ""}`} aria-pressed={sel === t.name}
@@ -289,21 +312,21 @@ export default function AreaPicker({ cc, value, current, onChange, stage, initia
         <button type="button" className="btn ghost" onClick={() => { setMm(null); setSel(""); setMmErr(""); }}>Close</button>
       </div>
     </div>}
-    {up && <div className="ar-stain">
-      {showShot && <div className="ar-shot" onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp}>
-        <img src={up.url} alt="The picture the areas are read from" draggable={false} />
+    {pic && <div className="ar-stain">
+      <div className="ar-shot" onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp}>
+        <img src={pic.url} alt="The picture the areas are read from" draggable={false} />
         {rect(draft ?? crop) && <div className="ar-box" style={rect(draft ?? crop)} />}
-      </div>}
+      </div>
       <div className="ar-row">
-        <span className="muted">
-          {busy ? "Looking for the map…"
-            : err ? err
-              : res ? `${parts.length - off.length}${off.length ? ` of ${parts.length}` : ""} areas included${showShot ? ". Drag a box around the map to search again." : ""}`
-                : "The map wasn't found: drag a box around it."}
-        </span>
-        {res && !needBox && <button type="button" className="btn ghost" onClick={() => setAdjust((a) => !a)}>{adjust ? "Hide picture" : "Adjust"}</button>}
+        <span className="muted">{status}</span>
         <button type="button" className="btn ghost" onClick={stop}>Close</button>
       </div>
     </div>}
+  </>;
+
+  return <div className="ar">
+    <FilePicker kind="geometry" label="Region" hint={HINT} accept={ACCEPT} value={value} current={current}
+      onChange={onChange} stage={stageArea} onImage={takePicture} cc={cc} preview={note} inside={inside} />
+    {overlayEl && overlayNode && createPortal(overlayNode, overlayEl)}
   </div>;
 }

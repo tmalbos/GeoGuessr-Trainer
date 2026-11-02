@@ -1,4 +1,4 @@
-import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "react";
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from "react";
 import StatusIcon from "../../../components/StatusIcon.jsx";
 import { useToast } from "../../../components/Toast.jsx";
 import {
@@ -6,6 +6,7 @@ import {
   stageBlob, stageFile, stagePath, stagedUrl, toBlob, toCanvas,
 } from "./imageTools.js";
 import { isPathLike, kindOfFile, kindOfName } from "./mediaKinds.js";
+import { photoFit, useBoxHeight } from "./overlayFit.js";
 import "./editor.css";
 
 const MIN_H = 120; // smallest height limit the handle can set (px)
@@ -76,10 +77,13 @@ function dragCrop(kind, s, dx, dy, min) {
  *  onState(has, sig): has = there is an image; sig changes whenever the image does (dirty tracking).
  *  `preview` (SVG / CSV / geometry) takes the picture's place; `incoming` is a staged image to adopt;
  *  anything that is not an image is handed to onOtherFile / onOtherText.
+ *  `regionSlot` = draw the (empty) map overlay box on the photo, like the card does; `onOverlay(el)` hands that element
+ *  to the editor, which renders the region map into it. If the map is taller than the height limit, the photo box
+ *  grows to fit it and the image stays centred.
  *  Height: any image that is loaded is capped at IMG_MAX_H (it gets narrower instead of taller). Cropping an image
  *  that was already there caps the result at the height the original had. */
 const ClueImage = forwardRef(function ClueImage({ current, blur, onBlur, maxH, onMaxH, colRef, onState, overlay: badges,
-  preview, incoming, onOtherFile, onOtherText, onRemove }, ref) {
+  preview, incoming, onOtherFile, onOtherText, onRemove, regionSlot, onOverlay }, ref) {
   const toast = useToast();
   const [src, setSrc] = useState(null);      // { token, url }: a staged upload that replaces `current`
   const [hist, setHist] = useState([]);      // canvases from before each edit (undo stack)
@@ -101,6 +105,13 @@ const ClueImage = forwardRef(function ClueImage({ current, blur, onBlur, maxH, o
   const hdrag = useRef(null);
   const live = useRef({});
   live.current = { src, hist };
+
+  // The map overlay box: measured, so the photo box can grow when the map is taller than the height limit.
+  const [ovNode, setOvNode] = useState(null);
+  const onOverlayRef = useRef(onOverlay);
+  onOverlayRef.current = onOverlay;
+  const setOv = useCallback((el) => { setOvNode(el); onOverlayRef.current?.(el); }, []);
+  const ovH = useBoxHeight(ovNode);
 
   const displayUrl = editedUrl ?? src?.url ?? current ?? null;
   const custom = preview != null; // the media is an SVG / CSV / geometry, drawn by the editor
@@ -321,7 +332,10 @@ const ClueImage = forwardRef(function ClueImage({ current, blur, onBlur, maxH, o
   return <>
     {has ? <div className={`clue-media ed-media ${over ? "over" : ""} ${limited ? "limited" : ""} ${mode === "crop" ? "cropping" : ""}`}
         style={limited ? { "--mh": `${maxH}px` } : undefined} {...dropProps}>
-      {custom ? preview : <img ref={img} src={displayUrl} alt="Clue" draggable={false} className={blur && mode === "view" ? "clue-blur" : undefined} />}
+      {custom ? preview : <div className="clue-photo" style={photoFit(ovH)}>
+        <img ref={img} src={displayUrl} alt="Clue" draggable={false} className={blur && mode === "view" ? "clue-blur" : undefined} />
+        {regionSlot && mode === "view" && <div className="clue-ov live" ref={setOv} />}
+      </div>}
       {badges}
       {busy && <div className="ed-busy"><StatusIcon kind="wait" /></div>}
       {!custom && mode === "crop" && crop && <div className="ed-crop" ref={overlay}

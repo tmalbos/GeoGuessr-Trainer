@@ -71,7 +71,8 @@ const Tag = ({ t, kind, on, caret, onClick, ...rest }) =>
  *  map for the region slot), progress }. `onSkip` adds a Skip button next to Save; `skipTo` ([{ key, label, go }])
  *  turns it into a split button (Skip | ▾) whose caret opens one "Skip to <label>" entry each (import: the guide's later sections).
  *  The top part has the same layout as the clue card (image left; tags, text and sentences right);
- *  everything else sits below it.
+ *  everything else sits below it. The region of a regional photo is drawn ON the photo (like the card),
+ *  by AreaPicker, through a portal into the map box ClueImage renders.
  *  Ratings: on a NEW clue (created or imported) they are filled automatically (see autoRatings.js) and follow the text,
  *  the relations and the region until the user sets that rating by hand (× on a rating gives it back to the automation).
  *  Each rating is independent. Editing an existing clue never touches its ratings. */
@@ -95,6 +96,7 @@ export default function ClueEditor({ cc, name, clue, prefill, onClose, onSaved, 
   const [media, setMedia] = useState(() => initialMedia(clue));
   // The region of a photo: required whenever the media is an image (same SVG / CSV / geometry kinds).
   const [area, setArea] = useState(() => initialArea(clue));
+  const [ovEl, setOvEl] = useState(null); // the map box on the photo, where the region is drawn
   const [incoming, setIncoming] = useState(prefill?.image ?? null); // a staged image to hand to ClueImage
   const [imageGone, setImageGone] = useState(false);
   const [mediaErr, setMediaErr] = useState(prefill?.mediaError ?? "");
@@ -348,11 +350,11 @@ export default function ClueEditor({ cc, name, clue, prefill, onClose, onSaved, 
         : clue ? <div className="clue-full"><ClueMap cc={cc} clue={clue} /></div> : undefined
     : undefined;
 
-  // The region a stored photo already has: shown on the country, so the slot never looks empty.
+  // The region a stored photo already has. It is drawn on the photo (AreaPicker), so the slot only names it.
   const areaCurrent = clue && showArea
-    ? area.kind === "svg" && clue.svg ? { src: fileUrl(cc, clue.svg, clue.rev), text: "Current SVG" }
-      : area.kind === "csv" && clue.csv ? { node: <ClueMap cc={cc} clue={clue} />, text: `Current CSV${clue.csv_rows ? ` (${clue.csv_rows.length - 1} rows)` : ""}` }
-        : area.kind === "geometry" && geoKindOf(clue) ? { node: <ClueMap cc={cc} clue={clue} />, text: `Current geometry (${geoKindOf(clue)})` } : null
+    ? area.kind === "svg" && clue.svg ? { text: "Current SVG" }
+      : area.kind === "csv" && clue.csv ? { text: `Current CSV${clue.csv_rows ? ` (${clue.csv_rows.length - 1} rows)` : ""}` }
+        : area.kind === "geometry" && geoKindOf(clue) ? { text: `Current geometry (${geoKindOf(clue)})` } : null
     : null;
 
   // National clues only take an image: switching back drops an SVG / CSV / geometry picked for a region.
@@ -383,13 +385,14 @@ export default function ClueEditor({ cc, name, clue, prefill, onClose, onSaved, 
         <div className="ed-left" ref={colRef}>
           <ClueImage ref={imgApi} current={imageGone ? null : clue?.image ? fileUrl(cc, clue.image, clue.rev) : null} colRef={colRef} overlay={badges}
             preview={mediaPreview} incoming={incoming}
+            regionSlot={showArea} onOverlay={setOvEl}
             onOtherFile={(f) => takeMedia({ file: f })} onOtherText={(t) => takeMedia({ text: t })} onRemove={removeMedia}
             blur={blur} onBlur={setBlur} maxH={maxH} onMaxH={setMaxH}
             onState={(h, sig) => setImg((p) => (p.has === h && p.sig === sig ? p : { has: h, sig }))} />
           {mediaErr && <p className="err">{mediaErr}</p>}
-          {/* A photo can't say which region it is: the region is mandatory in that case. */}
+          {/* A photo can't say which region it is: the region is mandatory in that case. It is drawn on the photo above. */}
           {showArea && <AreaPicker cc={cc} value={area.upload} current={areaCurrent} onChange={takeArea} stage={stageInput}
-            initialPicture={prefill?.areaFile} />}
+            initialPicture={prefill?.areaFile} overlayEl={ovEl} clue={clue} />}
           <div className="ed-rels">
             {relations.map((r) => {
               const o = snippetOf(r);

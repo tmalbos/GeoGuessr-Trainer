@@ -8,6 +8,7 @@ import { GENERAL_TAGS, LOCATION_TAGS } from "./tags.js";
 import { useCountries } from "./countries.js";
 import { verbFor, relsOf, uniq } from "./relations.js";
 import fileUrl from "./fileUrl.js";
+import { photoFit, useBoxHeight } from "./overlayFit.js";
 import "./blur.css";
 import "./editor.css";
 import "./relations.css";
@@ -32,19 +33,22 @@ export function SourceChip({ source }) {
 // Image (with the regional map overlaid) or, without an image, just the map.
 // An SVG stands for the region itself: alone it is the whole card picture, next to a photo it is the overlay.
 // `clue.max_height` (px) caps the image: it keeps its proportions, so a tall image just gets narrower.
+// If the regional map is taller than that cap, the photo box grows to fit the map and the image stays centred in it.
 function Media({ cc, clue, children }) {
   const isReg = clue.scope === "reg";
   const hasSvg = !!clue.svg;
   const map = isReg && !clue.image && <ClueMap cc={cc} clue={clue} />;
   const limited = !!clue.image && !!clue.max_height;
+  const [ovNode, setOvNode] = useState(null);
+  const ovH = useBoxHeight(ovNode);
   return <div className={`clue-media ${limited ? "limited" : ""}`} style={limited ? { "--mh": `${clue.max_height}px` } : undefined}>
-    <div className="clue-photo">
+    <div className="clue-photo" style={photoFit(ovH)}>
       {clue.image
         ? <>
             <img src={fileUrl(cc, clue.image, clue.rev)} alt="" loading="lazy"
               className={clue.blur ? "clue-blur" : undefined} tabIndex={clue.blur ? 0 : undefined}
               title={clue.blur ? "Hover to reveal" : undefined} />
-            {isReg && <div className="clue-ov">
+            {isReg && <div className="clue-ov" ref={setOvNode}>
               {hasSvg ? <img src={fileUrl(cc, clue.svg, clue.rev)} alt="" /> : <ClueMap cc={cc} clue={clue} align="right" />}
             </div>}
           </>
