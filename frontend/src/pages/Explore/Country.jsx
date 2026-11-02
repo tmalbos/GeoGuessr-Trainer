@@ -7,8 +7,9 @@ import DrivingSide from "./DrivingSide.jsx";
 import { loadWorld } from "./geo.js";
 import SECTIONS from "./sections.js";
 
-const Pencil = () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-  <path d="M12 20h9" /><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" /></svg>;
+const svgProps = { width: 18, height: 18, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 2, strokeLinecap: "round", strokeLinejoin: "round", "aria-hidden": true };
+const Pencil = () => <svg {...svgProps}><path d="M12 20h9" /><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" /></svg>;
+const Back = () => <svg {...svgProps}><path d="M19 12H5" /><path d="m12 19-7-7 7-7" /></svg>;
 
 const NO_INFO = { domain: "", side: null, currencies: [] };
 
@@ -34,12 +35,29 @@ export default function Country({ id, section, query, onSection, onBack, backLab
   const title = name || id;
 
   return <div className={`cp ${editing ? "editing" : ""}`}>
+    <aside className="cp-rail cp-rail-left" aria-label="Navigation">
+      <button type="button" className="cp-tool" aria-label={`Back to ${backLabel}`} title={`Back to ${backLabel}`} onClick={onBack}><Back /></button>
+    </aside>
+
     <section className="cp-main" aria-label={`${title} clues`}>
-      <div className="cp-head">
-        <button type="button" className="btn ghost cp-back" onClick={onBack}>← {backLabel}</button>
+      <header className="cp-header">
         <h2>{title}</h2>
-        <span />
+        <div className="cp-stats"><CountryStats code={id} name={title} /></div>
+      </header>
+
+      <div className="cp-facts" aria-label={`General facts about ${title}`}>
+        <div className="cp-outline"><CountryMap id={id} /></div>
+        <Flag code={id} width={88} />
+        {info.domain && <span className="cp-tld" title="Internet domain">{info.domain}</span>}
+        <DrivingSide side={info.side} />
+        {info.currencies.length > 0 && <span className="cp-cur" title="Currency">{info.currencies.join(" · ")}</span>}
       </div>
+
+      {sections.length > 1 && <nav className="tabs cp-tabs" aria-label="Sections">
+        {sections.map((s) => <button key={s.id} type="button" className={s === current ? "on" : ""}
+          aria-current={s === current ? "page" : undefined} onClick={() => onSection(s.id)}>{s.label}</button>)}
+      </nav>}
+
       {current
         ? <current.Component id={id} name={title} editing={editing} query={query} />
         : <div className="cp-empty">
@@ -47,25 +65,12 @@ export default function Country({ id, section, query, onSection, onBack, backLab
             <p className="muted">There are no clues for {title} yet. Sections will appear here as they are added.</p>
           </div>}
     </section>
-    <aside className="cp-side" aria-label={`${title} navigation`}>
-      <div className="cp-top">
-        <div className="cp-id">
-          <Flag code={id} width={56} />
-          {info.domain && <span className="cp-tld" title="Internet domain">{info.domain}</span>}
-          <DrivingSide side={info.side} />
-          {info.currencies.length > 0 && <span className="cp-cur">{info.currencies.join(" · ")}</span>}
-        </div>
-        <button type="button" className={`btn ghost cp-edit ${editing ? "on" : ""}`} aria-pressed={editing}
-          aria-label={editing ? "Exit edit mode" : `Edit ${title} clues`} title={editing ? "Exit edit mode" : "Edit clues"}
-          onClick={() => setEditing((e) => !e)}><Pencil /></button>
-      </div>
-      <CountryStats code={id} name={title} />
-      {sections.length > 1 && <nav className="tabs cp-tabs" aria-label="Sections">
-        {sections.map((s) => <button key={s.id} type="button" className={s === current ? "on" : ""}
-          aria-current={s === current ? "page" : undefined} onClick={() => onSection(s.id)}>{s.label}</button>)}
-      </nav>}
-      <CountryMap id={id} />
-      {/* The clue list renders its filters here through a portal (see ClueList / FilterPanel). */}
+
+    <aside className="cp-rail cp-rail-right" aria-label="Tools">
+      <button type="button" className={`cp-tool ${editing ? "on" : ""}`} aria-pressed={editing}
+        aria-label={editing ? "Exit edit mode" : `Edit ${title} clues`} title={editing ? "Exit edit mode" : "Edit clues"}
+        onClick={() => setEditing((e) => !e)}><Pencil /></button>
+      {/* The clue list renders its filter / add / import tools here through a portal (see ClueList). */}
       <div id="clue-filter-slot" />
     </aside>
   </div>;
