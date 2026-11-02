@@ -1,192 +1,81 @@
 # GeoGuessr Trainer
 
-A local web app that imports your GeoGuessr games into PostgreSQL, enriches every round with geographic data, and shows you where you are strong and where you lose points. It also includes a clue-exploration map and a script-reading minigame.
+Your GeoGuessr games, imported and read back to you. It is a small web app that runs on your own machine — a React frontend, a FastAPI backend and a PostgreSQL database — so your games, replays and stats stay in one place you control.
 
-Everything runs on your machine: a FastAPI backend, a React frontend, and a Postgres database.
+![Replay report](docs/images/replay-report.webp)
 
-## Features
+## Replay report
 
-### Sync
-- **Split "Sync games" button** on the History page. The caret lets you choose which match types to import: Daily challenges, Challenges, Duels.
-- Imports from your private GeoGuessr feed (Standard game mode only) and your duel history. Games already in the database are skipped.
-- **Live progress** over Server-Sent Events. The event log is kept server-side, so refreshing the page re-attaches to a running sync. Only one sync can run at a time.
-- **Cookie handling**: if the `_ncfa` cookie expires mid-sync, the app tries to refresh it from your browser (Brave, Chrome or Edge on Windows) and retries once.
-- For each round it:
-  - enriches real and guessed coordinates (country, state, subregion, city, biome, urban/rural),
-  - downloads and compresses the round replay (movement, panning, zooming, map events),
-  - derives steps and time from the replay for duels, and infers the move type (`moving`, `no_move`, `nmpz`),
-  - saves the game, rounds and replays in one transaction.
+Every game can be rebuilt from its replay: a timeline of what you did, where you moved, what you looked at and when you searched the map. Each moment is graded, and the round is split into looking for clues, searching the map, pinpointing and verifying.
 
-### History
-- Paginated list of every game with the first 5 rounds inline (flag, score, time, steps) and totals.
-- Filters: game type, game mode, time limit, min/max total score.
-- Sort by date, mode, total score, total steps or total time.
-- Expand a game to see every round: actual location vs. your guess, area type, time, steps, score.
+The report turns that into something useful. It shows what the round cost ("1m 57s and 9 steps could have been saved") and opens with **What to work on**: the two mistakes that lost the most points, each linked to the clues for the right country, region and setting.
 
-### Analysis
-- Pick a combination of game type, move type and time limit (defaults: Daily / Moving / 3 min).
-- Levels: **General, Continent, Biome, Country**. A level appears only if some zone has at least 10 rounds.
-- Per zone:
-  - **Current level**: median distance over the last 100 rounds, converted to a score and labelled (Terrible → Decent → High → Exceptional → Elite → Inhuman), with a bootstrap 95% CI once there are 20+ rounds.
-  - **Worst rounds**: 90th-percentile distance.
-  - **Consistency**: standard deviation of distance.
-  - **Trend arrows** comparing the last 10 rounds to the 20 before them (a change under 5% shows →).
-  - **Sparkline** of distance per round (last 100).
-  - **Confusions**: the real→guessed zone mix-ups that cost the most km in the last 30 rounds, plus sub-level confusions (continent→country, country→state).
-- Zones are sorted weakest first.
+![Round detail](docs/images/replay-round.webp)
 
-### Explore
-- Zoomable, pannable world map (mouse wheel, drag, pinch, keyboard +/−/arrows). Tiny countries get click dots. The view is remembered when you come back.
-- Click a country to open its page, which shows a map of its first-level subdivisions.
-- The clue tabs on the country page are a plug-in point (`pages/Explore/sections.js`). No sections are registered yet, so countries show "Coming soon".
+Click an event to see the map and the street-view frame behind it. The route on the map shows the real location, your guess, and how far you moved away from it.
 
-### Study: Scripts trainer
-- Practice reading real place names written in **Greek, Russian (Cyrillic), Georgian and Arabic**, and type their transliteration.
-- Names come from GeoNames dumps (GR, CY, BG, RU, GE, AE, OM, KW, TN, JO).
-- Optional time limit (1–15 min). Timed sessions are saved to `data/study/scripts/sessions.json` and shown as history per script. Free practice is not saved.
-- Reference table for each alphabet (Arabic also has a positional-forms table).
-- To add a new script, create a module in `frontend/src/pages/Study/ScriptsTrainer/languages/` and register it in `index.js`. To add a new minigame, add a folder and one entry in `Study/games.js`.
+## Analysis
 
-### Settings
-- System status: database, Anki, geo layers, cookie.
-- Save the GeoGuessr cookie, or refresh it from your browser.
-- GeoGuessr user ID and interface language (English / Español).
+Your zones ranked weakest first, at the level you choose: general, continent, biome or country. Each zone shows its current level (from the median distance of your last 100 rounds), your worst 10% and consistency, whether you are improving, a sparkline, and the mix-ups that cost you most — down to state level.
 
-### Anki (partial)
-- `AnkiConnectClient` is created at startup and the status grid reports whether AnkiConnect (`127.0.0.1:8765`) is reachable.
-- `GeoSignalRepository` can fetch road lines and license plates per country to feed cards.
-- Card generation is **not currently active** in the sync pipeline: the Anki check in `src/api/routers/sync.py` is commented out and `process_game` returns no Anki errors.
+Filters follow the game you care about: daily / challenge / duel, moving / no move, time limit. Zones with fewer than 10 rounds are left out, so the picture stays honest.
 
-## Architecture
+![Analysis](docs/images/analysis.webp)
 
-```
-React (Vite)  ──/api──▶  FastAPI  ──▶  PostgreSQL (asyncpg)
-                            │
-                            ├──▶ GeoGuessr API (httpx, _ncfa cookie)
-                            ├──▶ LocalGeo (GeoParquet: biomes, urban areas, admin levels)
-                            └──▶ Nominatim (fallback, 1 request/second)
-```
+## Explore
 
-Geo enrichment tries the local GeoParquet layers first and only calls Nominatim when a point isn't covered by a local admin file. Region overrides (`src/geo/region_overrides.py`) map territories that Nominatim reports under a parent country (Hong Kong, Puerto Rico, Greenland, …) to their own country code. Geo layers load in a background task at startup, so the API is available while they load (the status page shows "Loading geo layers…").
+A world map you can zoom into, down to the smallest countries. Click a country to open its clue sheet: bollards, road lines, electricity poles, plates, architecture — photos with short notes, filterable by category, urban or rural, national or regional.
 
-## Requirements
+The side panel carries your stats for that country and a map of its subdivisions. You can add or edit clues, or pull in a Plonkit guide for a country you are learning.
 
-- Python 3.10+
-- PostgreSQL
-- Node.js 18+
-- Optional: Anki with the AnkiConnect add-on; Playwright (browser-cookie fallback)
+![Country clues](docs/images/explore-country.webp)
 
-Python packages used: `fastapi`, `uvicorn`, `asyncpg`, `httpx`, `pydantic`, `python-dotenv`, `pyyaml`, `aiofiles`, `geopandas`, `shapely`, `numpy`, `pyarrow` (for GeoParquet), and optionally `playwright`.
+## History and sync
 
-## Setup
+Every game in one list, with its first five rounds inline — flag, score, time, steps — and the totals. Filter by game type, mode, time limit or score, sort by date or performance, and open any game in the replay report.
 
-### 1. Database
+**Sync games** imports daily challenges, challenges and duels. You pick the types, progress streams live, and games you already have are skipped. Each round is stored with its location enriched — country, state, city, biome, urban or rural — for both the real place and your guess.
+
+![History](docs/images/history.webp)
+
+## Scripts trainer
+
+Practice reading the alphabets that show up in the game: Greek, Russian (Cyrillic), Georgian and Arabic. Real place names appear in their own script and you type the transliteration. A wrong answer shows exactly which characters you missed.
+
+Sessions can be free practice or timed (1–15 minutes). Timed sessions are saved with your accuracy history, and every alphabet has a reference table.
+
+![Scripts trainer](docs/images/scripts-trainer.webp)
+
+## Running it
+
+You need Python 3.10+, PostgreSQL, Node.js 18+ and a GeoGuessr account.
 
 ```bash
+# 1. Database
 createdb geoguessr_trainer
 psql geoguessr_trainer -f src/db/schema.sql
-```
+python populate.py --terrain /path/to/Ecoregions2017.shp
 
-The `country` and `biome` tables must be populated before the first sync: rounds reference them by foreign key, and every real location needs a biome.
+# 2. Environment (.env in the project root)
+#    PG_DSN=postgresql://user:password@localhost:5432/geoguessr_trainer
+#    GEOGUESSR_USER_ID=<your user id>
+#    GEOGUESSR_LANG=en        # en | es
 
-### 2. Environment
+# 3. Geo layers and map data
+python -m scripts.convert_geo biomes Ecoregions2017/Ecoregions2017.shp
+python -m scripts.convert_geo urban  ne_10m_urban_areas/ne_10m_urban_areas.shp
+python scripts/build_world_map.py
 
-Create a `.env` file in the project root:
-
-```env
-PG_DSN=postgresql://user:password@localhost:5432/geoguessr_trainer
-GEOGUESSR_USER_ID=<your GeoGuessr user id>
-GEOGUESSR_LANG=en        # en | es
-```
-
-If `GEOGUESSR_USER_ID` is not set, a hardcoded default in `src/sync/user_identity.py` is used. Set your own, otherwise duel rounds and daily games won't match your account.
-
-### 3. Geo data
-
-Local layers live in `data/geo/` and are built with `scripts/convert_geo.py`:
-
-```
-data/geo/
-  biomes.parquet       BIOME_NAME, geometry
-  urban.parquet        geometry
-  countries.parquet    code, name, geometry      (optional)
-  admin/{CC}.parquet   state, [subregion], city, geometry
-```
-
-`biomes.parquet` and `urban.parquet` are required. If they are missing the sync stops with "Geo layers failed to load".
-
-For the Explore map, run `python scripts/build_world_map.py`, which generates `world.json` and `admin1/{CC}.json` served from `/geo`.
-
-For the Scripts trainer, place GeoNames country dumps in `data/study/scripts/geonames/` as `{CC}.txt` (e.g. `GR.txt`, `RU.txt`).
-
-### 4. Run
-
-Backend:
-
-```bash
+# 4. Run
 uvicorn src.api.app:app --port 8000
+cd frontend && npm install && npm run dev
 ```
 
-Frontend:
+Open **Settings**, paste your GeoGuessr `_ncfa` cookie (or refresh it from your browser), check that the status grid is green, then press **Sync games** on **History**.
 
-```bash
-cd frontend
-npm install
-npm run dev
-```
+A few practical notes:
 
-The frontend calls `/api/*`, so the Vite dev server must proxy `/api` to `http://localhost:8000` (see `vite.config.js`). `npm run build` writes to `frontend/dist`.
-
-### 5. First sync
-
-1. Open **Settings** and paste your `_ncfa` cookie (or use **Refresh from browser**).
-2. Check that **System status** shows the database, geo layers and cookie as OK.
-3. Go to **History** and press **Sync games**.
-
-## API
-
-All routes are under `/api`.
-
-| Method | Route | Purpose |
-|---|---|---|
-| GET | `/status` | DB, Anki, geodata state, cookie, sync running |
-| POST | `/sync` | Start a sync (`{"match_types": [...]}`); 409 if one is running |
-| GET | `/sync/events` | SSE stream of sync events (replayed from the start) |
-| GET | `/history` | Games with filters, sorting and pagination |
-| GET | `/analysis/filters` | Available match type / move type / time limit options |
-| GET | `/analysis/levels` | Geo levels with enough rounds for a filter combo |
-| GET | `/analysis/{level}` | Per-zone stats and confusions for a level |
-| GET / PUT | `/settings`, `/settings/cookie`, `/settings/lang`, `/settings/user` | Read and change settings |
-| POST | `/settings/cookie/refresh` | Re-extract the cookie from the browser |
-| GET | `/study/scripts/geonames/{CC}` | GeoNames dump for the trainer |
-| GET / POST | `/study/scripts/sessions` | Timed-session history |
-
-## Project layout
-
-```
-src/
-  api/              FastAPI app, dependencies and routers
-  analysis/         scoring, zone stats, confusions, level discovery
-  db/               schema.sql, pool, repositories (games, cities, geo signals)
-  geo/              LocalGeo, enrichment service, region overrides
-  geoguessr/        API client, cookie store/extraction, replay, normalization
-  sync/             orchestrator, challenge/duel pipelines, game ingest
-  i18n/             translations loaded from locales/{lang}.yaml
-  anki/             AnkiConnect client
-  app_context.py    owns the DB pool, HTTP client and geo layers
-frontend/src/
-  pages/            Explore, History, Analysis, Study, Settings
-  components/       SyncButton, StatusGrid, Flag
-  lib/              api helper, formatting
-data/
-  geo/              GeoParquet layers
-  study/scripts/    GeoNames dumps and sessions.json
-```
-
-## Things to know
-
-- The cookie is stored in plain text in `geoguessr_cookie.txt` in the working directory. Keep it out of version control.
-- Cookie extraction from the browser is written for Windows paths (Brave, Chrome, Edge). Chrome often encrypts cookie values, in which case the Playwright fallback is used. Otherwise paste the cookie manually.
-- Changing the language or user ID in Settings updates the running process only. To make them permanent, edit `.env`.
-- Nominatim fallbacks are rate-limited to one request per second, so a first sync of many games in uncovered regions can be slow.
-- The Scripts trainer's alphabet descriptions are in Spanish, while the rest of the UI is in English.
+- The cookie is stored in plain text in `geoguessr_cookie.txt`, which is gitignored.
+- Locations are enriched from local GeoParquet layers. Anything not covered falls back to Nominatim at one request per second, so a first sync of many games can take a while.
+- The scripts trainer reads GeoNames country dumps from `data/study/scripts/geonames/{CC}.txt`.
+- Changing the language or user id in Settings affects the running process only; set them in `.env` to keep them.
