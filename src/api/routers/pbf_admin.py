@@ -5,7 +5,6 @@ Flow:
     POST /technical/pbf/upload   (raw body, ?filename=)       -> same, for a file picked in the browser
     POST /technical/pbf/country  {token, country}             -> SLOW, once per country: builds every admin boundary of that
                                                                  country, returns the levels it really has (+ counts)
-    POST /technical/pbf/coast    {token, country, levels}     -> cuts the chosen levels to land (coastlines), on demand only
     POST /technical/pbf/preview  {token, country, levels, simplify} -> per-level GeoJSON features (fast, cached)
     POST /technical/pbf/export   {token, country, levels, simplify} -> TopoJSON download
 
@@ -13,11 +12,13 @@ How it works (why it is fast after the first load):
   1. Opening the file reads only the relations (cheap) and remembers each admin relation's member ways.
   2. Choosing a country reads the file once more (nodes + ways, node locations cached by osmium), keeps ONLY the
      ways that admin relations use, and assembles every admin boundary of the file with shapely.
-     A second pass reads the natural=coastline ways.
-  3. Everything lives in memory, grouped by level. Boundaries are NOT cut to land by default: that only happens for
-     the levels the user asks for with /technical/pbf/coast (only the polygons that touch a coastline are processed).
-     Preview and export use the cut version of a level once it has been cut. Changing levels / simplification
-     never touches the PBF again; simplified + serialised features are cached per (level, simplification, cut).
+  3. Everything lives in memory, grouped by level. The first time a level is previewed or exported it is finished
+     lazily (coastlines are read from the file the first time any level needs them):
+       - its boundaries are cut to land (coastlines);
+       - the empty parts of the country (land not covered by that level) are filled with the polygons of the finer
+         levels (level + 1, +2, ...), clipped to the empty area so nothing is added twice;
+       - whatever is still empty becomes "Unnamed N".
+     The finished level is cached; simplified + serialised features are cached per (level, simplification).
 """
 
 from __future__ import annotations
@@ -47,10 +48,14 @@ router = APIRouter()
 
 MAX_DATASETS = 3
 MAX_COUNTRIES = 3  # extracted countries kept in memory per file
-MAX_PREVIEW_CACHE = 60  # (level, pct, cut) entries per country
+MAX_PREVIEW_CACHE = 60  # (level, pct) entries per country
 PREVIEW_PCT = 5
 BBOX_PAD = 0.5  # degrees around the boundaries when picking coastlines for the cut
 MIN_LEFTOVER = 1e-12  # deg2: smaller uncovered bits of a boundary are numerical noise
+GAP_OPEN = (
+    0.0005  # deg (~50 m): empty slivers thinner than 2x this are border mismatches, not real gaps
+)
+MIN_PIECE = 1e-7  # deg2: smaller filled pieces are dropped
 CACHE_DIR = Path(tempfile.gettempdir()) / "geoguessr-pbf-admin"
 _LEVEL_COLORS = (
     "#4e79a7",
@@ -68,7 +73,7 @@ _LEVEL_COLORS = (
 _DATASETS: OrderedDict[str, dict] = OrderedDict()
 _LOCK = threading.Lock()
 _COMPUTE = threading.Lock()  # one extraction at a time (CPU / memory heavy)
-_LAND = threading.Lock()  # one coastline cut at a time
+_LAND = threading.RLock()  # one level finish (coast cut + gap fill) at a time
 
 
 # ── helpers ────────────────────────────────────────────────────────────────
@@ -96,6 +101,13 @@ def _polys(geom):
     if not parts:
         return None
     return parts[0] if len(parts) == 1 else shapely.union_all(parts)
+
+
+def _safe(op, a, b):
+    try:
+        return op(a, b)
+    except Exception:  # noqa: BLE001
+        return op(shapely.make_valid(a), shapely.make_valid(b))
 
 
 def _country_code(tags) -> str:
@@ -387,18 +399,25 @@ def _extract(ds: dict, country: str) -> dict:
     cminx, cminy, cmaxx, cmaxy = (float(v) for v in shapely.total_bounds(arr))
     cbox = (cminx - BBOX_PAD, cminy - BBOX_PAD, cmaxx + BBOX_PAD, cmaxy + BBOX_PAD)
 
+    cid = int(country) if country.isdigit() else None
+    country_geom = geoms[ids.index(cid)] if cid in ids else None
+
     return {
         "country": country_name,
         "by_level": by_level,
         "levels": [{"level": level, "count": len(v["props"])} for level, v in by_level.items()],
         "diag": max(math.hypot(cmaxx - cminx, cmaxy - cminy), 1e-9),
         "path": ds["path"],
-        "coast_loaded": False,  # coastlines are read the first time the user cuts a level
+        "coast_loaded": False,  # coastlines are read the first time a level is finished
         "coast": None,
         "coast_ids": None,
         "tree": None,
         "cbox": cbox,
-        "land": {},  # level -> {"props", "geoms"} cut to land (only levels the user asked for)
+        "country_geom": country_geom,  # the selected country's own boundary (None when incomplete in the file)
+        "country_land": None,  # ...cut to land, computed together with the coastlines
+        "country_land_ready": False,
+        "trees": {},  # level -> STRtree of the raw boundaries (for the gap filling)
+        "land": {},  # level -> {"props", "geoms"}: finished (cut to land + gaps filled)
         "cache": OrderedDict(),
     }
 
@@ -543,63 +562,58 @@ def _land_only(g, coast: np.ndarray, tree, cbox) -> tuple:
     return (_polys(shapely.union_all(land)) if land else None), sea, gaps
 
 
-def _land_level(data: dict, level: int) -> dict:
-    """One level's boundaries cut to land (cached). Boundaries that are entirely sea are dropped."""
-    with _LAND:
-        hit = data["land"].get(level)
-        if hit is not None:
-            return hit
-        lv = data["by_level"][level]
-        if data["tree"] is None:
-            hit = lv
+def _cut_level(data: dict, level: int) -> dict:
+    """One level's boundaries cut to land. Boundaries that are entirely sea are dropped. Caller holds _LAND."""
+    lv = data["by_level"][level]
+    if data["tree"] is None:
+        return lv
+    props, geoms = [], []
+    for p, g in zip(lv["props"], lv["geoms"], strict=True):
+        try:
+            ng, sea, gaps = _land_only(g, data["coast"], data["tree"], data["cbox"])
+        except Exception:
+            log.warning("Coastline cut failed for %s", p["name"], exc_info=True)
+            ng, sea, gaps = g, [], []
+        if sea:
+            kept = 0.0 if ng is None else 100 * ng.area / (g.area or 1e-12)
+            log.info(
+                "Coast cut ADM%d %s: %d sea part(s) removed, %.1f%% of its area kept",
+                level,
+                p["name"],
+                len(sea),
+                kept,
+            )
+            for area, lat, lon, way in sea:
+                km2 = area * 111.32**2 * math.cos(math.radians(lat))
+                log.info(
+                    "    removed %.3f km2 at %.5f, %.5f (decided by coastline way %s)",
+                    km2,
+                    lat,
+                    lon,
+                    data["coast_ids"][way],
+                )
+        for km, lat, lon, way in gaps:
+            log.info(
+                "    coastline ends unclosed (%.2f km of loose line) near %.5f, %.5f (way %s)",
+                km,
+                lat,
+                lon,
+                data["coast_ids"][way],
+            )
+        if ng is not None and not ng.is_empty:
+            props.append(p)
+            geoms.append(ng)
         else:
-            props, geoms = [], []
-            for p, g in zip(lv["props"], lv["geoms"], strict=True):
-                try:
-                    ng, sea, gaps = _land_only(g, data["coast"], data["tree"], data["cbox"])
-                except Exception:
-                    log.warning("Coastline cut failed for %s", p["name"], exc_info=True)
-                    ng, sea, gaps = g, [], []
-                if sea:
-                    kept = 0.0 if ng is None else 100 * ng.area / (g.area or 1e-12)
-                    log.info(
-                        "Coast cut ADM%d %s: %d sea part(s) removed, %.1f%% of its area kept",
-                        level,
-                        p["name"],
-                        len(sea),
-                        kept,
-                    )
-                    for area, lat, lon, way in sea:
-                        km2 = area * 111.32**2 * math.cos(math.radians(lat))
-                        log.info(
-                            "    removed %.3f km2 at %.5f, %.5f (decided by coastline way %s)",
-                            km2,
-                            lat,
-                            lon,
-                            data["coast_ids"][way],
-                        )
-                for km, lat, lon, way in gaps:
-                    log.info(
-                        "    coastline ends unclosed (%.2f km of loose line) near %.5f, %.5f (way %s)",
-                        km,
-                        lat,
-                        lon,
-                        data["coast_ids"][way],
-                    )
-                if ng is not None and not ng.is_empty:
-                    props.append(p)
-                    geoms.append(ng)
-                else:
-                    log.info("Coast cut ADM%d %s: DROPPED (nothing left on land)", level, p["name"])
-            arr = np.empty(len(geoms), dtype=object)
-            arr[:] = geoms
-            hit = {"props": props, "geoms": arr}
-        data["land"][level] = hit
-        return hit
+            log.info("Coast cut ADM%d %s: DROPPED (nothing left on land)", level, p["name"])
+    arr = np.empty(len(geoms), dtype=object)
+    arr[:] = geoms
+    return {"props": props, "geoms": arr}
 
 
 def _ensure_coast(data: dict) -> None:
-    """Read the coastlines (second pass over the file) the first time a cut is requested."""
+    """Read the coastlines (second pass over the file) the first time a level is finished, and cut the
+    country's own boundary to land (the area the gaps are measured in).
+    """
     with _LAND:
         if data["coast_loaded"]:
             return
@@ -612,24 +626,118 @@ def _ensure_coast(data: dict) -> None:
         data["coast_loaded"] = True
 
 
-def _cut_levels(data: dict, levels: list[int]) -> list[dict]:
-    """Run the coastline cut for these levels only. Returns [{level, before, after}]."""
-    _ensure_coast(data)
-    out = []
-    for lv in levels:
-        before = len(data["by_level"][lv]["props"])
-        after = len(_land_level(data, lv)["props"])
-        out.append({"level": lv, "before": before, "after": after})
-    return out
+def _country_land(data: dict):
+    """The selected country's boundary cut to land (cached), or None when the file doesn't hold it whole."""
+    with _LAND:
+        if data["country_land_ready"]:
+            return data["country_land"]
+        g = data["country_geom"]
+        if g is not None and data["tree"] is not None:
+            try:
+                ng, _sea, _gaps = _land_only(g, data["coast"], data["tree"], data["cbox"])
+                g = ng
+            except Exception:
+                log.warning("Coastline cut failed for the country boundary", exc_info=True)
+        data["country_land"] = g
+        data["country_land_ready"] = True
+        return g
 
 
-def _levels_info(data: dict) -> list[dict]:
-    return [{**x, "cut": x["level"] in data["land"]} for x in data["levels"]]
+# ── gap filling: empty land of a level is filled with finer levels ─────────
+
+
+def _open_gap(g):
+    """Drop slivers thinner than ~2 * GAP_OPEN (they come from borders that don't line up exactly)."""
+    if g is None or g.is_empty:
+        return None
+    return _polys(shapely.buffer(shapely.buffer(g, -GAP_OPEN), GAP_OPEN))
+
+
+def _level_tree(data: dict, level: int):
+    t = data["trees"].get(level)
+    if t is None:
+        t = data["trees"][level] = shapely.STRtree(data["by_level"][level]["geoms"])
+    return t
+
+
+def _fill_gaps(data: dict, level: int, base: dict) -> dict:
+    """Add to `base` (a level cut to land) the parts of the country's land that the level leaves empty.
+    The empty area is filled with the boundaries of the next finer level, then the next, ...; each one is clipped
+    to what is still empty, so nothing is added twice. What no finer level covers becomes "Unnamed N".
+    """
+    country = _country_land(data)
+    if country is None or country.is_empty:
+        return base
+    geoms = base["geoms"]
+    cover = shapely.union_all(geoms) if len(geoms) else None
+    gap = country if cover is None else _safe(shapely.difference, country, cover)
+    gap = _open_gap(gap)
+    if gap is None:
+        return base
+
+    props, out = list(base["props"]), list(geoms)
+    from_finer = 0
+    for m in sorted(k for k in data["by_level"] if k > level):
+        if gap is None:
+            break
+        lv = data["by_level"][m]
+        shapely.prepare(gap)
+        added: list = []
+        for i in _level_tree(data, m).query(gap, predicate="intersects"):
+            poly = lv["geoms"][i]
+            local = shapely.clip_by_rect(gap, *poly.bounds)
+            piece = _polys(_safe(shapely.intersection, poly, local))
+            if piece is None or piece.area < MIN_PIECE:
+                continue
+            if added:  # same-level boundaries that overlap each other: the first one keeps the area
+                arr = np.empty(len(added), dtype=object)
+                arr[:] = [g for _, g in added]
+                near = arr[shapely.intersects(piece, arr)]
+                if len(near):
+                    piece = _polys(_safe(shapely.difference, piece, shapely.union_all(near)))
+                    if piece is None or piece.area < MIN_PIECE:
+                        continue
+            p = lv["props"][i]
+            added.append(({**p, "admin_level": level, "from_level": m}, piece))
+        if added:
+            from_finer += len(added)
+            props.extend(p for p, _ in added)
+            out.extend(g for _, g in added)
+            gap = _open_gap(
+                _safe(shapely.difference, gap, shapely.union_all([g for _, g in added]))
+            )
+
+    unnamed = 0
+    if gap is not None and data["tree"] is not None:  # without coastlines the leftover may be sea
+        for q in shapely.get_parts(gap):
+            if q.geom_type != "Polygon" or q.area < MIN_PIECE:
+                continue
+            unnamed += 1
+            props.append(
+                {"name": f"Unnamed {unnamed}", "admin_level": level, "osm_id": "", "iso": ""}
+            )
+            out.append(q)
+
+    log.info("Gap fill ADM%d: %d from finer levels, %d unnamed", level, from_finer, unnamed)
+    arr = np.empty(len(out), dtype=object)
+    arr[:] = out
+    return {"props": props, "geoms": arr}
+
+
+def _final_level(data: dict, level: int) -> dict:
+    """One level as it is exported: cut to land, then gaps filled. Computed on first use, then cached."""
+    with _LAND:
+        hit = data["land"].get(level)
+        if hit is not None:
+            return hit
+        _ensure_coast(data)
+        hit = _fill_gaps(data, level, _cut_level(data, level))
+        data["land"][level] = hit
+        return hit
 
 
 def _current(data: dict, level: int) -> dict:
-    """The level as it is now: cut to land if the user ran the cut for it, otherwise as assembled."""
-    return data["land"].get(level) or data["by_level"][level]
+    return _final_level(data, level)
 
 
 # ── step 3: preview / export (from memory) ─────────────────────────────────
@@ -662,8 +770,7 @@ def _tol(data: dict, pct: int) -> float:
 
 def _preview_features(data: dict, level: int, pct: int) -> list[str]:
     """Serialised GeoJSON features of one level at one simplification; computed once, then cached."""
-    cut = level in data["land"]
-    key = (level, pct, cut)
+    key = (level, pct)
     hit = data["cache"].get(key)
     if hit is None:
         lv = _current(data, level)
@@ -744,10 +851,6 @@ class ExtractBody(CountryBody):
     simplify: int = Field(0, ge=0, le=100)
 
 
-class CoastBody(CountryBody):
-    levels: list[int] = Field(default_factory=list)
-
-
 def _levels(values: list[int]) -> list[int]:
     return sorted({int(v) for v in values if 1 <= int(v) <= 20})
 
@@ -777,18 +880,7 @@ async def upload_pbf(request: Request, filename: str | None = None):
 async def country_pbf(body: CountryBody):
     """Builds (or returns the cached) boundaries of one country. The slow step; the levels returned are that country's own."""
     data = await run_in_threadpool(_load, _dataset(body.token), body.country)
-    return {"levels": _levels_info(data), "total": sum(x["count"] for x in data["levels"])}
-
-
-@router.post("/technical/pbf/coast")
-async def coast_pbf(body: CoastBody):
-    """Cuts the chosen levels to land with the coastlines. Only runs when asked; only for those levels."""
-    data = await run_in_threadpool(_load, _dataset(body.token), body.country)
-    chosen = [lv for lv in _levels(body.levels) if lv in data["by_level"]]
-    if not chosen:
-        raise HTTPException(422, "Pick at least one admin level")
-    stats = await run_in_threadpool(_cut_levels, data, chosen)
-    return {"levels": _levels_info(data), "stats": stats, "no_coast": data["tree"] is None}
+    return {"levels": data["levels"], "total": sum(x["count"] for x in data["levels"])}
 
 
 @router.post("/technical/pbf/preview")
