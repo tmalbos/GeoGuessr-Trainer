@@ -23,12 +23,19 @@ Shades:  a polygons file may carry a `shade` column (0 = the main tone, 1..4 = l
          The geo preview / GET /clues/{CC}/geo/{file} then adds a `shades` list next to the geometries.
 Stats:   staging a geometry file also returns `stats` (see src/geo/region_stats.py): the editor uses them to
          pre-fill the ratings of a new clue.
+Overlay: a regional clue with a geometry file (polygons / lines / points) also gets `overlay`: a transparent SVG of
+         the region drawn on its country (see src/geo/clue_overlay.py), written next to the parquet as
+         <same name>.overlay.svg every time the clue is saved. The card lays that picture over the photo instead of
+         downloading the geometry and drawing it. The parquet stays the source of truth. If the geo layers aren't
+         loaded when a clue is saved, no overlay is made and the card falls back to drawing the geometry; the
+         script scripts/backfill_clue_overlays.py (re)builds them.
 Needs:   Pillow, geopandas, shapely (>= 2.1 for gap-free coverage simplification), pyarrow, pyyaml.
 """
 
 import csv
 import io
 import json
+import logging
 import re
 import shutil
 import threading
@@ -49,8 +56,13 @@ from PIL import Image, ImageOps
 from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 
+from src.api.deps import get_ctx
+from src.api.routers.stain import _borders, _outline  # noqa: PLC2701
+from src.geo.clue_overlay import render_overlay
 from src.geo.region_stats import region_stats
 from src.geo.subcontinents import SUBCONTINENTS
+
+logger = logging.getLogger("uvicorn.error")
 
 CLUES_DIR = Path(__file__).parents[3] / "data" / "clues"
 STAGING = CLUES_DIR / ".staging"
@@ -82,7 +94,8 @@ MAX_SHADE = 4
 
 URL_RE = re.compile(r"https?://\S+", re.IGNORECASE)
 
-ASSET_RE = re.compile(r"(nat|reg)_[a-z]+_\d{5}\.(webp|svg|csv|parquet)")
+# The overlay of a clue sits next to its geometry file and shares its name: reg_roads_00003.overlay.svg
+ASSET_RE = re.compile(r"(nat|reg)_[a-z]+_\d{5}(\.overlay)?\.(webp|svg|csv|parquet)")
 TOKEN_RE = re.compile(r"[0-9a-f]{32}")
 
 # Country code -> subcontinent label ("CL" -> "South America"), for the badge tooltip.
@@ -220,6 +233,40 @@ def _to_geojson(geoms, limit: int | None = None, shades: np.ndarray | None = Non
     if shades is not None and shades[keep].any():
         out["shades"] = [int(v) for v in shades[keep]]
     return out
+
+
+# ── overlay (the region pre-drawn on its country) ──────────────────────────
+
+
+def _overlay_name(geo_name: str) -> str:
+    """reg_roads_00003.parquet -> reg_roads_00003.overlay.svg."""
+    return f"{Path(geo_name).stem}.overlay.svg"
+
+
+def _render_overlay(cc: str, geo_file: Path, local) -> str | None:
+    """SVG text of a clue's geometry drawn on its country, or None when it can't be made
+    (geo layers not loaded, unreadable file). Never raises: the card then draws the geometry itself.
+    """
+    if local is None:
+        logger.warning("Clue overlay for %s skipped: the geo layers are not loaded yet", cc)
+        return None
+    try:
+        gdf = gpd.read_parquet(geo_file)
+        geoms = shapely.set_precision(gdf.geometry.to_numpy(), PREVIEW_PRECISION)
+        shades = _shades_of(gdf)
+        keep = ~shapely.is_empty(geoms)
+        outline = _outline(local, cc)
+        borders = _borders(local, cc) if outline is not None else None
+        return render_overlay(outline, borders, [(geoms[keep], shades[keep])])
+    except Exception:
+        logger.exception("Could not draw the overlay of %s", geo_file.name)
+        return None
+
+
+def _write_overlay(folder: Path, name: str, svg: str) -> None:
+    tmp = folder / f"{name}.tmp"
+    tmp.write_text(svg, encoding="utf-8")
+    tmp.replace(folder / name)
 
 
 # ── converters (run in a thread) ───────────────────────────────────────────
@@ -777,11 +824,11 @@ def list_clues(cc: str, show_all: Annotated[bool, Query(alias="all")] = False):
             p = CLUES_DIR / cc / c["csv"]
             if p.is_file():
                 c["csv_rows"] = list(csv.reader(io.StringIO(p.read_text(encoding="utf-8"))))
-        if c.get("image") or c.get("svg"):
+        if c.get("image") or c.get("svg") or c.get("overlay"):
             # rev (the file's mtime) busts the browser cache for ?v=: a file overwritten in place
             # keeps its name, so without this the card could show the old picture after an update.
             rev = 0
-            for kind in ("image", "svg"):
+            for kind in ("image", "svg", "overlay"):
                 p = CLUES_DIR / cc / c[kind] if c.get(kind) else None
                 if p and p.is_file():
                     rev = max(rev, p.stat().st_mtime_ns)
@@ -809,7 +856,7 @@ def clue_geo(cc: str, name: str):
 
 
 @router.post("/clues/{cc}", status_code=201)
-def add_clue(cc: str, body: ClueBody):
+def add_clue(cc: str, body: ClueBody, request: Request):
     cc = _cc(cc)
     location, general = _validate(body)
     source = _clean_source(body)
@@ -819,6 +866,7 @@ def add_clue(cc: str, body: ClueBody):
         staged = {k: _staged_path(t, k) for k, t in body.files.items()}
         folder.mkdir(parents=True, exist_ok=True)
         names: dict[str, str] = {}
+        made: list[str] = []  # overlay files written by this request
         try:
             for kind in KINDS:
                 if kind in staged:
@@ -846,6 +894,13 @@ def add_clue(cc: str, body: ClueBody):
             if "image" not in entry:
                 entry.pop("blur", None)
                 entry.pop("max_height", None)
+            geo_kind = next((k for k in GEOM_KINDS if k in names), None)
+            if body.scope == "reg" and geo_kind:
+                svg = _render_overlay(cc, folder / names[geo_kind], get_ctx(request).local_geo)
+                if svg:
+                    entry["overlay"] = _overlay_name(names[geo_kind])
+                    _write_overlay(folder, entry["overlay"], svg)
+                    made.append(entry["overlay"])
             items = [*_load(cc), entry]
             books = {cc: items}
             _sync_relations(books, cc, entry, [], rels)
@@ -853,7 +908,7 @@ def add_clue(cc: str, body: ClueBody):
                 _save(code, its)
             _set_has(cc, items)
         except Exception:
-            for name in names.values():
+            for name in [*names.values(), *made]:
                 (folder / name).unlink(missing_ok=True)
             raise
     return entry
@@ -880,12 +935,13 @@ def reorder_clues(cc: str, body: OrderBody):
 
 
 @router.put("/clues/{cc}/{clue_id}")
-def update_clue(cc: str, clue_id: str, body: ClueBody):
+def update_clue(cc: str, clue_id: str, body: ClueBody, request: Request):
     """Edit a clue. Text, tags, ratings, visibility, source, relations and badge are replaced; files only when new ones are sent.
 
     A new file of a kind the clue already has (same extension) overwrites the old file in place, so
     nothing is left behind. A new geometry file replaces whichever geometry the clue had: if it is the
     same geometry kind it is overwritten in place, otherwise the old geometry file is deleted.
+    The overlay picture of a regional clue is redrawn on every save.
     """
     cc = _cc(cc)
     source = _clean_source(body)
@@ -907,6 +963,9 @@ def update_clue(cc: str, clue_id: str, body: ClueBody):
         overwrite: dict[
             str, Path
         ] = {}  # kind -> staged file that goes over the clue's existing file
+        fresh_overlay: str | None = (
+            None  # overlay written by this request under a name the clue didn't have
+        )
         try:
             for kind in KINDS:
                 if kind not in staged:
@@ -948,6 +1007,20 @@ def update_clue(cc: str, clue_id: str, body: ClueBody):
             if "image" not in entry:
                 entry.pop("blur", None)
                 entry.pop("max_height", None)
+            geo_kind = next((k for k in GEOM_KINDS if entry.get(k)), None)
+            if entry["scope"] == "reg" and geo_kind:
+                # A geometry file that is being overwritten is still the staged one at this point.
+                geo_file = overwrite.get(geo_kind, folder / entry[geo_kind])
+                svg = _render_overlay(cc, geo_file, get_ctx(request).local_geo)
+                if svg:
+                    entry["overlay"] = _overlay_name(entry[geo_kind])
+                    _write_overlay(folder, entry["overlay"], svg)
+                    if entry["overlay"] != old.get("overlay"):
+                        fresh_overlay = entry["overlay"]
+                elif old.get("overlay") and geo_kind not in staged:
+                    entry["overlay"] = old[
+                        "overlay"
+                    ]  # same geometry, can't redraw now: keep the picture
             updated = [entry if c is old else c for c in items]
             books = {cc: updated}
             _sync_relations(books, cc, entry, old.get("relations") or [], rels)
@@ -959,6 +1032,8 @@ def update_clue(cc: str, clue_id: str, body: ClueBody):
             for kind, name in names.items():
                 if kind not in overwrite:
                     (folder / name).unlink(missing_ok=True)
+            if fresh_overlay:
+                (folder / fresh_overlay).unlink(missing_ok=True)
             raise
         for kind, src in overwrite.items():
             try:
@@ -972,6 +1047,9 @@ def update_clue(cc: str, clue_id: str, body: ClueBody):
             old_name = old.get(kind)
             if old_name and old_name not in kept_names and ASSET_RE.fullmatch(old_name):
                 (folder / old_name).unlink(missing_ok=True)
+        old_overlay = old.get("overlay")
+        if old_overlay and old_overlay != entry.get("overlay") and ASSET_RE.fullmatch(old_overlay):
+            (folder / old_overlay).unlink(missing_ok=True)
     return entry
 
 
@@ -990,7 +1068,7 @@ def delete_clue(cc: str, clue_id: str):
         for code, its in books.items():
             _save(code, its)
         _set_has(cc, remaining)
-        for kind in KINDS:
+        for kind in (*KINDS, "overlay"):
             if gone.get(kind) and ASSET_RE.fullmatch(gone[kind]):
                 (CLUES_DIR / cc / gone[kind]).unlink(missing_ok=True)
     return {"ok": True}

@@ -116,7 +116,7 @@ class StainParams(BaseModel):
     clip_px: int = Field(5, ge=0, le=20)
     smooth_px: float = Field(0.5, ge=0.0, le=5.0)
     min_stain_pct: float = Field(
-        0.35, ge=0.0, le=10.0
+        0.0, ge=0.0, le=10.0
     )  # drop stains whose total area is below this % of the country
 
 

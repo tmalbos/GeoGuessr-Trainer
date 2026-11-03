@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import { loadCountryMap } from "../geo.js";
 import RegionPreview from "./RegionPreview.jsx";
+import fileUrl from "./fileUrl.js";
+import "./overlay.css";
 
 const GEO_KINDS = ["polygons", "lines", "points"];
 const norm = (s) => s.trim().toLowerCase();
@@ -19,7 +21,9 @@ function csvLevels(rows) {
 }
 
 // The country with the areas a clue applies to painted on it.
-// - Geometry files (polygons / lines / points): drawn on the country's own outline and borders (RegionPreview).
+// - Saved geometry clues carry `clue.overlay`: a transparent picture of the region already drawn on its country
+//   (made by the server when the clue is saved). It is just an <img>: nothing to download or draw.
+// - Geometry files without an overlay (not built yet): drawn on the country's own outline and borders (RegionPreview).
 // - CSV: the country's first-level subdivisions, painted.
 // align="right": the map sits against the right edge of its box (overlay on a clue photo).
 export default function ClueMap({ cc, clue, align }) {
@@ -28,10 +32,12 @@ export default function ClueMap({ cc, clue, align }) {
   const [err, setErr] = useState("");
   const kinds = GEO_KINDS.filter((k) => clue[k]);
   const hasGeo = kinds.length > 0;
+  const overlay = hasGeo ? clue.overlay : null;
 
   useEffect(() => {
     let off = false;
     setMap(null); setGeo({}); setErr("");
+    if (overlay) return () => { off = true; };
     if (!hasGeo) loadCountryMap(cc).then((d) => !off && setMap(d)).catch((e) => !off && setErr(e.message));
     for (const k of kinds) {
       fetch(`/api/clues/${cc}/geo/${clue[k]}`)
@@ -40,7 +46,12 @@ export default function ClueMap({ cc, clue, align }) {
         .catch((e) => !off && setErr(e.message));
     }
     return () => { off = true; };
-  }, [cc, clue.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [cc, clue.id, overlay]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  if (overlay) {
+    return <img className={`cl-overlay-img ${align === "right" ? "right" : ""}`} src={fileUrl(cc, overlay, clue.rev)}
+      alt="Map showing where this clue applies" draggable={false} />;
+  }
 
   if (err) return <p className="err">{err}</p>;
 
