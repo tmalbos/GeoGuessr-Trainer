@@ -12,10 +12,13 @@ Flow:
     POST /technical/osm/export     {token, layer, filters, fields, name} -> TopoJSON download
 
 Splitting uses osmium-tool (C++), see src/geo/osmium_tool.py:
-  - countries: `osmium tags-filter` pulls only the admin_level=2 relations (+ their ways and nodes) into a small
-    cached file; the country shapes are built from that instead of re-reading the whole big file.
-  - split: ONE `osmium extract --strategy smart` run writes every country. Whatever touches a country is kept
-    whole (a road or lake crossing a border is complete in both countries; multipolygon relations are completed).
+  - countries: `osmium tags-filter` pulls only the admin_level=2 relations and the relations with an ISO3166-1 code
+    (+ their ways and nodes) into a small cached file; the country shapes are built from that instead of re-reading
+    the whole big file. Territories (relations below level 2 whose ISO code is a bare two-letter code, e.g. CC, CX,
+    NF) count as countries of their own, and their area is cut out of the country that contains them.
+  - split: ONE `osmium extract --strategy complete_ways` run writes every country. A way is kept (whole) when at least
+    one of its nodes is inside the country; relations are not completed, so nothing that lies completely outside comes
+    along.
 
 Reading for preview / export goes through GDAL's OSM driver (pyogrio): layers points / lines / multilinestrings /
 multipolygons. A "field" is a GDAL column or a key inside other_tags; a filter is "key is one of these values"
@@ -52,6 +55,7 @@ _read_ways = pbf._read_ways  # noqa: SLF001
 _assemble = pbf._assemble  # noqa: SLF001
 _clean = pbf._clean  # noqa: SLF001
 _oneline = pbf._oneline  # noqa: SLF001
+_polys = pbf._polys  # noqa: SLF001
 CACHE_DIR = pbf.CACHE_DIR
 
 MAX_VALUES = 2000  # distinct values remembered per key while scanning
@@ -427,44 +431,78 @@ async def job_osm(token: str):
 
 
 def _boundaries_file(ds: dict, progress) -> Path:
-    """Small .osm.pbf with only the admin_level=2 relations and the ways / nodes they use. Cached on disk,
-    keyed by the big file's path, size and modification time, so reopening the same file is instant.
+    """Small .osm.pbf with only the admin_level=2 relations, the relations carrying an ISO3166-1 code (territories)
+    and the ways / nodes they use. Cached on disk, keyed by the big file's path, size and modification time, so
+    reopening the same file is instant.
     """
     src: Path = ds["path"]
     st = src.stat()
     key = hashlib.sha1(f"{src.resolve()}|{st.st_size}|{st.st_mtime_ns}".encode()).hexdigest()[:16]
-    out = CACHE_DIR / f"admin2-{key}.osm.pbf"
+    out = CACHE_DIR / f"admin2t-{key}.osm.pbf"
     if out.is_file() and out.stat().st_size > 0:
         return out
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
-    part = CACHE_DIR / f"admin2-{key}.part.osm.pbf"
+    part = CACHE_DIR / f"admin2t-{key}.part.osm.pbf"
     progress("Pulling the country borders out of the file")
     osmium_tool.run(
-        ["tags-filter", str(src), "r/admin_level=2", "--output", str(part), "--overwrite"]
+        [
+            "tags-filter",
+            str(src),
+            "r/admin_level=2",
+            "r/ISO3166-1",
+            "r/ISO3166-1:alpha2",
+            "--output",
+            str(part),
+            "--overwrite",
+        ]
     )
     part.replace(out)
     return out
 
 
+def _territories(ds: dict) -> list[dict]:
+    """Territories that count as countries of their own: relations below level 2 whose ISO code is a bare
+    two-letter code (CC, CX, NF...), not a region code like AU-NSW. One per code.
+    """
+    taken = {c["code"] for c in ds["countries"] if c["code"]}
+    out = []
+    for rid, r in ds["rels"].items():
+        iso = str(r["iso"]).strip().upper()
+        if r["level"] > 2 and len(iso) == 2 and iso.isalpha() and iso not in taken:
+            taken.add(iso)
+            out.append({"id": str(rid), "name": r["name"], "code": iso})
+    return out
+
+
+def _minus(g, other):
+    try:
+        return shapely.difference(g, other)
+    except Exception:  # noqa: BLE001
+        return shapely.difference(shapely.make_valid(g), shapely.make_valid(other))
+
+
 def _load_countries(ds: dict, progress) -> None:
-    """Countries whose whole boundary is in the file (a country file also holds incomplete relations of its
-    neighbours; those are not countries you could split out). Built from the small filtered file, cached.
+    """Countries and territories whose whole boundary is in the file (a country file also holds incomplete relations
+    of its neighbours; those are not countries you could split out). Built from the small filtered file, cached.
+    A territory's area is cut out of the country that contains it.
     """
     with _COMPUTE:
         if ds.get("split_countries") is not None:
             return
         small = _boundaries_file(ds, progress)
         progress("Building the country shapes")
-        rels = {k: v for k, v in ds["rels"].items() if v["level"] == 2}
+        rels = ds["rels"]
+        territories = _territories(ds)
+        cands = ds["countries"] + territories
         wanted: set[int] = set()
-        for c in ds["countries"]:
+        for c in cands:
             r = rels.get(int(c["id"]))
             if r:
                 wanted.update(r["outer"])
                 wanted.update(r["inner"])
-        ways = _read_ways(small, wanted, None) if wanted else {}
+        ways = _read_ways(small, wanted) if wanted else {}
         polys = {}
-        for c in ds["countries"]:
+        for c in cands:
             r = rels.get(int(c["id"]))
             try:
                 g = _assemble(r, ways) if r else None
@@ -473,8 +511,22 @@ def _load_countries(ds: dict, progress) -> None:
                 g = None
             if g is not None and not g.is_empty:
                 polys[c["id"]] = g
+        terr_ids = {t["id"] for t in territories}
+        for tid in terr_ids & polys.keys():
+            t = polys[tid]
+            for cid in list(polys):
+                if cid in terr_ids:
+                    continue
+                g = polys[cid]
+                if not g.intersects(t) or shapely.intersection(g, t).area < 0.5 * t.area:
+                    continue
+                rest = _polys(_minus(g, t))
+                if rest is not None:
+                    polys[cid] = rest
         ds["split_polys"] = polys
-        ds["split_countries"] = [c for c in ds["countries"] if c["id"] in polys]
+        ds["split_countries"] = sorted(
+            (c for c in cands if c["id"] in polys), key=lambda c: c["name"].casefold()
+        )
 
 
 def _countries_job(ds: dict, progress) -> dict:
@@ -539,14 +591,14 @@ def _split(ds: dict, body: SplitBody, progress) -> dict:
         config.write_text(
             json.dumps({"directory": str(out_dir), "extracts": extracts}), encoding="utf-8"
         )
-        progress(f"Cutting {len(extracts)} countries out of the file (3 passes, keep this running)")
+        progress(f"Cutting {len(extracts)} countries out of the file (2 passes, keep this running)")
         osmium_tool.run(
             [
                 "extract",
                 "--config",
                 str(config),
                 "--strategy",
-                "smart",
+                "complete_ways",
                 "--overwrite",
                 str(ds["path"]),
             ]
