@@ -13,7 +13,7 @@
 
 /* Add / Import: text replaced by an icon, label shown on hover */
 .cp .cp-rail .cf-add, .cp .cp-rail .cf-import { position: relative; font-size: 0; }
-.cp .cp-rail .cf-add::before { content: "+"; font-size: 24px; line-height: 1; }
+.cp .cp-rail .cf-add::before { content: "+"; font-size: 24px; line-height: 1.5; }
 .cp .cp-rail .cf-add:hover::after, .cp .cp-rail .cf-import:not([aria-expanded="true"]):hover::after {
   position: absolute; right: calc(100% + 8px); top: 50%; transform: translateY(-50%); z-index: 40; padding: 4px 8px;
   background: var(--raise); border: 1px solid var(--line); border-radius: 6px; color: var(--ink);

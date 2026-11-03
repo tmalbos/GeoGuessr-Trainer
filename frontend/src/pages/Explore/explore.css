@@ -46,9 +46,10 @@ main.bleed { padding: 0; height: 100vh; overflow: hidden; }
 
 /* General facts: outline, flag, domain, driving side, currency */
 .cp-facts { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 16px 20px; margin-bottom: 8px; padding-bottom: 24px; border-bottom: 1px solid var(--line); }
-.cp-outline { width: 180px; }
+/* The outline is sized by CountryMap to its own proportions (max 180x132), so the box hugs the drawing. */
+.cp-outline { width: auto; }
 .cp-outline .cm { margin: 0; }
-.cp-outline .cm-svg { width: 180px; height: 132px; max-height: none; }
+.cp-outline .cm-svg { max-height: none; }
 .cp-outline .cm-name, .cp-outline .cm-omit { display: none; }
 .cp-facts .flag { border-radius: 4px; flex-shrink: 0; }
 .cp-facts .cp-road { width: 64px; height: 78px; display: block; flex-shrink: 0; filter: drop-shadow(0 2px 6px rgba(0,0,0,.5)); }

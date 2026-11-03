@@ -11,6 +11,7 @@ const svgProps = { width: 18, height: 18, viewBox: "0 0 24 24", fill: "none", st
 const Pencil = () => <svg {...svgProps}><path d="M12 20h9" /><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" /></svg>;
 
 const NO_INFO = { domain: "", side: null, currencies: [] };
+const OUTLINE_BOX = [180, 132]; // max size of the outline in the facts row (px)
 
 export default function Country({ id, section, query, onSection, onBack, backLabel = "World map" }) {
   const [name, setName] = useState("");
@@ -45,7 +46,7 @@ export default function Country({ id, section, query, onSection, onBack, backLab
       </header>
 
       <div className="cp-facts" aria-label={`General facts about ${title}`}>
-        <div className="cp-outline"><CountryMap id={id} /></div>
+        <div className="cp-outline"><CountryMap id={id} fit={OUTLINE_BOX} /></div>
         <Flag code={id} width={104} />
         {info.domain && <span className="cp-tld" title="Internet domain">{info.domain}</span>}
         <DrivingSide side={info.side} />
