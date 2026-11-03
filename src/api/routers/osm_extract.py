@@ -18,7 +18,9 @@ Splitting uses osmium-tool (C++), see src/geo/osmium_tool.py:
     NF) count as countries of their own, and their area is cut out of the country that contains them.
   - split: ONE `osmium extract --strategy complete_ways` run writes every country. A way is kept (whole) when at least
     one of its nodes is inside the country; relations are not completed, so nothing that lies completely outside comes
-    along.
+    along. Afterwards the COMPLETE administrative boundaries that belong to each country are merged back in (a
+    boundary belongs to the country that contains one representative point of its polygon), so a region whose
+    boundary runs partly outside the country polygon (e.g. at sea) is still whole.
 
 Reading for preview / export goes through GDAL's OSM driver (pyogrio): layers points / lines / multilinestrings /
 multipolygons. A "field" is a GDAL column or a key inside other_tags; a filter is "key is one of these values"
@@ -529,6 +531,65 @@ def _load_countries(ds: dict, progress) -> None:
         )
 
 
+def _admin_file(ds: dict, progress) -> Path:
+    """Small .osm.pbf with every boundary=administrative relation and the ways / nodes it uses. Cached on disk."""
+    src: Path = ds["path"]
+    st = src.stat()
+    key = hashlib.sha1(f"{src.resolve()}|{st.st_size}|{st.st_mtime_ns}".encode()).hexdigest()[:16]
+    out = CACHE_DIR / f"adminall-{key}.osm.pbf"
+    if out.is_file() and out.stat().st_size > 0:
+        return out
+    CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    part = CACHE_DIR / f"adminall-{key}.part.osm.pbf"
+    progress("Pulling every administrative boundary out of the file")
+    osmium_tool.run(
+        ["tags-filter", str(src), "r/boundary=administrative", "--output", str(part), "--overwrite"]
+    )
+    part.replace(out)
+    return out
+
+
+def _owners(ds: dict, progress) -> tuple[Path, dict[str, list[int]]]:
+    """(admin file, {country id: ids of the boundary relations that belong to it}). A boundary belongs to every
+    country whose outline contains one representative point of the boundary's polygon. Cached.
+    """
+    with _COMPUTE:
+        hit = ds.get("admin_owner")
+        if hit is not None:
+            return hit
+        admin = _admin_file(ds, progress)
+        progress("Finding which country each boundary belongs to")
+        rels = ds["rels"]
+        wanted: set[int] = set()
+        for r in rels.values():
+            wanted.update(r["outer"])
+            wanted.update(r["inner"])
+        ways = _read_ways(admin, wanted) if wanted else {}
+        ids: list[int] = []
+        xs: list[float] = []
+        ys: list[float] = []
+        for rid, r in rels.items():
+            try:
+                g = _assemble(r, ways)
+            except Exception:
+                g = None
+            if g is None or g.is_empty:
+                continue
+            p = shapely.point_on_surface(g)
+            ids.append(rid)
+            xs.append(p.x)
+            ys.append(p.y)
+        del ways
+        owner: dict[str, list[int]] = {cid: [] for cid in ds["split_polys"]}
+        if ids:
+            px, py = np.array(xs, dtype=float), np.array(ys, dtype=float)
+            for cid, poly in ds["split_polys"].items():
+                inside = np.flatnonzero(shapely.contains_xy(poly, px, py))
+                owner[cid] = [ids[i] for i in inside]
+        ds["admin_owner"] = (admin, owner)
+        return ds["admin_owner"]
+
+
 def _countries_job(ds: dict, progress) -> dict:
     _load_countries(ds, progress)
     return {"countries": ds["split_countries"]}
@@ -557,9 +618,11 @@ def _split(ds: dict, body: SplitBody, progress) -> dict:
     out_dir = Path(folder) if folder else ds["path"].parent / f"{_stem(ds['path'])}-countries"
     out_dir.mkdir(parents=True, exist_ok=True)
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    admin, owner = _owners(ds, progress)
 
     work = Path(tempfile.mkdtemp(prefix="split-", dir=CACHE_DIR))
     names: dict[str, str] = {}
+    ids_of: dict[str, str] = {}
     try:
         extracts, used = [], set()
         for c in chosen:
@@ -568,6 +631,7 @@ def _split(ds: dict, body: SplitBody, progress) -> dict:
                 label = f"{label}_{c['id']}"
             used.add(label)
             names[label] = c["name"]
+            ids_of[label] = c["id"]
             geom = shapely.simplify(ds["split_polys"][c["id"]], SPLIT_SIMPLIFY_DEG)
             shape = work / f"{label}.geojson"
             shape.write_text(
@@ -603,6 +667,32 @@ def _split(ds: dict, body: SplitBody, progress) -> dict:
                 str(ds["path"]),
             ]
         )
+        for n, (label, cid) in enumerate(ids_of.items(), 1):
+            rids = owner.get(cid) or []
+            base = out_dir / f"{label}.osm.pbf"
+            if not rids or not base.is_file():
+                continue
+            progress(f"Adding the complete boundaries to {names[label]} ({n} of {len(ids_of)})")
+            wids = set()
+            for rid in rids:
+                wids.update(ds["rels"][rid]["outer"])
+                wids.update(ds["rels"][rid]["inner"])
+            rel_txt, way_txt = work / f"{label}.r.txt", work / f"{label}.w.txt"
+            rel_txt.write_text("\n".join(f"r{i}" for i in rids), encoding="utf-8")
+            way_txt.write_text("\n".join(f"w{i}" for i in sorted(wids)), encoding="utf-8")
+            rel_pbf, way_pbf, merged = (
+                work / f"{label}.{k}.osm.pbf" for k in ("rels", "ways", "merged")
+            )
+            osmium_tool.run(
+                ["getid", "-i", str(rel_txt), str(admin), "-o", str(rel_pbf), "--overwrite"]
+            )
+            osmium_tool.run(
+                ["getid", "-r", "-i", str(way_txt), str(admin), "-o", str(way_pbf), "--overwrite"]
+            )
+            osmium_tool.run(
+                ["merge", str(base), str(rel_pbf), str(way_pbf), "-o", str(merged), "--overwrite"]
+            )
+            merged.replace(base)
     finally:
         shutil.rmtree(work, ignore_errors=True)
 
