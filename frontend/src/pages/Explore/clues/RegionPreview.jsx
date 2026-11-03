@@ -22,9 +22,8 @@ const tiers = (g) => {
 };
 
 // ── Pins ──
-// A polygon smaller than 2% of the country is too small to see, so it is DRAWN as a pin whose tip sits at the
-// polygon's centre. Only the drawing changes: the stored geometry is untouched. (A little slack on the 2%, since a
-// pinpoint circle is built to be about that big.) If more than MAX_PINS polygons would qualify, it is a
+// A polygon smaller than 0.09% of the country is too small to see, so it is DRAWN as a pin whose tip sits at the
+// polygon's centre. Only the drawing changes: the stored geometry is untouched. If more than MAX_PINS polygons would qualify, it is a
 // scattered region (many small stains), not a handful of pinpoints, so they are all drawn as shapes.
 const MAX_PIN_SHARE = 0.0009;
 const MAX_PINS = 12;
@@ -68,7 +67,7 @@ function splitPins(g, total, project) {
 
 // Pin drawn with its tip at (0, 0), about 46 map units tall. The big transparent circle makes it easy to click.
 function Pin({ at: [x, y], className = "cl-poly", style, children, ...rest }) {
-  return <g className={className} style={style} transform={`translate(${x.toFixed(1)} ${y.toFixed(1)})`} {...rest}>
+  return <g className={className} style={style} transform={`translate(${x.toFixed(1)} ${y.toFixed(1)}) scale(1.5)`} {...rest}>
     <circle cy="-26" r="24" fill="transparent" stroke="none" />
     <path d="M0 0C-3 -9 -15 -18 -15 -30A15 15 0 1 1 15 -30C15 -18 3 -9 0 0Z" vectorEffect="non-scaling-stroke" />
     <circle cy="-30" r="5.5" fill="#fff" stroke="none" />
