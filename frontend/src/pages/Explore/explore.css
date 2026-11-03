@@ -19,14 +19,15 @@ main.bleed { padding: 0; height: 100vh; overflow: hidden; }
    The page itself scrolls (scrollbar at the screen edge). Three columns: a thin left rail (back),
    the clues, a thin right rail (edit / filter / add / import). The rails are sticky and have no
    background, so they stay in view while the clues scroll underneath the same page. */
-.cp { height: 100%; overflow-y: auto; display: grid; grid-template-columns: 72px minmax(0, 1fr) 72px; }
+.cp { height: 100%; overflow-y: auto; display: grid; grid-template-columns: 176px minmax(0, 1fr) 170px; }
 .cp-main { min-width: 0; padding: 32px 8px 48px; }
 .cp-empty h3 { margin: 0 0 8px; font-size: 26px; font-weight: 800; letter-spacing: -.02em; }
 .cp-empty p { margin: 0; max-width: 46ch; font-size: 15px; }
 
 .cp-rail { position: sticky; top: 0; align-self: start; z-index: 5; display: flex; flex-direction: column;
   align-items: center; gap: 10px; padding: 32px 0 24px; }
-.cp-rail-left { padding-left: 14px; } /* clears the peeking app menu on the far left */
+.cp-rail-left { padding-left: 22px; } /* clears the peeking app menu on the far left */
+.cp-rail-right { flex-direction: row; flex-wrap: wrap; justify-content: center; padding: 32px 14px 24px; }
 
 .cp .cp-rail .cp-tool, .cp .cp-rail .cf-add, .cp .cp-rail .cf-import { display: grid; place-items: center; width: 40px; height: 40px;
   min-width: 0; padding: 0; background: none; color: var(--mute); border: 1px solid var(--line); border-radius: 8px; cursor: pointer; }
@@ -34,29 +35,31 @@ main.bleed { padding: 0; height: 100vh; overflow: hidden; }
   background: none; color: var(--ink); border-color: var(--mute); }
 .cp .cp-rail .cp-tool.on, .cp .cp-rail .cp-tool[aria-expanded="true"], .cp .cp-rail .cf-import[aria-expanded="true"] {
   background: var(--sea); color: #fff; border-color: var(--sea); }
+.cp .cp-rail .cp-back { white-space: nowrap; }
 
-/* Header: name on the left, the player's level in this country on the right, same line */
-.cp-header { display: flex; align-items: center; justify-content: space-between; gap: 24px; min-height: 48px; margin-bottom: 20px; }
-.cp-header h2 { margin: 0; }
-.cp-stats { flex: 0 0 auto; width: min(280px, 45%); }
+/* Header: name centred, the player's level in this country on the right, same line */
+.cp-header { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: 24px; min-height: 48px; margin-bottom: 20px; }
+.cp-header h2 { grid-column: 2; margin: 0; text-align: center; }
+.cp-stats { grid-column: 3; justify-self: end; width: min(280px, 100%); }
 .cp-stats:empty { display: none; }
 .cp-stats .card { margin: 0; }
 
 /* General facts: outline, flag, domain, driving side, currency */
-.cp-facts { display: flex; flex-wrap: wrap; align-items: center; gap: 16px 36px; margin-bottom: 8px; padding-bottom: 24px; border-bottom: 1px solid var(--line); }
-.cp-outline { width: 150px; }
+.cp-facts { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 16px 20px; margin-bottom: 8px; padding-bottom: 24px; border-bottom: 1px solid var(--line); }
+.cp-outline { width: 180px; }
 .cp-outline .cm { margin: 0; }
-.cp-outline .cm-svg { width: 150px; height: 110px; max-height: none; }
+.cp-outline .cm-svg { width: 180px; height: 132px; max-height: none; }
 .cp-outline .cm-name, .cp-outline .cm-omit { display: none; }
 .cp-facts .flag { border-radius: 4px; flex-shrink: 0; }
-.cp-facts .cp-road { width: 54px; height: 66px; display: block; flex-shrink: 0; filter: drop-shadow(0 2px 6px rgba(0,0,0,.5)); }
-.cp-facts .cp-tld { font-size: 30px; font-weight: 800; letter-spacing: -.02em; }
-.cp-facts .cp-cur { font-size: 30px; font-weight: 800; letter-spacing: -.02em; }
+.cp-facts .cp-road { width: 64px; height: 78px; display: block; flex-shrink: 0; filter: drop-shadow(0 2px 6px rgba(0,0,0,.5)); }
+.cp-facts .cp-tld { font-size: 34px; font-weight: 800; letter-spacing: -.02em; }
+.cp-facts .cp-cur { font-size: 34px; font-weight: 800; letter-spacing: -.02em; }
 .cp-tabs { margin: 16px 0 0; }
 
 .cm { margin-top: 4px; }
 .cm-svg { display: block; width: 100%; height: auto; max-height: 60vh; }
 .cm-r { fill: #24607f; stroke: #090c11; stroke-width: 1px; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
+.cm-nat { fill: #24607f; stroke: #24607f; stroke-width: 1px; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
 .cm-dot { fill: var(--sea); }
 .cm-r:hover, .cm-dot:hover { fill: var(--sea-hi); }
 .cm-name { min-height: 1.5em; margin-top: 10px; font-weight: 600; }
@@ -66,9 +69,11 @@ main.bleed { padding: 0; height: 100vh; overflow: hidden; }
 .cp .modal.wide { width: min(calc(100vw - 160px), 100%); }
 
 @media (max-width: 900px) {
-  .cp { grid-template-columns: 56px minmax(0, 1fr) 56px; }
-  .cp-rail-left { padding-left: 10px; }
-  .cp-header { flex-wrap: wrap; }
-  .cp-stats { width: 100%; }
+  .cp { grid-template-columns: 168px minmax(0, 1fr) 160px; }
+  .cp-rail-left { padding-left: 18px; }
+  .cp-rail-right { padding: 32px 8px 24px; }
+  .cp-header { grid-template-columns: 1fr; }
+  .cp-header h2 { grid-column: 1; text-align: center; }
+  .cp-stats { grid-column: 1; width: 100%; justify-self: stretch; }
   .cp .modal.wide { width: 100%; }
 }

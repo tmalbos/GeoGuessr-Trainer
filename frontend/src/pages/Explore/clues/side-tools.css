@@ -1,10 +1,8 @@
 /* Tools in the right rail (under the Edit button): filter toggle, "+ Add clue" and "Import from…" (edit mode).
    They are icon-only buttons stacked in a column, no background. Chips and menus open as small popovers to the LEFT of the rail.
    The buttons keep their text in the markup (for screen readers); CSS swaps it for an icon and a hover label. */
-.cp .cp-rail #clue-filter-slot { display: block; position: relative; padding: 0; border: 0; }
-.cf-bar { display: flex; flex-direction: column; align-items: center; gap: 10px; width: auto; }
-.cf-bar:empty { display: none; }
-.cf-bar .cf-right { display: flex; flex-direction: column; align-items: center; gap: 10px; margin: 0; }
+.cp .cp-rail #clue-filter-slot, .cf-bar { display: contents; }
+.cf-bar .cf-right { display: flex; flex-direction: row; align-items: center; gap: 10px; margin: 0; }
 
 /* Filter toggle: same look as the other rail buttons, count badge on its corner */
 .cp .cp-rail .cf-toggle { position: relative; display: grid; place-items: center; width: 40px; height: 40px; min-width: 0; padding: 0;
@@ -16,7 +14,6 @@
 /* Add / Import: text replaced by an icon, label shown on hover */
 .cp .cp-rail .cf-add, .cp .cp-rail .cf-import { position: relative; font-size: 0; }
 .cp .cp-rail .cf-add::before { content: "+"; font-size: 24px; line-height: 1; }
-.cp .cp-rail .cf-import::before { content: "↓"; font-size: 20px; line-height: 1; }
 .cp .cp-rail .cf-add:hover::after, .cp .cp-rail .cf-import:not([aria-expanded="true"]):hover::after {
   position: absolute; right: calc(100% + 8px); top: 50%; transform: translateY(-50%); z-index: 40; padding: 4px 8px;
   background: var(--raise); border: 1px solid var(--line); border-radius: 6px; color: var(--ink);
@@ -29,7 +26,7 @@
   background: var(--card); box-shadow: 0 8px 24px rgba(0,0,0,.55); }
 
 /* "Import from…" dropdown: also to the left of the rail */
-.cf-import-wrap { position: relative; }
+.cf-import-wrap { position: static; }
 .cp .cp-rail .cf-menu { position: absolute; right: calc(100% + 8px); top: 0; z-index: 40; min-width: 250px; padding: 6px; display: grid; gap: 2px;
   background: var(--card); border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,.55); }
 .cf-menu-item { display: flex; align-items: center; gap: 12px; width: 100%; padding: 10px 12px; background: none; border: 0;

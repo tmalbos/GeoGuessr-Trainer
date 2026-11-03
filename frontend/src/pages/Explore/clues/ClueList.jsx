@@ -24,6 +24,9 @@ const UNDO_MS = 5000;
 const SHOWN = ["visible", "guide-only"]; // what counts as "has clues" on the world map
 const Funnel = () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
   strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M3 4h18l-7 8v6l-4 2v-8z" /></svg>;
+const ImportIcon = () => <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
+  strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 3v10" /><path d="m8 9 4 4 4-4" />
+  <path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2" /></svg>;
 
 /** The tools drawn into the page's side panel (`slotEl`): the filter toggle on the left and, in edit mode,
  *  "Import from…" and "+ Add clue" on the far right of the same line. The filter chips open in a box below the
@@ -48,15 +51,11 @@ function SideTools({ slotEl, showFilter, editing, onAdd, onImport, cat, loc, sco
 
   return createPortal(<>
     <div className="cf-bar">
-      {showFilter && <button type="button" className="cf-toggle" aria-expanded={open}
-        aria-label="Filter the clues" title="Filter the clues" onClick={() => { setSrcOpen(false); setOpen((o) => !o); }}>
-        <Funnel />
-        {active > 0 && <span className="count">{active}</span>}
-      </button>}
       {editing && <div className="cf-right">
         <div className="cf-import-wrap">
           <button type="button" className="btn ghost cf-import" aria-haspopup="menu" aria-expanded={srcOpen}
-            onClick={() => { setOpen(false); setSrcOpen((o) => !o); }}>Import from… <span aria-hidden="true">▾</span></button>
+            aria-label="Import clues" title="Import clues"
+            onClick={() => { setOpen(false); setSrcOpen((o) => !o); }}><ImportIcon /></button>
           {srcOpen && <div className="cf-menu" role="menu" aria-label="Import source">
             <button type="button" role="menuitem" className="cf-menu-item" onClick={() => { setSrcOpen(false); onImport("plonkit"); }}>
               <img src="https://www.google.com/s2/favicons?domain=plonkit.net&sz=32" alt="" width="20" height="20"
@@ -67,6 +66,11 @@ function SideTools({ slotEl, showFilter, editing, onAdd, onImport, cat, loc, sco
         </div>
         <button type="button" className="btn cf-add" onClick={onAdd}>+ Add clue</button>
       </div>}
+      {showFilter && <button type="button" className="cf-toggle" aria-expanded={open}
+        aria-label="Filter the clues" title="Filter the clues" onClick={() => { setSrcOpen(false); setOpen((o) => !o); }}>
+        <Funnel />
+        {active > 0 && <span className="count">{active}</span>}
+      </button>}
     </div>
     {showFilter && open && <div className="clue-filter">
       <div className="clue-chips" role="group" aria-label="Filter by category">

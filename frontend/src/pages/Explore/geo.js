@@ -23,3 +23,13 @@ export const loadWorld = () =>
   });
 
 export const loadCountryMap = (id) => get(`/geo/admin1/${id}.json`);
+
+// The national outline: all of the country's land as one shape, without its first-level subdivisions.
+export const loadCountryOutline = (id) =>
+  loadCountryMap(id).then((d) => ({
+    name: d.name,
+    w: d.w,
+    h: d.h,
+    d: d.regions.map((r) => r.d).join(""),
+    dots: d.regions.flatMap((r) => r.dots ?? []),
+  }));

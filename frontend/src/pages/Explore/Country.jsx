@@ -9,7 +9,6 @@ import SECTIONS from "./sections.js";
 
 const svgProps = { width: 18, height: 18, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 2, strokeLinecap: "round", strokeLinejoin: "round", "aria-hidden": true };
 const Pencil = () => <svg {...svgProps}><path d="M12 20h9" /><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" /></svg>;
-const Back = () => <svg {...svgProps}><path d="M19 12H5" /><path d="m12 19-7-7 7-7" /></svg>;
 
 const NO_INFO = { domain: "", side: null, currencies: [] };
 
@@ -36,7 +35,7 @@ export default function Country({ id, section, query, onSection, onBack, backLab
 
   return <div className={`cp ${editing ? "editing" : ""}`}>
     <aside className="cp-rail cp-rail-left" aria-label="Navigation">
-      <button type="button" className="cp-tool" aria-label={`Back to ${backLabel}`} title={`Back to ${backLabel}`} onClick={onBack}><Back /></button>
+      <button type="button" className="btn ghost cp-back" aria-label={`Back to ${backLabel}`} title={`Back to ${backLabel}`} onClick={onBack}>← {backLabel}</button>
     </aside>
 
     <section className="cp-main" aria-label={`${title} clues`}>
@@ -47,7 +46,7 @@ export default function Country({ id, section, query, onSection, onBack, backLab
 
       <div className="cp-facts" aria-label={`General facts about ${title}`}>
         <div className="cp-outline"><CountryMap id={id} /></div>
-        <Flag code={id} width={88} />
+        <Flag code={id} width={104} />
         {info.domain && <span className="cp-tld" title="Internet domain">{info.domain}</span>}
         <DrivingSide side={info.side} />
         {info.currencies.length > 0 && <span className="cp-cur" title="Currency">{info.currencies.join(" · ")}</span>}
