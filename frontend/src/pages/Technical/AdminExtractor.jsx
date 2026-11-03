@@ -32,9 +32,9 @@ export default function AdminExtractor() {
   const [over, setOver] = useState(false);
   const [err, setErr] = useState("");
   const [ver, setVer] = useState(0);
-  const input = useRef(null);
   const cache = useRef(new Map()); // `${token}|${country}|${level}|${pct}` -> features (a level is fetched once)
   const last = useRef({ k: "", fc: null });
+  const pick = useRef(null);
   memo.ds = ds; memo.mode = mode; memo.country = country; memo.levels = levels; memo.simplify = simplify;
 
   const accept = (d) => {
@@ -54,10 +54,10 @@ export default function AdminExtractor() {
 
   // A file already on this machine: nothing is copied, so big files open much faster.
   const openPath = async (p = path) => {
-    if (!p.trim()) return;
+    if (!p.trim()) return false;
     setLoading(true); setErr("");
-    try { accept(await api("/technical/pbf/open", { method: "POST", body: { path: p } })); }
-    catch (e) { setErr(errorText(e)); } finally { setLoading(false); }
+    try { accept(await api("/technical/pbf/open", { method: "POST", body: { path: p } })); return true; }
+    catch (e) { setErr(errorText(e)); return false; } finally { setLoading(false); }
   };
 
   // Step 1: build the selected country (slow once, instant when the server already has it).
@@ -157,15 +157,13 @@ export default function AdminExtractor() {
       <div className={`tp-drop ${over ? "over" : ""}`}
         onDragOver={(e) => { e.preventDefault(); setOver(true); }} onDragLeave={() => setOver(false)}
         onDrop={(e) => { e.preventDefault(); setOver(false); upload(e.dataTransfer.files[0]); }}>
-        <b>OSM PBF file</b>
-        <span className="muted">{loading ? "Reading the file…" : ds ? `${ds.file.name} · ${ds.countries.length} countries` : "Drop the .osm.pbf here"}</span>
-        <button type="button" className="btn ghost" disabled={loading} onClick={() => input.current.click()}>{ds ? "Load another" : "Choose file"}</button>
-        <input ref={input} type="file" accept=".pbf,.osm.pbf" hidden onChange={(e) => { upload(e.target.files[0]); e.target.value = ""; }} />
-        <label htmlFor="pbf-path" className="muted">…or a path on this machine (no copy, faster)</label>
+        <h3>OSM PBF file</h3>
         <div className="tp-row">
           <input id="pbf-path" value={path} placeholder="C:\maps\argentina-latest.osm.pbf" onChange={(e) => setPath(e.target.value)}
             onKeyDown={(e) => { if (e.key === "Enter") openPath(); }} />
-          <button type="button" className="btn ghost" disabled={loading || !path.trim()} onClick={() => openPath()}>Open</button>
+          <button type="button" className="btn ghost"
+            onClick={async () => { if (path.trim() && await openPath()) return; pick.current?.click(); }}>Open</button>
+          <input ref={pick} type="file" accept=".osm.pbf" hidden onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ""; upload(f); }} />
         </div>
       </div>
 

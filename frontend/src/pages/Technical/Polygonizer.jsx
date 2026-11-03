@@ -94,7 +94,7 @@ export default function Polygonizer() {
       <div className={`tp-drop ${over ? "over" : ""}`}
         onDragOver={(e) => { e.preventDefault(); setOver(true); }} onDragLeave={() => setOver(false)}
         onDrop={(e) => { e.preventDefault(); setOver(false); upload(e.dataTransfer.files[0]); }}>
-        <b>mapmaking.app file</b>
+        <h3>mapmaking.app file</h3>
         <span className="muted">{loading ? "Reading…" : ds ? `${ds.name} · ${ds.total.toLocaleString()} locations · ${ds.tags.length} tags` : "Drop the exported JSON here"}</span>
         <button type="button" className="btn ghost" disabled={loading} onClick={() => input.current.click()}>{ds ? "Load another" : "Choose file"}</button>
         <input ref={input} type="file" accept=".json,application/json" hidden onChange={(e) => { upload(e.target.files[0]); e.target.value = ""; }} />

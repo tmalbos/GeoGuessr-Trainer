@@ -2,6 +2,7 @@
 .tp-side { display: grid; gap: 14px; min-width: 0; }
 .tp-side h3 { margin: 6px 0 0; font-size: 15px; }
 .tp-drop { display: grid; gap: 6px; justify-items: start; padding: 14px; border: 1.5px dashed var(--line); border-radius: 8px; }
+.tp-drop h3 { margin: 0; }
 .tp-drop.over { border-color: var(--sea-hi); background: #6cc0e50d; }
 .tp-tags { display: grid; gap: 2px; max-height: 320px; overflow-y: auto; padding-right: 4px; }
 .tp-tag { display: grid; grid-template-columns: auto 16px minmax(0, 1fr) auto; align-items: center; gap: 8px; margin: 0; padding: 4px 6px;
@@ -15,7 +16,7 @@
 .tp-tag input[type="color"]::-moz-color-swatch { border: 0; border-radius: 50%; }
 .tp-tag span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tp-dot { width: 12px; height: 12px; border-radius: 50%; justify-self: center; }
-.tp-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.tp-row { display: flex; flex-wrap: nowrap; gap: 8px; align-items: center; justify-self: stretch; }
 .tp-row .btn { padding: 6px 12px; }
 .tp-field { display: grid; gap: 2px; }
 .tp-field label { margin: 0; display: flex; justify-content: space-between; font-size: 13px; }

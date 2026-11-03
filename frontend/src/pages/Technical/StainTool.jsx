@@ -361,7 +361,7 @@ export default function StainTool() {
       <div className={`tp-drop ${over ? "over" : ""}`}
         onDragOver={(e) => { e.preventDefault(); setOver(true); }} onDragLeave={() => setOver(false)}
         onDrop={(e) => { e.preventDefault(); setOver(false); upload(e.dataTransfer.files[0]); }}>
-        <b>Map screenshot</b>
+        <h3>Map screenshot</h3>
         <span className="muted">{loading ? "Reading…" : up ? `${up.width}×${up.height} px` : "Drop an image, or press Ctrl+V"}</span>
         <button type="button" className="btn ghost" disabled={loading} onClick={() => input.current.click()}>{up ? "Load another" : "Choose file"}</button>
         <input ref={input} type="file" accept="image/*" hidden onChange={(e) => { upload(e.target.files[0]); e.target.value = ""; }} />
