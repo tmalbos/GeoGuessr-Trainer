@@ -8,6 +8,8 @@ Flow:  POST /technical/stain/upload   -> raw image bytes; kept in memory, return
 Uploads live in memory only (last few); a server restart means loading the image again (410).
 All colours inside the map are returned, with the biggest one flagged `base`; the app's own
 country map is drawn underneath, so the UI leaves the base unselected and exports only the stains.
+Map pins (pinpoint clues, any colour) are turned into small circles around the pin tip (see src/geo/pinpoint.py)
+and flagged `pin`.
 The maths is in src/geo/stain_extract.py; the "is there a map?" check is in src/geo/map_detect.py.
 """
 
@@ -31,6 +33,7 @@ from starlette.concurrency import run_in_threadpool
 
 from src.api.deps import get_ctx
 from src.geo.map_detect import detect_map
+from src.geo.pinpoint import convert_pins
 from src.geo.stain_extract import (
     StainError,
     analyze,
@@ -43,6 +46,7 @@ router = APIRouter()
 
 DEFAULT_TOL = 30
 FIXED_PARAMS = {"cap": 1.0}  # no longer tunable
+PIN_CLIP_DEG = 0.0009  # a pin circle may reach this far past the (simplified) country outline
 
 MAX_UPLOADS = 5
 _UPLOADS: OrderedDict[str, dict] = OrderedDict()
@@ -147,8 +151,46 @@ async def stain_upload(request: Request, path: str | None = None):
     }
 
 
+def _polygons(g) -> shapely.Geometry:
+    """Only the polygons of a geometry, as one geometry."""
+    parts = [p for p in shapely.get_parts(g) if p.geom_type == "Polygon" and not p.is_empty]
+    return shapely.union_all(parts) if parts else shapely.GeometryCollection()
+
+
+def _mark_pins(res: dict) -> dict:
+    """Map pins (pinpoint clues, any colour) become circles around the pin tip, flagged `pin`.
+
+    A stain made only of pins is tagged "Pin n"; a stain that mixes pins with ordinary areas keeps its tag.
+    """
+    outline = shapely.from_geojson(json.dumps(res["base"]["outline"]))
+    clip = shapely.buffer(outline, PIN_CLIP_DEG)
+    classes, feats, n = [], [], 0
+    for c, f in zip(res["classes"], res["geojson"]["features"], strict=True):
+        c.setdefault("pin", False)
+        if not c["base"]:
+            geom = shapely.from_geojson(json.dumps(f["geometry"]))
+            new, pins, rest = convert_pins(geom, outline)
+            if pins:
+                new = _polygons(shapely.intersection(shapely.make_valid(new), clip))
+                if new.is_empty:
+                    continue
+                f["geometry"] = json.loads(shapely.to_geojson(new))
+                if rest == 0:
+                    n += 1
+                    c["pin"] = True
+                    c["tag"] = f["properties"]["tag"] = f"Pin {n}"
+        f["properties"]["pin"] = c["pin"]
+        classes.append(c)
+        feats.append(f)
+    res["classes"] = classes
+    res["geojson"]["features"] = feats
+    return res
+
+
 def _drop_small(res: dict, min_pct: float) -> dict:
-    """Remove final stains (all polygons of a colour together) smaller than min_pct % of the country area."""
+    """Remove final stains (all polygons of a colour together) smaller than min_pct % of the country area.
+    Pins are never dropped: their circle is small on purpose.
+    """
     if min_pct <= 0:
         return res
     total = shapely.from_geojson(json.dumps(res["base"]["outline"])).area
@@ -158,11 +200,12 @@ def _drop_small(res: dict, min_pct: float) -> dict:
         (c, f)
         for c, f in zip(res["classes"], res["geojson"]["features"], strict=True)
         if c["base"]
+        or c.get("pin")
         or shapely.from_geojson(json.dumps(f["geometry"])).area / total * 100 >= min_pct
     ]
     n = 0
     for c, f in keep:
-        if not c["base"]:
+        if not c["base"] and not c.get("pin"):
             n += 1
             c["tag"] = f["properties"]["tag"] = f"Stain {n}"
     res["classes"] = [c for c, _ in keep]
@@ -224,7 +267,7 @@ async def stain_analyze(body: StainBody, request: Request):
             body.debug,
             {**params, **FIXED_PARAMS},
         )
-        return _drop_small(res, min_pct)
+        return _drop_small(_mark_pins(res), min_pct)
     except StainError as e:
         raise HTTPException(422, str(e)) from e
 
