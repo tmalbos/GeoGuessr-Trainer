@@ -19,6 +19,8 @@ Splitting uses osmium-tool (C++), see src/geo/osmium_tool.py:
   - split: ONE `osmium extract --strategy simple` run writes every country. Each file is then cleaned: ways that
     lost nodes are removed, and relation members pointing to things that no longer exist are dropped
     (relations left with nothing are removed).
+    The cleanup finds the damage with `osmium check-refs` (C++, no Python loop over nodes), only reads the
+    relations in Python, and cleans several countries at the same time.
 
 Reading for preview / export goes through GDAL's OSM driver (pyogrio): layers points / lines / multilinestrings /
 multipolygons. A "field" is a GDAL column or a key inside other_tags; a filter is "key is one of these values"
@@ -27,17 +29,18 @@ multipolygons. A "field" is a GDAL column or a key inside other_tags; a filter i
 
 from __future__ import annotations
 
-import bisect
 import hashlib
 import json
 import logging
+import os
 import re
 import shutil
+import subprocess
 import tempfile
 import threading
 import time
-from array import array
 from collections import Counter
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 import numpy as np
@@ -74,12 +77,16 @@ LAYER_IDS = {"multipolygons", "lines", "multilinestrings", "points"}
 TERRITORY_MIN_OVERLAP = (
     0.05  # a territory is cut out of a country when at least this share of it lies inside
 )
+CLEAN_WORKERS = (
+    4  # countries cleaned at the same time (most of the time is spent in osmium, not Python)
+)
 
 _GDAL = threading.Lock()  # one pass over the file at a time
 _COMPUTE = threading.Lock()  # country detection
 _JOB_LOCK = threading.Lock()
 
 _TAG = re.compile(r'"((?:[^"\\]|\\.)*)"=>"((?:[^"\\]|\\.)*)"')
+_REF = re.compile(r"\b([nwr])(\d+) in ([nwr])(\d+)\b")  # a line of `osmium check-refs --show-ids`
 
 
 # ── helpers ────────────────────────────────────────────────────────────────
@@ -614,11 +621,19 @@ def _split(ds: dict, body: SplitBody, progress) -> dict:
                 str(ds["path"]),
             ]
         )
-        for n, label in enumerate(names, 1):
-            p = out_dir / f"{label}.osm.pbf"
-            if p.is_file():
-                progress(f"Cleaning {names[label]} ({n} of {len(names)})")
-                log.info("Cleaned %s: %s", p.name, _clean_file(p, work, label))
+        todo = {label: out_dir / f"{label}.osm.pbf" for label in names}
+        todo = {label: p for label, p in todo.items() if p.is_file()}
+        if todo:
+            progress(f"Cleaning {len(todo)} countries")
+            workers = max(1, min(CLEAN_WORKERS, os.cpu_count() or 2, len(todo)))
+            with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="osm-clean") as pool:
+                futures = {
+                    pool.submit(_clean_file, p, work, label): label for label, p in todo.items()
+                }
+                for n, fut in enumerate(as_completed(futures), 1):
+                    label = futures[fut]
+                    log.info("Cleaned %s: %s", todo[label].name, fut.result())
+                    progress(f"Cleaned {names[label]} ({n} of {len(todo)})")
     finally:
         shutil.rmtree(work, ignore_errors=True)
 
@@ -632,58 +647,95 @@ def _split(ds: dict, body: SplitBody, progress) -> dict:
     return {"folder": str(out_dir), "files": files}
 
 
+def _check_refs(path: Path, out_txt: Path) -> tuple[int, int]:
+    """Run `osmium check-refs -r -i` (C++) and read its report. Returns (ways, relations) that are affected.
+
+    Collected into the module-level sets by the caller; this only runs the tool and writes its output to `out_txt`.
+    Exit code 1 just means "some references are missing", which is exactly what we expect here.
+    """
+    exe = osmium_tool.require()
+    env = {**os.environ, "PATH": str(exe.parent) + os.pathsep + os.environ.get("PATH", "")}
+    flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    try:
+        with out_txt.open("wb") as f:
+            p = subprocess.run(
+                [str(exe), "check-refs", "-r", "-i", str(path)],
+                stdout=f,
+                stderr=subprocess.STDOUT,
+                env=env,
+                check=False,
+                creationflags=flags,
+            )
+    except OSError as e:
+        raise osmium_tool.OsmiumError(f"Could not start osmium: {e}"[:140]) from e
+    if p.returncode not in {0, 1}:
+        tail = out_txt.read_text(encoding="utf-8", errors="replace").strip().splitlines()[-15:]
+        last = tail[-1] if tail else "no message"
+        raise osmium_tool.OsmiumError(f"osmium stopped: {last}"[:150], "\n".join(tail))
+    return p.returncode, 0
+
+
 def _clean_file(path: Path, work: Path, label: str) -> dict:
     """Clean one extracted file in place: remove ways that reference missing nodes, drop relation members that point
     to ways / relations that no longer exist, and remove relations left with no members.
     Node members of relations are left as they are.
+
+    Fast path: `osmium check-refs` reports every missing reference in C++, so Python never walks the nodes or the
+    ways. Python only reads the relations (to decide which ones survive) and rewrites the few that changed.
     """
     import osmium
 
-    node, way, rel = osmium.osm.NODE, osmium.osm.WAY, osmium.osm.RELATION
-    fp = osmium.FileProcessor(str(path), node | way | rel).with_locations()
-    try:
-        fp = fp.with_filter(osmium.filter.EmptyTagFilter().enable_for(node))
-    except Exception:
-        log.warning("osmium filters unavailable, cleaning without them", exc_info=True)
+    refs = work / f"{label}.refs.txt"
+    code, _ = _check_refs(path, refs)
 
-    way_ids = array("q")  # ways come sorted by id
-    bad: set[int] = set()
+    bad: set[int] = set()  # ways with at least one node missing from the file
+    gone_ways: set[int] = set()  # ways that relations point to but the file does not hold
+    parsed = False
+    with refs.open("r", encoding="utf-8", errors="replace") as fh:
+        for line in fh:
+            for what, ref, _in, owner in _REF.findall(line):
+                parsed = True
+                if owner == "w":
+                    bad.add(int(owner_id := ref) if False else int(_owner_id(line, ref)))
+                elif what == "w":
+                    gone_ways.add(int(ref))
+    refs.unlink(missing_ok=True)
+
+    if code == 1 and not parsed:
+        msg = "osmium check-refs found problems but its report could not be read"
+        raise osmium_tool.OsmiumError(msg)
+
+    gone_ways |= bad
+
+    rel = osmium.osm.RELATION
     info: dict[
-        int, tuple[int, list[int], bool]
+        int, tuple[int, tuple, bool]
     ] = {}  # relation id -> (kept non-relation members, children, lost a way)
-
-    def way_ok(ref: int) -> bool:
-        i = bisect.bisect_left(way_ids, ref)
-        return i < len(way_ids) and way_ids[i] == ref and ref not in bad
-
-    for o in fp:
-        if o.is_way():
-            way_ids.append(o.id)
-            if not all(n.location.valid() for n in o.nodes):
-                bad.add(o.id)
-        elif o.is_relation():
-            kept, children, lost = 0, [], False
-            for m in o.members:
-                t = str(m.type)[0]
-                if t == "r":
-                    children.append(m.ref)
-                elif t == "w":
-                    if way_ok(m.ref):
-                        kept += 1
-                    else:
-                        lost = True
+    for o in osmium.FileProcessor(str(path), rel):
+        kept, children, lost = 0, [], False
+        for m in o.members:
+            t = str(m.type)[0]
+            if t == "r":
+                children.append(m.ref)
+            elif t == "w":
+                if m.ref in gone_ways:
+                    lost = True
                 else:
                     kept += 1
-            info[o.id] = (kept, children, lost)
+            else:
+                kept += 1
+        info[o.id] = (kept, tuple(children), lost)
 
     alive = {rid for rid, (kept, _c, _l) in info.items() if kept > 0}
+    # a relation holding only relations lives while one of them lives
+    pending = {rid: ch for rid, (kept, ch, _l) in info.items() if kept == 0 and ch}
     grew = True
-    while grew:  # a relation holding only relations lives while one of them lives
+    while grew and pending:
         grew = False
-        for rid, (_k, children, _l) in info.items():
-            if rid not in alive and any(c in alive for c in children):
-                alive.add(rid)
-                grew = True
+        for rid in [r for r, ch in pending.items() if any(c in alive for c in ch)]:
+            alive.add(rid)
+            del pending[rid]
+            grew = True
     dead = set(info) - alive
     fixed = {
         rid for rid in alive
@@ -714,12 +766,10 @@ def _clean_file(path: Path, work: Path, label: str) -> dict:
                     (str(m.type)[0], m.ref, m.role)
                     for m in o.members
                     if str(m.type)[0] == "n"
-                    or (way_ok(m.ref) if str(m.type)[0] == "w" else m.ref in alive)
+                    or ((m.ref not in gone_ways) if str(m.type)[0] == "w" else m.ref in alive)
                 ]
                 writer.add_relation(o.replace(members=members))
-        merged = work / f"{label}.merged.osm.pbf"
-        osmium_tool.run(["merge", str(cut), str(mod), "-o", str(merged), "--overwrite"])
-        merged.replace(path)
+        osmium_tool.run(["merge", str(cut), str(mod), "-o", str(path), "--overwrite"])
     else:
         cut.replace(path)
     return stats
