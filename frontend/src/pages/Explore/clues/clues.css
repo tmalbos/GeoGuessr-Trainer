@@ -13,7 +13,7 @@
 @media (max-width: 900px) { .clue { grid-template-columns: 1fr; } }
 
 /* ── Clue maps ── */
-.cl-svg { display: block; width: 100%; height: auto; max-height: 420px; }
+.cl-svg { display: block; width: 100%; height: auto; max-height: 336px; }
 .cl-r { fill: #f6f4e4; stroke: #8b98a8; stroke-width: 1px; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
 .cl-r.full { fill: #c8283a; }
 .cl-r.part { fill: #e8908f; }

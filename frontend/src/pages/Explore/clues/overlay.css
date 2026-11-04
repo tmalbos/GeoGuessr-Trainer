@@ -1,4 +1,4 @@
 /* Pre-rendered region map (the clue's `overlay` SVG, transparent). Same box the live <svg class="cl-svg"> had:
-   full width, at most 420px tall, the picture contained inside it. On a photo (align="right") it sits on the right. */
-.cl-overlay-img { display: block; width: 100%; height: auto; max-height: 420px; object-fit: contain; object-position: center; }
+   full width, at most 336px tall, the picture contained inside it. On a photo (align="right") it sits on the right. */
+.cl-overlay-img { display: block; width: 100%; height: auto; max-height: 300px; object-fit: contain; object-position: center; }
 .cl-overlay-img.right { object-position: right center; }
