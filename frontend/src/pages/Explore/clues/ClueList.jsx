@@ -66,31 +66,33 @@ function SideTools({ slotEl, showFilter, editing, onAdd, onImport, cat, loc, sco
         </div>
         <button type="button" className="btn cf-add" onClick={onAdd}>+ Add clue</button>
       </div>}
-      {showFilter && <button type="button" className="cf-toggle" aria-expanded={open}
-        aria-label="Filter the clues" title="Filter the clues" onClick={() => { setSrcOpen(false); setOpen((o) => !o); }}>
-        <Funnel />
-        {active > 0 && <span className="count">{active}</span>}
-      </button>}
+      {showFilter && <div className="cf-filter-wrap">
+        <button type="button" className="cf-toggle" aria-expanded={open}
+          aria-label="Filter the clues" title="Filter the clues" onClick={() => { setSrcOpen(false); setOpen((o) => !o); }}>
+          <Funnel />
+          {active > 0 && <span className="count">{active}</span>}
+        </button>
+        {open && <div className="clue-filter">
+          <div className="clue-chips" role="group" aria-label="Filter by category">
+            <button type="button" className={`fchip ${!cat ? "on" : ""}`} aria-pressed={!cat} onClick={() => onCat("")}>All</button>
+            {cats.map((t) => <button key={t} type="button" className={`fchip ${cat === t ? "on" : ""}`} aria-pressed={cat === t} onClick={() => onCat(cat === t ? "" : t)}>
+              <span aria-hidden="true">{CATEGORY_ICONS[t]}</span> {t}<span className="count">{count(t)}</span></button>)}
+          </div>
+          <div className="clue-filter-row">
+            <div className="clue-chips" role="group" aria-label="Filter by location">
+              {LOCATION_TAGS.map((t) => <button key={t} type="button" className={`fchip loc ${loc === t ? "on" : ""}`} style={{ "--h": tagHue(t) }}
+                aria-pressed={loc === t} onClick={() => onLoc(loc === t ? "" : t)}><LocationIcon t={t} /> {t}</button>)}
+            </div>
+            <div className="clue-chips" role="group" aria-label="Filter by scope">
+              {[["nat", "National"], ["reg", "Regional"]].map(([k, l]) => <button key={k} type="button" className={`fchip ${scope === k ? "on" : ""}`}
+                aria-pressed={scope === k} onClick={() => onScope(scope === k ? "" : k)}>{l}</button>)}
+            </div>
+            {fromReport && <div className="clue-chips"><button type="button" className="fchip on" aria-pressed="true" onClick={onReport}>From report</button></div>}
+            {active > 0 && <button type="button" className="link-btn" onClick={onClear}>Clear</button>}
+          </div>
+        </div>}
+      </div>}
     </div>
-    {showFilter && open && <div className="clue-filter">
-      <div className="clue-chips" role="group" aria-label="Filter by category">
-        <button type="button" className={`fchip ${!cat ? "on" : ""}`} aria-pressed={!cat} onClick={() => onCat("")}>All</button>
-        {cats.map((t) => <button key={t} type="button" className={`fchip ${cat === t ? "on" : ""}`} aria-pressed={cat === t} onClick={() => onCat(cat === t ? "" : t)}>
-          <span aria-hidden="true">{CATEGORY_ICONS[t]}</span> {t}<span className="count">{count(t)}</span></button>)}
-      </div>
-      <div className="clue-filter-row">
-        <div className="clue-chips" role="group" aria-label="Filter by location">
-          {LOCATION_TAGS.map((t) => <button key={t} type="button" className={`fchip loc ${loc === t ? "on" : ""}`} style={{ "--h": tagHue(t) }}
-            aria-pressed={loc === t} onClick={() => onLoc(loc === t ? "" : t)}><LocationIcon t={t} /> {t}</button>)}
-        </div>
-        <div className="clue-chips" role="group" aria-label="Filter by scope">
-          {[["nat", "National"], ["reg", "Regional"]].map(([k, l]) => <button key={k} type="button" className={`fchip ${scope === k ? "on" : ""}`}
-            aria-pressed={scope === k} onClick={() => onScope(scope === k ? "" : k)}>{l}</button>)}
-        </div>
-        {fromReport && <div className="clue-chips"><button type="button" className="fchip on" aria-pressed="true" onClick={onReport}>From report</button></div>}
-        {active > 0 && <button type="button" className="link-btn" onClick={onClear}>Clear</button>}
-      </div>
-    </div>}
   </>, slotEl);
 }
 
