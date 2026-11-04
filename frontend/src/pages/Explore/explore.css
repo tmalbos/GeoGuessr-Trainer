@@ -27,7 +27,7 @@ main.bleed { padding: 0; height: 100vh; overflow: hidden; }
 .cp-rail { position: sticky; top: 0; align-self: start; z-index: 5; display: flex; flex-direction: column;
   align-items: center; gap: 10px; padding: 32px 0 24px; }
 .cp-rail-left { padding-left: 22px; } /* clears the peeking app menu on the far left */
-.cp-rail-right { flex-direction: row; flex-wrap: wrap; justify-content: center; padding: 32px 14px 24px; }
+.cp-rail-right { flex-direction: row; flex-wrap: wrap; justify-content: flex-end; align-items: flex-start; padding: 32px 14px 24px; }
 
 .cp .cp-rail .cp-tool, .cp .cp-rail .cf-add, .cp .cp-rail .cf-import { display: grid; place-items: center; width: 40px; height: 40px;
   min-width: 0; padding: 0; background: none; color: var(--mute); border: 1px solid var(--line); border-radius: 8px; cursor: pointer; }

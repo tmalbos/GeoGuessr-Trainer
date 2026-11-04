@@ -51,21 +51,6 @@ function SideTools({ slotEl, showFilter, editing, onAdd, onImport, cat, loc, sco
 
   return createPortal(<>
     <div className="cf-bar">
-      {editing && <div className="cf-right">
-        <div className="cf-import-wrap">
-          <button type="button" className="btn ghost cf-import" aria-haspopup="menu" aria-expanded={srcOpen}
-            aria-label="Import clues" title="Import clues"
-            onClick={() => { setOpen(false); setSrcOpen((o) => !o); }}><ImportIcon /></button>
-          {srcOpen && <div className="cf-menu" role="menu" aria-label="Import source">
-            <button type="button" role="menuitem" className="cf-menu-item" onClick={() => { setSrcOpen(false); onImport("plonkit"); }}>
-              <img src="https://www.google.com/s2/favicons?domain=plonkit.net&sz=32" alt="" width="20" height="20"
-                onError={(e) => { e.currentTarget.style.display = "none"; }} />
-              <span><b>Plonkit</b><small>Go through this country's guide, clue by clue</small></span>
-            </button>
-          </div>}
-        </div>
-        <button type="button" className="btn cf-add" onClick={onAdd}>+ Add clue</button>
-      </div>}
       {showFilter && <div className="cf-filter-wrap">
         <button type="button" className="cf-toggle" aria-expanded={open}
           aria-label="Filter the clues" title="Filter the clues" onClick={() => { setSrcOpen(false); setOpen((o) => !o); }}>
@@ -91,6 +76,21 @@ function SideTools({ slotEl, showFilter, editing, onAdd, onImport, cat, loc, sco
             {active > 0 && <button type="button" className="link-btn" onClick={onClear}>Clear</button>}
           </div>
         </div>}
+      </div>}
+      {editing && <div className="cf-right">
+        <div className="cf-import-wrap">
+          <button type="button" className="btn ghost cf-import" aria-haspopup="menu" aria-expanded={srcOpen}
+            aria-label="Import clues" title="Import clues"
+            onClick={() => { setOpen(false); setSrcOpen((o) => !o); }}><ImportIcon /></button>
+          {srcOpen && <div className="cf-menu" role="menu" aria-label="Import source">
+            <button type="button" role="menuitem" className="cf-menu-item" onClick={() => { setSrcOpen(false); onImport("plonkit"); }}>
+              <img src="https://www.google.com/s2/favicons?domain=plonkit.net&sz=32" alt="" width="20" height="20"
+                onError={(e) => { e.currentTarget.style.display = "none"; }} />
+              <span><b>Plonkit</b><small>Go through this country's guide, clue by clue</small></span>
+            </button>
+          </div>}
+        </div>
+        <button type="button" className="btn cf-add" onClick={onAdd}>+ Add clue</button>
       </div>}
     </div>
   </>, slotEl);

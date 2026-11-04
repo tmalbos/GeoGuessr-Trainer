@@ -1,8 +1,11 @@
 /* Tools in the right rail (under the Edit button): filter toggle, "+ Add clue" and "Import from…" (edit mode).
    They are icon-only buttons stacked in a column, no background. Chips open as a popover to the LEFT of the rail; the import menu opens BELOW its button.
    The buttons keep their text in the markup (for screen readers); CSS swaps it for an icon and a hover label. */
-.cp .cp-rail #clue-filter-slot, .cf-bar { display: contents; }
+.cp .cp-rail #clue-filter-slot { display: contents; }
+.cp .cp-rail .cf-bar { display: contents; } /* the rail lays out the filter and the edit-mode buttons itself */
+.cf-bar { display: flex; flex-direction: column; align-items: flex-end; gap: 10px; margin-left: auto; }
 .cf-bar .cf-right { display: flex; flex-direction: row; align-items: center; gap: 10px; margin: 0; }
+.cp .cp-rail .cf-right { order: -1; } /* import + add sit left of the Edit button on the same row */
 
 /* Filter toggle: same look as the other rail buttons, count badge on its corner */
 .cp .cp-rail .cf-toggle { position: relative; display: grid; place-items: center; width: 40px; height: 40px; min-width: 0; padding: 0;
@@ -21,8 +24,8 @@
 .cp .cp-rail .cf-add:hover::after { content: "Add clue"; }
 .cp .cp-rail .cf-import:not([aria-expanded="true"]):hover::after { content: "Import from…"; }
 
-/* Filter chips: a dropdown below its button, right-aligned */
-.cf-filter-wrap { position: relative; }
+/* Filter chips: a dropdown below its button, right-aligned. The filter always takes its own rail line. */
+.cf-filter-wrap { position: relative; flex: 0 0 100%; order: 1; margin-left: auto; display: flex; justify-content: flex-end; }
 .cp .cp-rail .clue-filter { position: absolute; right: 0; top: calc(100% + 8px); z-index: 40; width: min(440px, 70vw);
   background: var(--card); border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,.55); }
 
