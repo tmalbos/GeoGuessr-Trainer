@@ -8,6 +8,7 @@ import SplitCard from "./SplitCard.jsx";
 import "./technical.css";
 
 const COLORS = ["#4e79a7", "#f28e2b", "#e15759", "#76b7b2", "#59a14f", "#edc948", "#b07aa1", "#ff9da7", "#9c755f", "#bab0ac"];
+const UNNAMED_COLOR = "#e5484d"; // keep equal to UNNAMED_COLOR in pbf_admin.py
 const colorOf = (level) => COLORS[level % COLORS.length];
 const PREVIEW_PCT = 5; // same floor as the server
 const memo = { ds: null, mode: "admin", country: "", levels: [], simplify: 0 };
@@ -21,6 +22,10 @@ export default function AdminExtractor() {
   const [simplify, setSimplify] = useState(memo.simplify);
   const [pct, setPct] = useState(Math.max(PREVIEW_PCT, memo.simplify)); // debounced preview simplification
   const [info, setInfo] = useState(null); // { levels: [{ level, count }] } of the selected country only
+  const [fills, setFills] = useState({}); // level -> level whose polygons fill its gaps (absent = "Unnamed N")
+  const [picked, setPicked] = useState(null); // properties of the clicked polygon
+  const [nameDraft, setNameDraft] = useState("");
+  const [bump, setBump] = useState(0); // forces a refetch of levels removed from the cache
   const [path, setPath] = useState("");
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(false);
@@ -37,7 +42,7 @@ export default function AdminExtractor() {
 
   const accept = (d) => {
     cache.current.clear();
-    setDs(d); setCountry(""); setLevels([]); setInfo(null); setErr(""); setView(null);
+    setDs(d); setCountry(""); setLevels([]); setInfo(null); setErr(""); setView(null); setPicked(null); setFills({});
   };
 
   const upload = async (file) => {
@@ -60,14 +65,14 @@ export default function AdminExtractor() {
 
   // Step 1: build the selected country (slow once, instant when the server already has it).
   useEffect(() => {
-    setInfo(null);
+    setInfo(null); setPicked(null);
     if (!ds || !country) { setExtracting(false); return undefined; }
     let stale = false;
     setExtracting(true); setErr("");
     api("/technical/pbf/country", { method: "POST", body: { token: ds.token, country } })
       .then((r) => {
         if (stale) return;
-        setInfo(r); setExtracting(false);
+        setInfo(r); setFills(r.fills ?? {}); setExtracting(false);
         setLevels((ls) => ls.filter((l) => r.levels.some((x) => x.level === l)));
       })
       .catch((e) => { if (!stale) { setErr(errorText(e)); setExtracting(false); } });
@@ -81,7 +86,7 @@ export default function AdminExtractor() {
   }, [simplify]);
 
   // Step 2: only fetch levels we don't have yet. Toggling a level that was already shown is purely local.
-  // The server finishes a new level on its first request (cut to the coast, gaps filled with finer levels).
+  // The server finishes a new level on its first request (cut to the coast, gaps filled).
   useEffect(() => {
     if (!ds || !country || !info) return undefined;
     const suffix = `|${pct}`;
@@ -99,7 +104,7 @@ export default function AdminExtractor() {
       })
       .catch((e) => { if (!stale) { setErr(errorText(e)); setBusy(false); } });
     return () => { stale = true; };
-  }, [ds, country, info, levels, pct]);
+  }, [ds, country, info, levels, pct, bump]);
 
   // What the map shows: the cached levels that are ticked. While a new level loads, the rest stays on screen.
   const fc = useMemo(() => {
@@ -110,6 +115,44 @@ export default function AdminExtractor() {
     else if (last.current.k !== k) last.current = { k, fc: null };
     return last.current.fc;
   }, [ds, country, levels, pct, ver]);
+
+  // The clicked polygon, only while it is a filled-in gap of a level that is still shown.
+  const sel = picked && picked.gap != null && levels.includes(picked.admin_level) ? picked : null;
+  useEffect(() => { setNameDraft(sel && !sel.unnamed ? sel.name : ""); }, [sel?.tag]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const renameGap = async () => {
+    if (!sel) return;
+    const { admin_level: level, gap } = sel;
+    const name = nameDraft.trim();
+    setErr("");
+    try {
+      await api("/technical/pbf/rename", { method: "POST", body: { token: ds.token, country, level, gap, name } });
+      const nm = name || `Unnamed ${gap}`;
+      const patch = (p) => (p.gap === gap ? { ...p, name: nm, unnamed: !name, tag: `ADM${level} · ${nm}`, color: name ? colorOf(level) : UNNAMED_COLOR } : p);
+      const key = `${ds.token}|${country}|${level}|${pct}`;
+      const feats = cache.current.get(key);
+      if (feats) cache.current.set(key, feats.map((f) => ({ ...f, properties: patch(f.properties) })));
+      setPicked(patch(sel));
+      setVer((v) => v + 1);
+    } catch (e) { setErr(errorText(e)); }
+  };
+
+  const setFill = async (level, value) => {
+    const source = value === "" ? null : Number(value);
+    setErr("");
+    try {
+      await api("/technical/pbf/fill", { method: "POST", body: { token: ds.token, country, level, source } });
+      setFills((f) => {
+        const next = { ...f };
+        if (source == null) delete next[level]; else next[level] = source;
+        return next;
+      });
+      cache.current.delete(`${ds.token}|${country}|${level}|${pct}`);
+      setPicked(null);
+      setVer((v) => v + 1);
+      setBump((b) => b + 1);
+    } catch (e) { setErr(errorText(e)); }
+  };
 
   const exportTopo = async () => {
     setExporting(true); setErr("");
@@ -186,6 +229,27 @@ export default function AdminExtractor() {
             </label>)}
           </div>
 
+          {!!levels.length && <>
+            <h3>Gaps</h3>
+            <p className="muted">Land a level doesn't cover appears in red as "Unnamed N". Click one on the map to rename it, or fill the gaps with another level.</p>
+            {levels.map((l) => <div className="tp-field" key={l}>
+              <label htmlFor={`fill-${l}`}>Level {l} gaps filled with</label>
+              <select id={`fill-${l}`} value={fills[l] ?? ""} onChange={(e) => setFill(l, e.target.value)}>
+                <option value="">Unnamed polygons</option>
+                {info.levels.filter((x) => x.level !== l).map((x) => <option key={x.level} value={x.level}>Level {x.level} polygons</option>)}
+              </select>
+            </div>)}
+          </>}
+
+          {sel && <div className="tp-field">
+            <label htmlFor="gap-name">Selected: Level {sel.admin_level} · {sel.unnamed ? sel.name : `${sel.name} (renamed)`}</label>
+            <div className="tp-row">
+              <input id="gap-name" value={nameDraft} placeholder={`Unnamed ${sel.gap}`} onChange={(e) => setNameDraft(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") renameGap(); }} />
+              <button type="button" className="btn ghost" disabled={nameDraft.trim() === (sel.unnamed ? "" : sel.name)} onClick={renameGap}>Rename</button>
+            </div>
+          </div>}
+
           <h3>Simplification</h3>
           <div className="tp-field">
             <label htmlFor="pbf-simplify">Export <span className="muted">{simplify ? `${simplify}%` : "Off"}</span></label>
@@ -203,7 +267,7 @@ export default function AdminExtractor() {
     <div className="tp-main">
       {err && <ErrorBox message={err} />}
       {admin && (extracting || busy) && <p className="muted">{extracting ? "Building this country…" : "Loading… a new level is cut to the coast and its gaps are filled the first time."}</p>}
-      {admin && ds && country && <PolyMap features={fc} fitKey={fc ? `${ds.token}|${country}` : null} />}
+      {admin && ds && country && <PolyMap features={fc} fitKey={fc ? `${ds.token}|${country}` : null} onPick={setPicked} selected={sel?.tag ?? null} />}
       {!admin && ds && <>
         <PolyMap features={other?.geojson?.features.length ? other.geojson : null} fitKey={other?.key} />
         <div className="tp-stats muted">

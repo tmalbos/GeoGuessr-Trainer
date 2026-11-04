@@ -15,17 +15,22 @@ function featureBounds(fc) {
   return Number.isFinite(w) ? { w, s, e, n } : null;
 }
 
+const CLICK_PX = 4; // a press that moves less than this is a click, not a pan
+
 /** features: GeoJSON FeatureCollection | null. fitKey: refit the view to the features when it changes.
- *  A feature with properties.shade > 0 is a rarer part of its tag: drawn lighter. Lines are stroked, points are dots. */
-export default function PolyMap({ features, fitKey }) {
+ *  A feature with properties.shade > 0 is a rarer part of its tag: drawn lighter. Lines are stroked, points are dots.
+ *  onPick(properties | null): called when a shape (or empty map) is clicked. selected: tag to highlight. */
+export default function PolyMap({ features, fitKey, onPick, selected = null }) {
   const box = useRef(null);
   const tiles = useRef(null);
   const canvas = useRef(null);
   const tip = useRef(null);
   const api = useRef(null);
+  const pickRef = useRef(onPick);
+  pickRef.current = onPick;
 
   useEffect(() => {
-    const st = { features: null, hits: [], dpr: 1 };
+    const st = { features: null, hits: [], dpr: 1, selected: null };
     const cv = canvas.current;
 
     const draw = (v, size) => {
@@ -45,6 +50,7 @@ export default function PolyMap({ features, fitKey }) {
       ctx.lineJoin = "round";
       const top = {}; // rarest shade of each tag
       for (const f of st.features?.features ?? []) top[f.properties.tag] = Math.max(top[f.properties.tag] ?? 0, f.properties.shade ?? 0);
+      let chosen = null;
       for (const f of st.features?.features ?? []) {
         const g = f.geometry;
         const path = new Path2D();
@@ -83,40 +89,68 @@ export default function PolyMap({ features, fitKey }) {
           ctx.lineWidth = 1.2;
           ctx.stroke(path);
         }
-        st.hits.push({ path, tag: f.properties.tag, line });
+        if (st.selected && f.properties.tag === st.selected) chosen = path;
+        st.hits.push({ path, tag: f.properties.tag, props: f.properties, line });
+      }
+      if (chosen) { // the selected shape gets a bright outline on top of everything
+        ctx.globalAlpha = 1;
+        ctx.strokeStyle = "#ffffff";
+        ctx.lineWidth = 2.5;
+        ctx.stroke(chosen);
       }
     };
 
     const engine = createMapEngine({ box: box.current, tiles: tiles.current, layer: draw, tileClass: "tp-tile", layerClass: "tp-tl" });
 
-    // Tooltip with the tag name under the cursor.
     const el = box.current;
+    const hitAt = (x, y) => {
+      const ctx = cv.getContext("2d");
+      ctx.setTransform(st.dpr, 0, 0, st.dpr, 0, 0);
+      ctx.lineWidth = 8; // forgiving hit area for lines
+      for (let i = st.hits.length - 1; i >= 0; i--) {
+        const h = st.hits[i];
+        if (h.line ? ctx.isPointInStroke(h.path, x * st.dpr, y * st.dpr) : ctx.isPointInPath(h.path, x * st.dpr, y * st.dpr, "evenodd")) return h;
+      }
+      return null;
+    };
+
+    // Tooltip with the tag name under the cursor.
     const hide = () => { tip.current.hidden = true; };
     const onHover = (e) => {
       if (el.classList.contains("moving")) return hide();
       const r = el.getBoundingClientRect();
       const x = e.clientX - r.left, y = e.clientY - r.top;
-      const ctx = cv.getContext("2d");
-      ctx.setTransform(st.dpr, 0, 0, st.dpr, 0, 0);
-      ctx.lineWidth = 8; // forgiving hit area for lines
-      let hit = null;
-      for (let i = st.hits.length - 1; i >= 0 && !hit; i--) {
-        const h = st.hits[i];
-        if (h.line ? ctx.isPointInStroke(h.path, x * st.dpr, y * st.dpr) : ctx.isPointInPath(h.path, x * st.dpr, y * st.dpr, "evenodd")) hit = h;
-      }
+      const hit = hitAt(x, y);
       if (!hit) return hide();
       tip.current.hidden = false;
       tip.current.textContent = hit.tag;
       tip.current.style.left = `${x + 12}px`;
       tip.current.style.top = `${y + 12}px`;
     };
+
+    // Click (a press that did not move) picks the shape under the cursor.
+    let down = null;
+    const onDown = (e) => { down = e.target.closest?.("button") ? null : { x: e.clientX, y: e.clientY }; };
+    const onUp = (e) => {
+      const d = down;
+      down = null;
+      if (!d || Math.hypot(e.clientX - d.x, e.clientY - d.y) > CLICK_PX) return;
+      const r = el.getBoundingClientRect();
+      const hit = hitAt(e.clientX - r.left, e.clientY - r.top);
+      pickRef.current?.(hit ? hit.props : null);
+    };
+
     el.addEventListener("pointermove", onHover);
     el.addEventListener("pointerleave", hide);
+    el.addEventListener("pointerdown", onDown);
+    el.addEventListener("pointerup", onUp);
 
     api.current = { engine, st };
     return () => {
       el.removeEventListener("pointermove", onHover);
       el.removeEventListener("pointerleave", hide);
+      el.removeEventListener("pointerdown", onDown);
+      el.removeEventListener("pointerup", onUp);
       engine.destroy();
       api.current = null;
     };
@@ -127,6 +161,12 @@ export default function PolyMap({ features, fitKey }) {
     api.current.st.features = features;
     api.current.engine.render(true);
   }, [features]);
+
+  useEffect(() => {
+    if (!api.current) return;
+    api.current.st.selected = selected;
+    api.current.engine.render(true);
+  }, [selected]);
 
   // Fit to the features when fitKey changes (the tools change it when the result for a new selection arrives).
   const latest = useRef({});

@@ -4,9 +4,12 @@ Flow:
     POST /technical/pbf/open     {path}                       -> token + countries in the file
     POST /technical/pbf/upload   (raw body, ?filename=)       -> same, for a file picked in the browser
     POST /technical/pbf/country  {token, country}             -> SLOW, once per country: builds every admin boundary of that
-                                                                 country, returns the levels it really has (+ counts)
+                                                                 country, returns the levels it really has (+ counts, + fills)
     POST /technical/pbf/preview  {token, country, levels, simplify} -> per-level GeoJSON features (fast, cached)
     POST /technical/pbf/export   {token, country, levels, simplify} -> TopoJSON download
+    POST /technical/pbf/rename   {token, country, level, gap, name} -> renames one filled-in ("Unnamed N") polygon
+    POST /technical/pbf/fill     {token, country, level, source}    -> fills the gaps of a level with the polygons of
+                                                                       another level (null = back to "Unnamed N")
 
 How it works (why it is fast after the first load):
   1. Opening the file reads only the relations (cheap) and remembers each admin relation's member ways.
@@ -15,9 +18,10 @@ How it works (why it is fast after the first load):
   3. Everything lives in memory, grouped by level. The first time a level is previewed or exported it is finished
      lazily (coastlines are read from the file the first time any level needs them):
        - its boundaries are cut to land (coastlines);
-       - the empty parts of the country (land not covered by that level) are filled with the polygons of the finer
-         levels (level + 1, +2, ...), clipped to the empty area so nothing is added twice;
-       - whatever is still empty becomes "Unnamed N".
+       - the empty parts of the country (land not covered by that level) become one polygon each, named
+         "Unnamed N" (flagged `unnamed`, drawn red). The user can rename them, or pick ONE other level whose
+         polygons are used to fill that level's gaps instead (clipped to the empty area so nothing is added twice;
+         whatever that level leaves empty is still "Unnamed N").
      The finished level is cached; simplified + serialised features are cached per (level, simplification).
 """
 
@@ -57,6 +61,9 @@ GAP_OPEN = (
 )
 MIN_PIECE = 1e-7  # deg2: smaller filled pieces are dropped
 CACHE_DIR = Path(tempfile.gettempdir()) / "geoguessr-pbf-admin"
+UNNAMED_COLOR = (
+    "#e5484d"  # filled-in gaps that still have their default name (keep equal to the frontend)
+)
 _LEVEL_COLORS = (
     "#4e79a7",
     "#f28e2b",
@@ -418,6 +425,8 @@ def _extract(ds: dict, country: str) -> dict:
         "country_land_ready": False,
         "trees": {},  # level -> STRtree of the raw boundaries (for the gap filling)
         "land": {},  # level -> {"props", "geoms"}: finished (cut to land + gaps filled)
+        "fill": {},  # level -> other level whose polygons fill its gaps (absent = "Unnamed N")
+        "renames": {},  # level -> {gap number: custom name}
         "cache": OrderedDict(),
     }
 
@@ -643,7 +652,7 @@ def _country_land(data: dict):
         return g
 
 
-# ── gap filling: empty land of a level is filled with finer levels ─────────
+# ── gap filling: the empty land of a level becomes "Unnamed N" polygons ────
 
 
 def _open_gap(g):
@@ -662,8 +671,10 @@ def _level_tree(data: dict, level: int):
 
 def _fill_gaps(data: dict, level: int, base: dict) -> dict:
     """Add to `base` (a level cut to land) the parts of the country's land that the level leaves empty.
-    The empty area is filled with the boundaries of the next finer level, then the next, ...; each one is clipped
-    to what is still empty, so nothing is added twice. What no finer level covers becomes "Unnamed N".
+    By default every empty polygon becomes "Unnamed N" (flagged `unnamed`, `gap` = N). When the user chose another
+    level to fill this one (data["fill"][level]), that level's polygons are clipped to the empty area first (nothing
+    is added twice) and only what it still leaves empty becomes "Unnamed N". Custom names (data["renames"]) replace
+    the default ones.
     """
     country = _country_land(data)
     if country is None or country.is_empty:
@@ -676,8 +687,10 @@ def _fill_gaps(data: dict, level: int, base: dict) -> dict:
         return base
 
     props, out = list(base["props"]), list(geoms)
-    from_finer = 0
-    for m in sorted(k for k in data["by_level"] if k > level):
+    src = data["fill"].get(level)
+    sources = [src] if src is not None and src != level and src in data["by_level"] else []
+    from_other = 0
+    for m in sources:
         if gap is None:
             break
         lv = data["by_level"][m]
@@ -700,25 +713,34 @@ def _fill_gaps(data: dict, level: int, base: dict) -> dict:
             p = lv["props"][i]
             added.append(({**p, "admin_level": level, "from_level": m}, piece))
         if added:
-            from_finer += len(added)
+            from_other += len(added)
             props.extend(p for p, _ in added)
             out.extend(g for _, g in added)
             gap = _open_gap(
                 _safe(shapely.difference, gap, shapely.union_all([g for _, g in added]))
             )
 
+    names = data["renames"].get(level, {})
     unnamed = 0
     if gap is not None and data["tree"] is not None:  # without coastlines the leftover may be sea
         for q in shapely.get_parts(gap):
             if q.geom_type != "Polygon" or q.area < MIN_PIECE:
                 continue
             unnamed += 1
+            custom = names.get(unnamed)
             props.append(
-                {"name": f"Unnamed {unnamed}", "admin_level": level, "osm_id": "", "iso": ""}
+                {
+                    "name": custom or f"Unnamed {unnamed}",
+                    "admin_level": level,
+                    "osm_id": "",
+                    "iso": "",
+                    "gap": unnamed,
+                    "unnamed": not custom,
+                }
             )
             out.append(q)
 
-    log.info("Gap fill ADM%d: %d from finer levels, %d unnamed", level, from_finer, unnamed)
+    log.info("Gap fill ADM%d: %d from another level, %d unnamed", level, from_other, unnamed)
     arr = np.empty(len(out), dtype=object)
     arr[:] = out
     return {"props": props, "geoms": arr}
@@ -738,6 +760,43 @@ def _final_level(data: dict, level: int) -> dict:
 
 def _current(data: dict, level: int) -> dict:
     return _final_level(data, level)
+
+
+def _drop_preview(data: dict, level: int) -> None:
+    for key in [k for k in data["cache"] if k[0] == level]:
+        del data["cache"][key]
+
+
+def _rename(data: dict, level: int, gap: int, name: str) -> None:
+    """Give a filled-in polygon a custom name (empty = back to "Unnamed N")."""
+    name = name.strip()
+    with _LAND:
+        names = data["renames"].setdefault(level, {})
+        if name:
+            names[gap] = name
+        else:
+            names.pop(gap, None)
+        hit = data["land"].get(level)
+        if hit is not None:
+            for p in hit["props"]:
+                if p.get("gap") == gap:
+                    p["name"] = name or f"Unnamed {gap}"
+                    p["unnamed"] = not name
+        _drop_preview(data, level)
+
+
+def _set_fill(data: dict, level: int, source: int | None) -> None:
+    """Choose which level fills the gaps of `level` (None = leave them as "Unnamed N"). Custom names are reset,
+    because the gaps change.
+    """
+    with _LAND:
+        if source is None:
+            data["fill"].pop(level, None)
+        else:
+            data["fill"][level] = source
+        data["renames"].pop(level, None)
+        data["land"].pop(level, None)
+        _drop_preview(data, level)
 
 
 # ── step 3: preview / export (from memory) ─────────────────────────────────
@@ -779,7 +838,12 @@ def _preview_features(data: dict, level: int, pct: int) -> list[str]:
         hit = [
             '{"type":"Feature","properties":'
             + json.dumps(
-                {**p, "tag": f"ADM{level} · {p['name']}", "color": _color(level), "shade": 0},
+                {
+                    **p,
+                    "tag": f"ADM{level} · {p['name']}",
+                    "color": UNNAMED_COLOR if p.get("unnamed") else _color(level),
+                    "shade": 0,
+                },
                 ensure_ascii=False,
                 separators=(",", ":"),
             )
@@ -851,6 +915,17 @@ class ExtractBody(CountryBody):
     simplify: int = Field(0, ge=0, le=100)
 
 
+class RenameBody(CountryBody):
+    level: int
+    gap: int = Field(ge=1)
+    name: str = Field("", max_length=120)
+
+
+class FillBody(CountryBody):
+    level: int
+    source: int | None = None
+
+
 def _levels(values: list[int]) -> list[int]:
     return sorted({int(v) for v in values if 1 <= int(v) <= 20})
 
@@ -880,7 +955,11 @@ async def upload_pbf(request: Request, filename: str | None = None):
 async def country_pbf(body: CountryBody):
     """Builds (or returns the cached) boundaries of one country. The slow step; the levels returned are that country's own."""
     data = await run_in_threadpool(_load, _dataset(body.token), body.country)
-    return {"levels": data["levels"], "total": sum(x["count"] for x in data["levels"])}
+    return {
+        "levels": data["levels"],
+        "total": sum(x["count"] for x in data["levels"]),
+        "fills": dict(data["fill"]),
+    }
 
 
 @router.post("/technical/pbf/preview")
@@ -889,6 +968,28 @@ async def preview_pbf(body: ExtractBody):
     pct = max(PREVIEW_PCT, body.simplify)
     content = await run_in_threadpool(_preview_body, data, _levels(body.levels), pct)
     return Response(content=content, media_type="application/json")
+
+
+@router.post("/technical/pbf/rename")
+async def rename_pbf(body: RenameBody):
+    data = await run_in_threadpool(_load, _dataset(body.token), body.country)
+    if body.level not in data["by_level"]:
+        raise HTTPException(422, "That admin level is not in this country.")
+    await run_in_threadpool(_rename, data, body.level, body.gap, body.name)
+    return {"ok": True}
+
+
+@router.post("/technical/pbf/fill")
+async def fill_pbf(body: FillBody):
+    data = await run_in_threadpool(_load, _dataset(body.token), body.country)
+    if body.level not in data["by_level"]:
+        raise HTTPException(422, "That admin level is not in this country.")
+    if body.source is not None and (
+        body.source == body.level or body.source not in data["by_level"]
+    ):
+        raise HTTPException(422, "Pick a different admin level to fill from.")
+    await run_in_threadpool(_set_fill, data, body.level, body.source)
+    return {"fills": dict(data["fill"])}
 
 
 @router.post("/technical/pbf/export")
