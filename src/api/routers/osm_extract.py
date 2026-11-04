@@ -16,7 +16,11 @@ Splitting uses osmium-tool (C++), see src/geo/osmium_tool.py:
     (+ their ways and nodes) into a small cached file; the country shapes are built from that instead of re-reading
     the whole big file. Territories (relations below level 2 whose ISO code is a bare two-letter code, e.g. CC, CX,
     NF) count as countries of their own, and their area is cut out of every country that overlaps it.
-  - split: ONE `osmium extract --strategy simple` run writes every country. Each file is then cleaned: ways that
+  - split: the chosen countries are grouped into BALANCED BATCHES (see _plan_batches) and each batch is one
+    `osmium extract --strategy simple` run + cleanup. Memory use of osmium grows with the number and size of the
+    countries cut in the same run, so one giant run can run out of memory late in the job. Batches keep every run
+    well under that limit. If a batch still fails (out of memory...), it is split in two and retried, so a job never
+    dies because one batch was too big. Each batch is cleaned right after it is extracted: ways that
     lost nodes are removed, and relation members pointing to things that no longer exist are dropped
     (relations left with nothing are removed).
     The cleanup finds the damage with `osmium check-refs` (C++, no Python loop over nodes), only reads the
@@ -32,6 +36,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import math
 import os
 import re
 import shutil
@@ -39,7 +44,7 @@ import subprocess
 import tempfile
 import threading
 import time
-from collections import Counter
+from collections import Counter, deque
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
@@ -80,6 +85,16 @@ TERRITORY_MIN_OVERLAP = (
 CLEAN_WORKERS = (
     4  # countries cleaned at the same time (most of the time is spent in osmium, not Python)
 )
+
+# ── split batching (tune here) ─────────────────────────────────────────────
+# Estimated amount of the source file (GB) one osmium run may cover. South America (3.5 GB, all in one run) worked
+# but slowly; Africa (7 GB) failed in one run and in two halves, and four quarters took ~11 min each.
+# Lower = more, smaller batches (safer); higher = fewer, bigger batches.
+BATCH_GB = 2.0
+MAX_BATCH_COUNTRIES = 14  # never more countries than this in one run, whatever their size
+# A country's cost is its land area ** WEIGHT_EXP: dense / large countries weigh more than small ones, but a big
+# desert does not weigh as much as its area suggests (1.0 = pure area, 0 = every country weighs the same).
+WEIGHT_EXP = 0.6
 
 _GDAL = threading.Lock()  # one pass over the file at a time
 _COMPUTE = threading.Lock()  # country detection
@@ -564,36 +579,69 @@ class SplitBody(TokenBody):
     folder: str = ""
 
 
-def _split(ds: dict, body: SplitBody, progress) -> dict:
-    _load_countries(ds, progress)
-    chosen = [c for c in ds["split_countries"] if c["id"] in set(body.countries)]
-    if not chosen:
-        raise HTTPException(422, "Pick at least one country.")
-    folder = body.folder.strip().strip('"')
-    if ds["temporary"] and not folder:
-        raise HTTPException(422, "Enter a folder to save the country files in.")
-    out_dir = Path(folder) if folder else ds["path"].parent / f"{_stem(ds['path'])}-countries"
-    out_dir.mkdir(parents=True, exist_ok=True)
-    CACHE_DIR.mkdir(parents=True, exist_ok=True)
+# ── batching ───────────────────────────────────────────────────────────────
 
+
+def _weights(ds: dict) -> dict[str, float]:
+    """Cost estimate of every splittable country (cached on the dataset): land area (km2) ** WEIGHT_EXP.
+    Only relative values matter. Computed over ALL countries of the file, so a country's share of the file does not
+    change with what the user ticked.
+    """
+    w = ds.get("split_weights")
+    if w is None:
+        w = {}
+        for cid, g in ds["split_polys"].items():
+            lat = g.centroid.y if not g.is_empty else 0.0
+            km2 = g.area * 111.32**2 * max(0.05, math.cos(math.radians(lat)))
+            w[cid] = max(km2, 1.0) ** WEIGHT_EXP
+        ds["split_weights"] = w
+    return w
+
+
+def _balance(items: list[dict], weights: dict[str, float], k: int) -> list[list[dict]]:
+    """Spread `items` over `k` groups so the total weight of each group is as equal as possible (heaviest first,
+    each one into the lightest group so far). Empty groups are dropped.
+    """
+    k = max(1, min(k, len(items)))
+    groups: list[list[dict]] = [[] for _ in range(k)]
+    load = [0.0] * k
+    for c in sorted(items, key=lambda c: -weights[c["id"]]):
+        i = min(range(k), key=lambda j: (load[j], len(groups[j])))
+        groups[i].append(c)
+        load[i] += weights[c["id"]]
+    return [g for g in groups if g]
+
+
+def _plan_batches(ds: dict, chosen: list[dict], weights: dict[str, float]) -> list[list[dict]]:
+    """Balanced batches for the chosen countries.
+
+    Estimated work = size of the file * (weight of the chosen countries / weight of all countries in the file).
+    The number of batches is that work divided by BATCH_GB (and at least enough for MAX_BATCH_COUNTRIES per batch);
+    then the countries are spread over them so every batch costs about the same.
+    """
+    total = sum(weights.values()) or 1.0
+    share = sum(weights[c["id"]] for c in chosen) / total
+    need_gb = (ds["size"] / 1e9) * share
+    k = max(math.ceil(need_gb / BATCH_GB), math.ceil(len(chosen) / MAX_BATCH_COUNTRIES), 1)
+    return _balance(chosen, weights, k)
+
+
+def _run_batch(
+    ds: dict, batch: list[dict], labels: dict[str, str], out_dir: Path, progress
+) -> None:
+    """One osmium extract run for `batch`, then the cleanup of its files. The work folder is always removed."""
     work = Path(tempfile.mkdtemp(prefix="split-", dir=CACHE_DIR))
-    names: dict[str, str] = {}
     try:
-        extracts, used = [], set()
-        for c in chosen:
-            label = _safe(c["code"] or c["name"])
-            if label in used:
-                label = f"{label}_{c['id']}"
-            used.add(label)
-            names[label] = c["name"]
-            geom = ds["split_polys"][c["id"]]
+        extracts = []
+        for c in batch:
+            label = labels[c["id"]]
             shape = work / f"{label}.geojson"
             shape.write_text(
                 json.dumps(
                     {
                         "type": "Feature",
                         "properties": {},
-                        "geometry": json.loads(shapely.to_geojson(geom)),
+                        "geometry": json.loads(shapely.to_geojson(ds["split_polys"][c["id"]])),
                     }
                 ),
                 encoding="utf-8",
@@ -609,7 +657,6 @@ def _split(ds: dict, body: SplitBody, progress) -> dict:
         config.write_text(
             json.dumps({"directory": str(out_dir), "extracts": extracts}), encoding="utf-8"
         )
-        progress(f"Cutting {len(extracts)} countries out of the file (keep this running)")
         osmium_tool.run(
             [
                 "extract",
@@ -621,10 +668,10 @@ def _split(ds: dict, body: SplitBody, progress) -> dict:
                 str(ds["path"]),
             ]
         )
-        todo = {label: out_dir / f"{label}.osm.pbf" for label in names}
+        todo = {labels[c["id"]]: out_dir / f"{labels[c['id']]}.osm.pbf" for c in batch}
         todo = {label: p for label, p in todo.items() if p.is_file()}
         if todo:
-            progress(f"Cleaning {len(todo)} countries")
+            names = {labels[c["id"]]: c["name"] for c in batch}
             workers = max(1, min(CLEAN_WORKERS, os.cpu_count() or 2, len(todo)))
             with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="osm-clean") as pool:
                 futures = {
@@ -633,16 +680,73 @@ def _split(ds: dict, body: SplitBody, progress) -> dict:
                 for n, fut in enumerate(as_completed(futures), 1):
                     label = futures[fut]
                     log.info("Cleaned %s: %s", todo[label].name, fut.result())
-                    progress(f"Cleaned {names[label]} ({n} of {len(todo)})")
+                    progress(f"Cleaned {names[label]} ({n} of {len(todo)} in this batch)")
     finally:
         shutil.rmtree(work, ignore_errors=True)
 
+
+def _split(ds: dict, body: SplitBody, progress) -> dict:
+    _load_countries(ds, progress)
+    ids = set(body.countries)
+    chosen = [c for c in ds["split_countries"] if c["id"] in ids]
+    if not chosen:
+        raise HTTPException(422, "Pick at least one country.")
+    folder = body.folder.strip().strip('"')
+    if ds["temporary"] and not folder:
+        raise HTTPException(422, "Enter a folder to save the country files in.")
+    out_dir = Path(folder) if folder else ds["path"].parent / f"{_stem(ds['path'])}-countries"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    CACHE_DIR.mkdir(parents=True, exist_ok=True)
+
+    # File names are fixed up front so a country keeps its name whatever batch (or retry) it ends up in.
+    labels: dict[str, str] = {}
+    used: set[str] = set()
+    for c in chosen:
+        label = _safe(c["code"] or c["name"])
+        if label in used:
+            label = f"{label}_{c['id']}"
+        used.add(label)
+        labels[c["id"]] = label
+
+    weights = _weights(ds)
+    queue = deque(_plan_batches(ds, chosen, weights))
+    log.info(
+        "Split plan: %d countries in %d batches (%s)",
+        len(chosen),
+        len(queue),
+        ", ".join(str(len(b)) for b in queue),
+    )
+
+    finished = 0
+    while queue:
+        batch = queue.popleft()
+        progress(
+            f"Batch {finished + 1} of {finished + 1 + len(queue)}: cutting {len(batch)} "
+            f"countr{'y' if len(batch) == 1 else 'ies'} (keep this running)"
+        )
+        try:
+            _run_batch(ds, batch, labels, out_dir, progress)
+        except (osmium_tool.OsmiumError, MemoryError) as e:
+            if len(batch) < 2:
+                raise
+            # Too big for this machine (usually out of memory): split it in two balanced halves and retry.
+            log.warning(
+                "Batch of %d countries failed (%s). Retrying as two smaller batches.",
+                len(batch),
+                getattr(e, "message", None) or type(e).__name__,
+            )
+            first, second = _balance(batch, weights, 2)
+            queue.appendleft(second)
+            queue.appendleft(first)
+            continue
+        finished += 1
+
     files = []
-    for label, country in names.items():
-        p = out_dir / f"{label}.osm.pbf"
+    for c in chosen:
+        p = out_dir / f"{labels[c['id']]}.osm.pbf"
         if p.is_file():
             files.append(
-                {"name": p.name, "path": str(p), "size": p.stat().st_size, "country": country}
+                {"name": p.name, "path": str(p), "size": p.stat().st_size, "country": c["name"]}
             )
     return {"folder": str(out_dir), "files": files}
 
