@@ -15,12 +15,10 @@ Splitting uses osmium-tool (C++), see src/geo/osmium_tool.py:
   - countries: `osmium tags-filter` pulls only the admin_level=2 relations and the relations with an ISO3166-1 code
     (+ their ways and nodes) into a small cached file; the country shapes are built from that instead of re-reading
     the whole big file. Territories (relations below level 2 whose ISO code is a bare two-letter code, e.g. CC, CX,
-    NF) count as countries of their own, and their area is cut out of the country that contains them.
-  - split: ONE `osmium extract --strategy complete_ways` run writes every country. A way is kept (whole) when at least
-    one of its nodes is inside the country; relations are not completed, so nothing that lies completely outside comes
-    along. Afterwards the COMPLETE administrative boundaries that belong to each country are merged back in (a
-    boundary belongs to the country that contains one representative point of its polygon), so a region whose
-    boundary runs partly outside the country polygon (e.g. at sea) is still whole.
+    NF) count as countries of their own, and their area is cut out of every country that overlaps it.
+  - split: ONE `osmium extract --strategy simple` run writes every country. Each file is then cleaned: ways that
+    lost nodes are removed, and relation members pointing to things that no longer exist are dropped
+    (relations left with nothing are removed).
 
 Reading for preview / export goes through GDAL's OSM driver (pyogrio): layers points / lines / multilinestrings /
 multipolygons. A "field" is a GDAL column or a key inside other_tags; a filter is "key is one of these values"
@@ -29,6 +27,7 @@ multipolygons. A "field" is a GDAL column or a key inside other_tags; a filter i
 
 from __future__ import annotations
 
+import bisect
 import hashlib
 import json
 import logging
@@ -37,6 +36,7 @@ import shutil
 import tempfile
 import threading
 import time
+from array import array
 from collections import Counter
 from pathlib import Path
 
@@ -71,7 +71,9 @@ SKIP_VALUES = {
 GEOM_OK = [0, 1, 3, 4, 5, 6]  # point, line, polygon and their multi versions
 PALETTE = ("#6cc0e5", "#ff7357", "#cdbf93", "#3fb97a", "#b07aa1", "#edc948", "#76b7b2", "#f28e2b")
 LAYER_IDS = {"multipolygons", "lines", "multilinestrings", "points"}
-SPLIT_SIMPLIFY_DEG = 0.0005  # ~50 m: country shapes are simplified before cutting (touching objects are kept whole anyway)
+TERRITORY_MIN_OVERLAP = (
+    0.05  # a territory is cut out of a country when at least this share of it lies inside
+)
 
 _GDAL = threading.Lock()  # one pass over the file at a time
 _COMPUTE = threading.Lock()  # country detection
@@ -486,7 +488,7 @@ def _minus(g, other):
 def _load_countries(ds: dict, progress) -> None:
     """Countries and territories whose whole boundary is in the file (a country file also holds incomplete relations
     of its neighbours; those are not countries you could split out). Built from the small filtered file, cached.
-    A territory's area is cut out of the country that contains it.
+    Every territory's area is cut out of the countries that overlap it.
     """
     with _COMPUTE:
         if ds.get("split_countries") is not None:
@@ -515,12 +517,19 @@ def _load_countries(ds: dict, progress) -> None:
                 polys[c["id"]] = g
         terr_ids = {t["id"] for t in territories}
         for tid in terr_ids & polys.keys():
-            t = polys[tid]
+            t = shapely.make_valid(polys[tid])
+            if t.is_empty or t.area <= 0:
+                continue
             for cid in list(polys):
                 if cid in terr_ids:
                     continue
                 g = polys[cid]
-                if not g.intersects(t) or shapely.intersection(g, t).area < 0.5 * t.area:
+                if not g.intersects(t):
+                    continue
+                if (
+                    shapely.intersection(shapely.make_valid(g), t).area
+                    < TERRITORY_MIN_OVERLAP * t.area
+                ):
                     continue
                 rest = _polys(_minus(g, t))
                 if rest is not None:
@@ -529,65 +538,6 @@ def _load_countries(ds: dict, progress) -> None:
         ds["split_countries"] = sorted(
             (c for c in cands if c["id"] in polys), key=lambda c: c["name"].casefold()
         )
-
-
-def _admin_file(ds: dict, progress) -> Path:
-    """Small .osm.pbf with every boundary=administrative relation and the ways / nodes it uses. Cached on disk."""
-    src: Path = ds["path"]
-    st = src.stat()
-    key = hashlib.sha1(f"{src.resolve()}|{st.st_size}|{st.st_mtime_ns}".encode()).hexdigest()[:16]
-    out = CACHE_DIR / f"adminall-{key}.osm.pbf"
-    if out.is_file() and out.stat().st_size > 0:
-        return out
-    CACHE_DIR.mkdir(parents=True, exist_ok=True)
-    part = CACHE_DIR / f"adminall-{key}.part.osm.pbf"
-    progress("Pulling every administrative boundary out of the file")
-    osmium_tool.run(
-        ["tags-filter", str(src), "r/boundary=administrative", "--output", str(part), "--overwrite"]
-    )
-    part.replace(out)
-    return out
-
-
-def _owners(ds: dict, progress) -> tuple[Path, dict[str, list[int]]]:
-    """(admin file, {country id: ids of the boundary relations that belong to it}). A boundary belongs to every
-    country whose outline contains one representative point of the boundary's polygon. Cached.
-    """
-    with _COMPUTE:
-        hit = ds.get("admin_owner")
-        if hit is not None:
-            return hit
-        admin = _admin_file(ds, progress)
-        progress("Finding which country each boundary belongs to")
-        rels = ds["rels"]
-        wanted: set[int] = set()
-        for r in rels.values():
-            wanted.update(r["outer"])
-            wanted.update(r["inner"])
-        ways = _read_ways(admin, wanted) if wanted else {}
-        ids: list[int] = []
-        xs: list[float] = []
-        ys: list[float] = []
-        for rid, r in rels.items():
-            try:
-                g = _assemble(r, ways)
-            except Exception:
-                g = None
-            if g is None or g.is_empty:
-                continue
-            p = shapely.point_on_surface(g)
-            ids.append(rid)
-            xs.append(p.x)
-            ys.append(p.y)
-        del ways
-        owner: dict[str, list[int]] = {cid: [] for cid in ds["split_polys"]}
-        if ids:
-            px, py = np.array(xs, dtype=float), np.array(ys, dtype=float)
-            for cid, poly in ds["split_polys"].items():
-                inside = np.flatnonzero(shapely.contains_xy(poly, px, py))
-                owner[cid] = [ids[i] for i in inside]
-        ds["admin_owner"] = (admin, owner)
-        return ds["admin_owner"]
 
 
 def _countries_job(ds: dict, progress) -> dict:
@@ -618,11 +568,9 @@ def _split(ds: dict, body: SplitBody, progress) -> dict:
     out_dir = Path(folder) if folder else ds["path"].parent / f"{_stem(ds['path'])}-countries"
     out_dir.mkdir(parents=True, exist_ok=True)
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
-    admin, owner = _owners(ds, progress)
 
     work = Path(tempfile.mkdtemp(prefix="split-", dir=CACHE_DIR))
     names: dict[str, str] = {}
-    ids_of: dict[str, str] = {}
     try:
         extracts, used = [], set()
         for c in chosen:
@@ -631,8 +579,7 @@ def _split(ds: dict, body: SplitBody, progress) -> dict:
                 label = f"{label}_{c['id']}"
             used.add(label)
             names[label] = c["name"]
-            ids_of[label] = c["id"]
-            geom = shapely.simplify(ds["split_polys"][c["id"]], SPLIT_SIMPLIFY_DEG)
+            geom = ds["split_polys"][c["id"]]
             shape = work / f"{label}.geojson"
             shape.write_text(
                 json.dumps(
@@ -655,44 +602,23 @@ def _split(ds: dict, body: SplitBody, progress) -> dict:
         config.write_text(
             json.dumps({"directory": str(out_dir), "extracts": extracts}), encoding="utf-8"
         )
-        progress(f"Cutting {len(extracts)} countries out of the file (2 passes, keep this running)")
+        progress(f"Cutting {len(extracts)} countries out of the file (keep this running)")
         osmium_tool.run(
             [
                 "extract",
                 "--config",
                 str(config),
                 "--strategy",
-                "complete_ways",
+                "simple",
                 "--overwrite",
                 str(ds["path"]),
             ]
         )
-        for n, (label, cid) in enumerate(ids_of.items(), 1):
-            rids = owner.get(cid) or []
-            base = out_dir / f"{label}.osm.pbf"
-            if not rids or not base.is_file():
-                continue
-            progress(f"Adding the complete boundaries to {names[label]} ({n} of {len(ids_of)})")
-            wids = set()
-            for rid in rids:
-                wids.update(ds["rels"][rid]["outer"])
-                wids.update(ds["rels"][rid]["inner"])
-            rel_txt, way_txt = work / f"{label}.r.txt", work / f"{label}.w.txt"
-            rel_txt.write_text("\n".join(f"r{i}" for i in rids), encoding="utf-8")
-            way_txt.write_text("\n".join(f"w{i}" for i in sorted(wids)), encoding="utf-8")
-            rel_pbf, way_pbf, merged = (
-                work / f"{label}.{k}.osm.pbf" for k in ("rels", "ways", "merged")
-            )
-            osmium_tool.run(
-                ["getid", "-i", str(rel_txt), str(admin), "-o", str(rel_pbf), "--overwrite"]
-            )
-            osmium_tool.run(
-                ["getid", "-r", "-i", str(way_txt), str(admin), "-o", str(way_pbf), "--overwrite"]
-            )
-            osmium_tool.run(
-                ["merge", str(base), str(rel_pbf), str(way_pbf), "-o", str(merged), "--overwrite"]
-            )
-            merged.replace(base)
+        for n, label in enumerate(names, 1):
+            p = out_dir / f"{label}.osm.pbf"
+            if p.is_file():
+                progress(f"Cleaning {names[label]} ({n} of {len(names)})")
+                log.info("Cleaned %s: %s", p.name, _clean_file(p, work, label))
     finally:
         shutil.rmtree(work, ignore_errors=True)
 
@@ -704,6 +630,99 @@ def _split(ds: dict, body: SplitBody, progress) -> dict:
                 {"name": p.name, "path": str(p), "size": p.stat().st_size, "country": country}
             )
     return {"folder": str(out_dir), "files": files}
+
+
+def _clean_file(path: Path, work: Path, label: str) -> dict:
+    """Clean one extracted file in place: remove ways that reference missing nodes, drop relation members that point
+    to ways / relations that no longer exist, and remove relations left with no members.
+    Node members of relations are left as they are.
+    """
+    import osmium
+
+    node, way, rel = osmium.osm.NODE, osmium.osm.WAY, osmium.osm.RELATION
+    fp = osmium.FileProcessor(str(path), node | way | rel).with_locations()
+    try:
+        fp = fp.with_filter(osmium.filter.EmptyTagFilter().enable_for(node))
+    except Exception:
+        log.warning("osmium filters unavailable, cleaning without them", exc_info=True)
+
+    way_ids = array("q")  # ways come sorted by id
+    bad: set[int] = set()
+    info: dict[
+        int, tuple[int, list[int], bool]
+    ] = {}  # relation id -> (kept non-relation members, children, lost a way)
+
+    def way_ok(ref: int) -> bool:
+        i = bisect.bisect_left(way_ids, ref)
+        return i < len(way_ids) and way_ids[i] == ref and ref not in bad
+
+    for o in fp:
+        if o.is_way():
+            way_ids.append(o.id)
+            if not all(n.location.valid() for n in o.nodes):
+                bad.add(o.id)
+        elif o.is_relation():
+            kept, children, lost = 0, [], False
+            for m in o.members:
+                t = str(m.type)[0]
+                if t == "r":
+                    children.append(m.ref)
+                elif t == "w":
+                    if way_ok(m.ref):
+                        kept += 1
+                    else:
+                        lost = True
+                else:
+                    kept += 1
+            info[o.id] = (kept, children, lost)
+
+    alive = {rid for rid, (kept, _c, _l) in info.items() if kept > 0}
+    grew = True
+    while grew:  # a relation holding only relations lives while one of them lives
+        grew = False
+        for rid, (_k, children, _l) in info.items():
+            if rid not in alive and any(c in alive for c in children):
+                alive.add(rid)
+                grew = True
+    dead = set(info) - alive
+    fixed = {
+        rid for rid in alive
+        if info[rid][2] or any(c not in alive for c in info[rid][1])
+    }  # fmt: skip
+    stats = {
+        "ways_removed": len(bad),
+        "relations_removed": len(dead),
+        "relations_fixed": len(fixed),
+    }
+    if not (bad or dead or fixed):
+        return stats
+
+    ids = work / f"{label}.rm.txt"
+    ids.write_text(
+        "\n".join([*(f"w{i}" for i in sorted(bad)), *(f"r{i}" for i in sorted(dead | fixed))]),
+        encoding="utf-8",
+    )
+    cut = work / f"{label}.cut.osm.pbf"
+    osmium_tool.run(["removeid", "-i", str(ids), str(path), "-o", str(cut), "--overwrite"])
+    if fixed:
+        mod = work / f"{label}.mod.osm.pbf"
+        with osmium.SimpleWriter(str(mod)) as writer:
+            for o in osmium.FileProcessor(str(path), rel):
+                if o.id not in fixed:
+                    continue
+                members = [
+                    (str(m.type)[0], m.ref, m.role)
+                    for m in o.members
+                    if str(m.type)[0] == "n"
+                    or (way_ok(m.ref) if str(m.type)[0] == "w" else m.ref in alive)
+                ]
+                writer.add_relation(o.replace(members=members))
+        merged = work / f"{label}.merged.osm.pbf"
+        osmium_tool.run(["merge", str(cut), str(mod), "-o", str(merged), "--overwrite"])
+        merged.replace(path)
+    else:
+        cut.replace(path)
+    return stats
 
 
 @router.post("/technical/osm/split")
