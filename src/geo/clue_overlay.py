@@ -12,6 +12,9 @@ The look mirrors frontend/src/pages/Explore/clues/RegionPreview.jsx (keep them i
   pins            a polygon smaller than 0.09% of the country is drawn as a pin whose tip is the
                   polygon's centre (only when 12 or fewer qualify; more means a scattered region)
 
+The outline and borders must arrive already simplified TOGETHER (src/geo/simplify.py); nothing is simplified
+here, so shared borders keep matching.
+
 The viewBox is tight around the drawing (a few units of margin), so the card aligns it with CSS.
 Strokes use vector-effect="non-scaling-stroke": they stay the same width in screen px at any size.
 """
@@ -23,7 +26,6 @@ import shapely
 
 WIDTH = 1000  # map units across the country's width (same as the live preview)
 PAD = 6  # margin around the drawing, map units
-SIMPLIFY_DEG = 0.005  # same simplification the /clues/{cc}/base endpoint applies
 MAX_PIN_SHARE = 0.0009
 MAX_PINS = 12
 PIN_D = "M0 0C-3 -9 -15 -18 -15 -30A15 15 0 1 1 15 -30C15 -18 3 -9 0 0Z"
@@ -86,14 +88,10 @@ def render_overlay(
 ) -> str | None:
     """SVG text, or None when there is nothing to draw.
 
-    outline / borders: lon/lat shapely geometries (or None). layers: [(geometries, shades)] where
-    `geometries` are the singular parts of the clue's file and `shades` has one int per geometry.
+    outline / borders: lon/lat shapely geometries (or None), already simplified together. layers:
+    [(geometries, shades)] where `geometries` are the singular parts of the clue's file and `shades` has
+    one int per geometry.
     """
-    if outline is not None:
-        outline = shapely.simplify(outline, SIMPLIFY_DEG)
-    if borders is not None:
-        borders = shapely.simplify(borders, SIMPLIFY_DEG)
-
     everything = [
         g
         for g in (outline, *(g for geoms, _ in layers for g in geoms))

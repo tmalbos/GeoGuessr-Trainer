@@ -66,6 +66,9 @@ outline and first-level borders are known:
 
 The registration is a 2x3 affine in the projected plane: px = A @ (u, v) + t. A is a full 2x2 matrix
 (it may rotate / shear), so every consumer uses A and t, never separate scale factors.
+
+The outline used to fit and to clip is simplified by RESOLUTION (OUTLINE_RESOLUTION, see src/geo/simplify.py),
+not by a fixed number of degrees, so small countries keep their detail.
 """
 
 import base64
@@ -78,6 +81,8 @@ import numpy as np
 import shapely
 from PIL import Image, ImageDraw, ImageOps
 from shapely.affinity import affine_transform
+
+from src.geo.simplify import tolerance
 
 try:  # much faster nearest-neighbour search when scipy is around
     from scipy.spatial import cKDTree
@@ -106,6 +111,10 @@ except ImportError:  # pragma: no cover
 
 WORK_MAX = 1600  # longest side of the image used to find the map, px (near native for a screenshot)
 FULL_MAX = 2400  # longest side of the image the stains are read from, px
+OUTLINE_RESOLUTION = (
+    1100,
+    2200,
+)  # the country outline (fit + clip) is simplified to one pixel of this grid
 TOL = 40  # L1 colour distance (sum over R,G,B) under which two shades are merged into one stain
 MIN_CROP = 32  # smallest crop side (in work px)
 MIN_CLASS_SHARE = 0.0015  # a stain smaller than this share of the map is ignored
@@ -993,16 +1002,20 @@ def _prep_outline(outline):
     """(fit, clip, extra): the outline used to MATCH the screenshot (small islands dropped: they only add
     noise), the full outline used to clip the results, and the small islands the fit leaves out
     (None when there are none). `extra` is where stains on those islands are read.
+
+    All three are simplified by the same RESOLUTION-based tolerance (OUTLINE_RESOLUTION on the whole
+    country's bounding box), never by a fixed number of degrees.
     """
     parts = _polys(shapely.make_valid(outline))
     if not parts:
         msg = "That country has no outline to match against"
         raise StainError(msg)
+    tol = tolerance(shapely.union_all(parts).bounds, OUTLINE_RESOLUTION)
     big = max(p.area for p in parts)
-    fit = shapely.simplify(shapely.union_all([p for p in parts if p.area >= 0.02 * big]), 0.01)
-    clip = shapely.make_valid(shapely.simplify(shapely.union_all(parts), 0.003))
+    fit = shapely.simplify(shapely.union_all([p for p in parts if p.area >= 0.02 * big]), tol)
+    clip = shapely.make_valid(shapely.simplify(shapely.union_all(parts), tol))
     small = [p for p in parts if p.area < 0.02 * big]
-    extra = shapely.simplify(shapely.union_all(small), 0.003) if small else None
+    extra = shapely.simplify(shapely.union_all(small), tol) if small else None
     if extra is not None and extra.is_empty:
         extra = None
     return fit, clip, extra
@@ -1937,8 +1950,9 @@ def analyze(
         },
         "classes": classes,
         # The base map for the preview: the country's own outline and borders (never from the image).
+        # (The API replaces `outline` with the one simplified together with the borders.)
         "base": {
-            "outline": json.loads(shapely.to_geojson(shapely.simplify(reg["clip_outline"], 0.005))),
+            "outline": json.loads(shapely.to_geojson(reg["clip_outline"])),
             "borders": None
             if borders is None or borders.is_empty
             else json.loads(shapely.to_geojson(borders)),

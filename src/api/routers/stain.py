@@ -11,6 +11,11 @@ country map is drawn underneath, so the UI leaves the base unselected and export
 Map pins (pinpoint clues, any colour) are turned into small circles around the pin tip (see src/geo/pinpoint.py)
 and flagged `pin`.
 The maths is in src/geo/stain_extract.py; the "is there a map?" check is in src/geo/map_detect.py.
+
+Country maps: `_outline_full` is the country's full-resolution outline (used to REGISTER the screenshot).
+`_outline` / `_borders` are the SIMPLIFIED outline and first-level borders, made together in one coverage
+simplification (src/geo/simplify.py) so they always agree. They are what the preview and the clue overlays use
+(clues.py imports them).
 """
 
 import contextlib
@@ -34,6 +39,7 @@ from starlette.concurrency import run_in_threadpool
 from src.api.deps import get_ctx
 from src.geo.map_detect import detect_map
 from src.geo.pinpoint import convert_pins
+from src.geo.simplify import simplified_map
 from src.geo.stain_extract import (
     StainError,
     analyze,
@@ -51,12 +57,12 @@ PIN_CLIP_DEG = 0.0009  # a pin circle may reach this far past the (simplified) c
 MAX_UPLOADS = 5
 _UPLOADS: OrderedDict[str, dict] = OrderedDict()
 _OUTLINES: dict[str, object] = {}
-_BORDERS: dict[str, object] = {}
+_MAPS: dict[str, tuple] = {}
 _LOCK = threading.Lock()
 
 
-def _outline(local, code: str):
-    """The country's lon/lat geometry from the local geo layers (cached), or None."""
+def _outline_full(local, code: str):
+    """The country's full-resolution lon/lat geometry from the local geo layers (cached), or None."""
     if code in _OUTLINES:
         return _OUTLINES[code]
     geom = None
@@ -74,25 +80,30 @@ def _outline(local, code: str):
     return geom
 
 
+def _simplified(local, code: str) -> tuple:
+    """(outline, borders), simplified together in one coverage (cached). Either can be None."""
+    if code not in _MAPS:
+        layer = local._admin_layer(code)  # noqa: SLF001
+        _MAPS[code] = simplified_map(layer, lambda: _outline_full(local, code))
+    return _MAPS[code]
+
+
+def _outline(local, code: str):
+    """Simplified country outline, consistent with `_borders`. None when there is no local data."""
+    return _simplified(local, code)[0]
+
+
 def _borders(local, code: str):
-    """First-level admin borders of the country as lon/lat lines (cached), or None.
-    Built by dissolving the finest admin layer by `state`; shared borders appear once.
-    """
-    if code in _BORDERS:
-        return _BORDERS[code]
-    out = None
-    layer = local._admin_layer(code)  # noqa: SLF001
-    if layer is not None and len(layer) and "state" in layer.columns:
-        lines = []
-        for state, grp in layer.groupby("state"):
-            if not state:
-                continue
-            g = shapely.union_all(shapely.make_valid(grp.geometry.to_numpy()))
-            lines.append(shapely.simplify(g, 0.01).boundary)
-        if lines:
-            out = shapely.union_all(lines)
-    _BORDERS[code] = out
-    return out
+    """Simplified first-level borders as lon/lat lines (shared borders appear once), or None."""
+    return _simplified(local, code)[1]
+
+
+def _use_shared_base(res: dict, local, code: str) -> dict:
+    """The base map sent to the UI is the outline simplified together with the borders."""
+    outline = _outline(local, code)
+    if outline is not None and not outline.is_empty:
+        res["base"]["outline"] = json.loads(shapely.to_geojson(outline))
+    return res
 
 
 def _prepare(data: bytes) -> dict:
@@ -246,7 +257,7 @@ async def stain_analyze(body: StainBody, request: Request):
     if local is None:
         raise HTTPException(503, "Geo layers are not loaded yet. Check the Dashboard.")
     code = body.country.upper()
-    outline = await run_in_threadpool(_outline, local, code)
+    outline = await run_in_threadpool(_outline_full, local, code)
     if outline is None:
         raise HTTPException(422, f"No local outline for {code} (see scripts/convert_geo.py)")
     borders = await run_in_threadpool(_borders, local, code)
@@ -267,6 +278,7 @@ async def stain_analyze(body: StainBody, request: Request):
             body.debug,
             {**params, **FIXED_PARAMS},
         )
+        res = await run_in_threadpool(_use_shared_base, res, local, code)
         return _drop_small(_mark_pins(res), min_pct)
     except StainError as e:
         raise HTTPException(422, str(e)) from e
@@ -296,7 +308,7 @@ async def stain_warp(body: WarpBody, request: Request):
     if local is None:
         raise HTTPException(503, "Geo layers are not loaded yet. Check the Dashboard.")
     code = body.country.upper()
-    outline = await run_in_threadpool(_outline, local, code)
+    outline = await run_in_threadpool(_outline_full, local, code)
     if outline is None:
         raise HTTPException(422, f"No local outline for {code} (see scripts/convert_geo.py)")
     borders = await run_in_threadpool(_borders, local, code)
@@ -361,7 +373,7 @@ async def stain_scan(body: ScanBody, request: Request):
     if local is None:
         raise HTTPException(503, "Geo layers are not loaded yet. Check the Dashboard.")
     code = body.country.upper()
-    if await run_in_threadpool(_outline, local, code) is None:
+    if await run_in_threadpool(_outline_full, local, code) is None:
         raise HTTPException(422, f"No local outline for {code} (see scripts/convert_geo.py)")
 
     root = Path(__file__).resolve().parents[3]

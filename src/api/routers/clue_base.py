@@ -2,6 +2,10 @@
 
 GET /clues/{cc}/base -> {outline, borders}, both lon/lat GeoJSON (or null when the local geo layers
 have nothing for that country). Cached in memory for the life of the server.
+
+Both come from stain._outline / stain._borders, which are already simplified TOGETHER (src/geo/simplify.py,
+resolution based). Nothing is simplified again here: a second, fixed simplification is what made small
+countries look heavily simplified and let the borders drift away from the outline.
 """
 
 import json
@@ -17,13 +21,12 @@ from src.api.routers.stain import _borders, _outline  # noqa: PLC2701
 router = APIRouter()
 
 _BASE: dict[str, dict] = {}
-_SIMPLIFY_DEG = 0.005
 
 
 def _geojson(g):
     if g is None or g.is_empty:
         return None
-    return json.loads(shapely.to_geojson(shapely.simplify(g, _SIMPLIFY_DEG)))
+    return json.loads(shapely.to_geojson(g))
 
 
 @router.get("/clues/{cc}/base")
