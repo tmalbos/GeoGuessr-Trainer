@@ -12,7 +12,11 @@ Flow:
                                                                        another level (null = back to "Unnamed N")
 
 How it works (why it is fast after the first load):
-  1. Opening the file reads only the relations (cheap) and remembers each admin relation's member ways.
+  1. Opening the file reads only the relations and remembers each admin relation's member ways. On a big file the
+     relations are first pulled out with osmium-tool (C++, multi-threaded, relations only) into a small file that is
+     cached on disk (keyed by path, size and modification time), and only that small file is read in Python. So the
+     first open of a huge file is a single fast streaming pass and every later open is instant. Without osmium-tool
+     the file is read directly (slower, same result).
   2. Choosing a country reads the file once more (nodes + ways, node locations cached by osmium), keeps ONLY the
      ways that admin relations use, and assembles every admin boundary of the file with shapely.
   3. Everything lives in memory, grouped by level. The first time a level is previewed or exported it is finished
@@ -27,6 +31,7 @@ How it works (why it is fast after the first load):
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import math
@@ -44,6 +49,8 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 from starlette.responses import Response
+
+from src.geo import osmium_tool
 
 log = logging.getLogger(
     "uvicorn.error"
@@ -198,6 +205,41 @@ def _scan(path: Path) -> tuple[list[dict], dict[int, dict]]:
     return countries, rels
 
 
+def _relations_file(path: Path) -> Path:
+    """The file to scan for admin relations: a small cached copy holding only boundary=administrative relations
+    (made by osmium-tool in one fast pass, no nodes / ways), or the original when osmium-tool isn't available.
+    """
+    try:
+        osmium_tool.require()
+    except osmium_tool.OsmiumMissingError:
+        return path
+    st = path.stat()
+    key = hashlib.sha1(f"{path.resolve()}|{st.st_size}|{st.st_mtime_ns}".encode()).hexdigest()[:16]
+    out = CACHE_DIR / f"admin-rels-{key}.osm.pbf"
+    if out.is_file() and out.stat().st_size > 0:
+        return out
+    CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    part = CACHE_DIR / f"admin-rels-{key}.part.osm.pbf"
+    try:
+        osmium_tool.run(
+            [
+                "tags-filter",
+                "--omit-referenced",
+                str(path),
+                "r/boundary=administrative",
+                "--output",
+                str(part),
+                "--overwrite",
+            ]
+        )
+    except osmium_tool.OsmiumError:
+        log.warning("osmium tags-filter failed; scanning the file directly", exc_info=True)
+        part.unlink(missing_ok=True)
+        return path
+    part.replace(out)
+    return out
+
+
 def _open(path_text: str, temporary: bool = False, display_name: str | None = None) -> dict:
     path = Path(path_text.strip().strip('"'))
     if not path.is_file():
@@ -205,7 +247,7 @@ def _open(path_text: str, temporary: bool = False, display_name: str | None = No
     if not path.name.lower().endswith(".pbf"):
         raise HTTPException(422, "That is not an .osm.pbf file")
     try:
-        countries, rels = _scan(path)
+        countries, rels = _scan(_relations_file(path))
     except HTTPException:
         raise
     except Exception as e:

@@ -56,8 +56,6 @@ outline and first-level borders are known:
   4c. scattered    a colour whose pixels form more than MAX_PARTS separate pieces is not a stain (it is
                    border strokes, text, noise). It is dropped and its pixels are refilled from the
                    nearest surviving colour. The base map is never dropped.
-  4d. border bits  a small piece of a colour that sits (almost) entirely on the known borders / coast is a
-                   stroke, not a stain: it is dropped and its pixels are refilled the same way.
   5. polygons      each label -> polygon straight from its pixels, so neighbouring stains share the
                    exact same boundary. No per-stain growing: the only changes are an optional
                    gap-free simplification (sub-pixel tolerance) when the polygons form a valid
@@ -177,11 +175,6 @@ BLACK_MAX = 70  # a colour whose brightest channel is under this is black
 LIGHT_BLUE_HUE = (170.0, 260.0)  # degrees
 LIGHT_BLUE_SAT_MAX = 0.5  # a blue this pale (low saturation) and this bright is "light blue"
 LIGHT_BLUE_VAL_MIN = 0.7
-BORDER_DIST = (
-    0.3  # "on the border" = within this % of the map diagonal of a known border / coast (0 = off)
-)
-BORDER_MAX_PCT = 0.3  # ...and smaller than this % of the country's area
-BORDER_SHARE = 0.9  # share of a piece that must be on the border for it to count as a stroke
 GROW_PX = (
     3  # colours are read this many px beyond the fitted outline (it can sit inside the drawn coast)
 )
@@ -1742,8 +1735,6 @@ def analyze(
     hole_min = float(tune.get("hole_min", HOLE_MIN))
     min_poly = float(tune.get("min_poly", MIN_POLY))
     max_parts = int(tune.get("max_parts", MAX_PARTS))
-    border_dist = float(tune.get("border_dist", BORDER_DIST))
-    border_max_pct = float(tune.get("border_max_pct", BORDER_MAX_PCT))
     clip_px = int(tune.get("clip_px", CLIP_PX))
     simplify_px = float(tune.get("simplify_px", SIMPLIFY_PX))
     smooth_px = float(tune.get("smooth_px", SMOOTH_PX))
@@ -1844,23 +1835,6 @@ def analyze(
     )  # only text / thin lines are left: they take their nearest neighbour
     # 3c. a colour made of lots of unrelated pieces is border / text noise, not a stain: drop it and
     # let its pixels join the nearest real stain (or the base map)
-    # 3d. small pieces that sit on the known borders / coast are strokes: same treatment
-    if border_dist > 0 and border_max_pct > 0 and distance_transform_edt is not None:
-        lines = _line_mask(placed, (hgt, wid))
-        if reg.get("placed_b") is not None:
-            lines |= _line_mask(affine_transform(reg["placed_b"], to_full), (hgt, wid))
-        if lines.any():
-            pb = placed.bounds
-            reach = border_dist / 100.0 * math.hypot(pb[2] - pb[0], pb[3] - pb[1])
-            near = distance_transform_edt(~lines) <= max(1.0, reach)
-            lab = _drop_border_bits(
-                lab,
-                len(centers),
-                near,
-                border_max_pct / 100.0 * float(inside.sum()),
-                BORDER_SHARE,
-                inside,
-            )
     lab = _drop_scattered(lab, len(centers), max_parts, min_poly * scale * scale, inside)
 
     # the app's own country outline, a few px wider: the drawn coast and the fitted one never agree exactly
