@@ -113,10 +113,12 @@ OUTLINE_RESOLUTION = (
     1100,
     2200,
 )  # the country outline (fit + clip) is simplified to one pixel of this grid
-TOL = 40  # L1 colour distance (sum over R,G,B) under which two shades are merged into one stain
+TOL = 50  # L1 colour distance (sum over R,G,B) under which two shades are merged into one stain
 MIN_CROP = 32  # smallest crop side (in work px)
-MIN_CLASS_SHARE = 0.0015  # a stain smaller than this share of the map is ignored
-EDGE_T = 40.0  # gradient magnitude (sum over channels) that counts as an edge (coarse search / ICP)
+MIN_CLASS_SHARE = 0.0005  # a stain smaller than this share of the map is ignored
+EDGE_T = (
+    250.0  # gradient magnitude (sum over channels) that counts as an edge (coarse search / ICP)
+)
 LIGHT_MIN = 170  # a pixel is "light" when its darkest channel is at least this
 COARSE_MAX = 300  # longest side of the image used by the coarse search
 SCALE_STEP = 1.05  # ratio between two scales of the coarse search
@@ -125,7 +127,7 @@ TOP_K = 3  # coarse candidates that get refined
 ICP_ITERS = 45
 CENTER_SAMPLE = 300_000  # pixels used to find the map colours (the assignment uses every pixel)
 SIMPLIFY_PX = 0  # gap-free simplification tolerance, in full-res px (sub-pixel)
-SMOOTH_PX = 0.6  # final boundary smoothing radius, in full-res px (no shape change beyond it)
+SMOOTH_PX = 0.5  # final boundary smoothing radius, in full-res px (no shape change beyond it)
 
 # Hint prior (the detected map box). All soft: the weakest placement still keeps HINT_FLOOR of its score.
 HINT_FLOOR = 0.3  # prior of a placement that does not touch the hint at all
@@ -163,9 +165,8 @@ CHANCE_SHIFT_MIN, CHANCE_SHIFT_MAX = 4.0, 12.0  # ...limited to this range (px)
 
 # Colours / labels
 MAX_CLASSES = 5  # colours kept inside the map (base map included)
-FLAT_T = 25.0  # gradient magnitude (sum over channels) under which a pixel is "flat"
-CAP = 1.4  # a pixel takes a colour only within CAP * tol of it; the rest is filled from neighbours
-HOLE_MIN = 30.0  # holes in a stain smaller than this (px² at work size) are filled
+FLAT_T = 75.0  # gradient magnitude (sum over channels) under which a pixel is "flat"
+HOLE_MIN = 10.0  # holes in a stain smaller than this (px² at work size) are filled
 MIN_POLY = 4.0  # polygons smaller than this (px² at work size) are dropped
 MAX_PARTS = 40  # a colour with more separate pieces than this is not a stain (0 = off)
 GREY_SPREAD = (
@@ -176,7 +177,7 @@ LIGHT_BLUE_HUE = (170.0, 260.0)  # degrees
 LIGHT_BLUE_SAT_MAX = 0.5  # a blue this pale (low saturation) and this bright is "light blue"
 LIGHT_BLUE_VAL_MIN = 0.7
 GROW_PX = (
-    3  # colours are read this many px beyond the fitted outline (it can sit inside the drawn coast)
+    5  # colours are read this many px beyond the fitted outline (it can sit inside the drawn coast)
 )
 SEG_TOL = 0.0  # a pixel this close (L1) to the line between two colours is a blend of them
 BLEND_CENTRE_TOL = (
@@ -184,7 +185,7 @@ BLEND_CENTRE_TOL = (
 )
 BLEND_T_MIN, BLEND_T_MAX = 0.15, 0.85  # ...and it must lie between them, not near an end
 NEAR_PX = 4  # edge pixels may only take colours that exist this many work px around them
-CLIP_PX = 3  # the stains may reach this many px past the app's own country outline
+CLIP_PX = 4  # the stains may reach this many px past the app's own country outline
 
 
 class StainError(Exception):
@@ -1724,7 +1725,6 @@ def analyze(
     """
     tune = params or {}
     tol = int(tune.get("tol", tol))
-    cap = float(tune.get("cap", CAP))
     seg_tol = float(tune.get("seg_tol", SEG_TOL))
     near_px = int(tune.get("near_px", NEAR_PX))
     grow_px = int(tune.get("grow_px", GROW_PX))
@@ -1829,7 +1829,7 @@ def analyze(
     # 3b. ONE label per pixel. Every pixel that is one of the colours (or a blend of two) takes it: nothing
     # is eroded, opened or dropped, so a painted pixel always ends up in its stain, however thin the stain.
     flat_region = flat_all & region
-    lab = _assign(img, region, centers, cap * tol, seg_tol, flat_region, rad(near_px), blend_tol)
+    lab = _assign(img, region, centers, tol, seg_tol, flat_region, rad(near_px), blend_tol)
     lab = _fill_nearest(
         lab, inside
     )  # only text / thin lines are left: they take their nearest neighbour
