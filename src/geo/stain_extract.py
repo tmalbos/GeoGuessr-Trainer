@@ -65,7 +65,7 @@ outline and first-level borders are known:
 The registration is a 2x3 affine in the projected plane: px = A @ (u, v) + t. A is a full 2x2 matrix
 (it may rotate / shear), so every consumer uses A and t, never separate scale factors.
 
-The outline used to fit and to clip is simplified by RESOLUTION (OUTLINE_RESOLUTION, see src/geo/simplify.py),
+The outline used to fit and to clip is simplified by mapshaper at MAPSHAPER_RESOLUTION,
 not by a fixed number of degrees, so small countries keep their detail.
 """
 
@@ -74,13 +74,15 @@ import colorsys
 import io
 import json
 import math
+import shutil
+import subprocess
+import tempfile
+from pathlib import Path
 
 import numpy as np
 import shapely
 from PIL import Image, ImageDraw, ImageOps
 from shapely.affinity import affine_transform
-
-from src.geo.simplify import tolerance
 
 try:  # much faster nearest-neighbour search when scipy is around
     from scipy.spatial import cKDTree
@@ -109,10 +111,7 @@ except ImportError:  # pragma: no cover
 
 WORK_MAX = 1600  # longest side of the image used to find the map, px (near native for a screenshot)
 FULL_MAX = 2400  # longest side of the image the stains are read from, px
-OUTLINE_RESOLUTION = (
-    1100,
-    2200,
-)  # the country outline (fit + clip) is simplified to one pixel of this grid
+MAPSHAPER_RESOLUTION = "1080x1080"  # the country outline (fit + clip) is simplified to this grid
 TOL = 50  # L1 colour distance (sum over R,G,B) under which two shades are merged into one stain
 MIN_CROP = 32  # smallest crop side (in work px)
 MIN_CLASS_SHARE = 0.0005  # a stain smaller than this share of the map is ignored
@@ -992,24 +991,52 @@ def _polish(sub: np.ndarray, uv, uvb, r: dict) -> dict | None:
     return {"A": ctx["A0"], "t": ctx["t0"], "honest": before}
 
 
+def _mapshaper_simplify(geom, resolution: str = MAPSHAPER_RESOLUTION):
+    """Simplify a lon/lat geometry with mapshaper's default algorithm at `resolution`."""
+    exe = shutil.which("mapshaper")
+    if exe is None:
+        msg = "mapshaper is not on PATH"
+        raise StainError(msg)
+    with tempfile.TemporaryDirectory() as tmp:
+        src = Path(tmp) / "in.geojson"
+        dst = Path(tmp) / "out.geojson"
+        src.write_text(shapely.to_geojson(geom), encoding="utf-8")
+        subprocess.run(
+            [
+                exe,
+                str(src),
+                "-simplify",
+                f"resolution={resolution}",
+                "keep-shapes",
+                "-o",
+                str(dst),
+                "format=geojson",
+            ],
+            check=True,
+            capture_output=True,
+        )
+        data = json.loads(dst.read_text(encoding="utf-8"))
+    if data.get("type") == "FeatureCollection":
+        data = data["features"][0]
+    return shapely.from_geojson(json.dumps(data))
+
+
 def _prep_outline(outline):
     """(fit, clip, extra): the outline used to MATCH the screenshot (small islands dropped: they only add
     noise), the full outline used to clip the results, and the small islands the fit leaves out
     (None when there are none). `extra` is where stains on those islands are read.
 
-    All three are simplified by the same RESOLUTION-based tolerance (OUTLINE_RESOLUTION on the whole
-    country's bounding box), never by a fixed number of degrees.
+    All three are simplified by mapshaper at MAPSHAPER_RESOLUTION, never by a fixed number of degrees.
     """
     parts = _polys(shapely.make_valid(outline))
     if not parts:
         msg = "That country has no outline to match against"
         raise StainError(msg)
-    tol = tolerance(shapely.union_all(parts).bounds, OUTLINE_RESOLUTION)
     big = max(p.area for p in parts)
-    fit = shapely.simplify(shapely.union_all([p for p in parts if p.area >= 0.02 * big]), tol)
-    clip = shapely.make_valid(shapely.simplify(shapely.union_all(parts), tol))
+    fit = _mapshaper_simplify(shapely.union_all([p for p in parts if p.area >= 0.02 * big]))
+    clip = shapely.make_valid(_mapshaper_simplify(shapely.union_all(parts)))
     small = [p for p in parts if p.area < 0.02 * big]
-    extra = shapely.simplify(shapely.union_all(small), tol) if small else None
+    extra = _mapshaper_simplify(shapely.union_all(small)) if small else None
     if extra is not None and extra.is_empty:
         extra = None
     return fit, clip, extra

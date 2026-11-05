@@ -36,6 +36,11 @@ dev = [
     "types-requests>=2.32",
     "types-pyyaml>=6.0",
 ]
+profiling = [
+    "scalene>=2.4",
+    "py-spy>=0.4",
+    "psutil>=7.0",
+]
 
 [project.scripts]
 geoguessr-trainer = "main:main"
