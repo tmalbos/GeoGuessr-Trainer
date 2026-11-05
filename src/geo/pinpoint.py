@@ -19,9 +19,13 @@ from pyproj import Geod
 
 MAX_RADIUS_KM = 10.0
 MAX_AREA_SHARE = 0.02  # a circle may cover at most this share of the country
-MAX_SIZE_SHARE = 0.12  # a pin is at most this share of the country's longest side
+MAX_SIZE_SHARE = 0.03  # a pin is at most this share of the country's longest side
 ASPECT = (1.1, 2.4)  # height / width of a teardrop
 TOP_SHARE = 0.55  # share of the area in the upper half (the round head)
+MIN_SOLIDITY = 0.85  # area / convex hull area: a pin has no dents
+TIP_ZONE = 0.15  # the bottom share of the height that must be the narrow point
+TIP_WIDTH = 0.45  # the width of that zone is at most this share of the pin's width
+TIP_OFFSET = 0.2  # ...and its centre is within this share of the width from the pin's axis
 CIRCLE_POINTS = 64
 
 _GEOD = Geod(ellps="WGS84")
@@ -67,6 +71,11 @@ def pin_tip(poly, extent_km: float) -> tuple[float, float] | None:
         return None
     top = shapely.clip_by_rect(solid, x0, y0 + h / 2, x1, y1).area
     if top < TOP_SHARE * solid.area:
+        return None
+    if solid.area < MIN_SOLIDITY * solid.convex_hull.area:
+        return None
+    tx0, _, tx1, _ = shapely.clip_by_rect(solid, x0, y0, x1, y0 + TIP_ZONE * h).bounds
+    if not (tx1 - tx0 <= TIP_WIDTH * w and abs((tx0 + tx1) / 2 - (x0 + x1) / 2) <= TIP_OFFSET * w):
         return None
     lat_min, lat_max = float(ring[:, 1].min()), float(ring[:, 1].max())
     low = ring[ring[:, 1] <= lat_min + 0.1 * (lat_max - lat_min)]

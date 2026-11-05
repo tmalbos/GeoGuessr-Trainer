@@ -73,6 +73,7 @@ not by a fixed number of degrees, so small countries keep their detail.
 import base64
 import io
 import json
+import logging
 import math
 
 import numpy as np
@@ -106,6 +107,8 @@ try:  # optimiser of the affine polish
     from scipy.optimize import minimize
 except ImportError:  # pragma: no cover
     minimize = None
+
+logger = logging.getLogger("uvicorn.error")
 
 WORK_MAX = 1600  # longest side of the image used to find the map, px (near native for a screenshot)
 FULL_MAX = 2400  # longest side of the image the stains are read from, px
@@ -161,7 +164,7 @@ CHANCE_SHIFT_FRAC = 0.04  # chance level = line shifted by this share of the map
 CHANCE_SHIFT_MIN, CHANCE_SHIFT_MAX = 4.0, 12.0  # ...limited to this range (px)
 
 # Colours / labels
-DELTA_E = 14.5  # CIEDE2000 distance under which two colours are the same stain (UI slider)
+DELTA_E = 6.5  # CIEDE2000 distance under which two colours are the same stain (UI slider)
 MAX_CLASSES = 4  # stains kept besides the base map (UI slider)
 EXPAND_PX = 2  # pixel layers the stains grow into undefined pixels (UI slider)
 SCOPE_PX = 0  # px beyond the fitted outline whose pixels are read (constant, not in the UI)
@@ -179,9 +182,12 @@ LIGHT_BLUE_VAL_MIN = 0.7
 SMALL_PIECE_PX = 12  # a connected piece of a stain with fewer px than this is "small" (full-res px)
 FRAGMENT_SHARE = 0.5  # a stain with more than this share of its pixels in small pieces is dropped
 SPECK_REASSIGN_PX = (
-    3  # a small piece of a lighter stain joins a darker stain at most this far away (px)
+    2  # a small piece of a lighter stain joins a darker stain at most this far away (px)
 )
 CLIP_PX = 4  # the stains may reach this many px past the app's own country outline
+EXPAND_MIN_FRONT_PX = (
+    4  # a piece of one expansion layer shorter than this is a bump and is not added
+)
 
 
 class StainError(Exception):
@@ -1311,7 +1317,13 @@ def _expand(lab: np.ndarray, order: list[int], layers: int, allowed: np.ndarray)
             m = lab == k
             if not m.any():
                 continue
-            lab[_cross_dilate(m) & (lab < 0) & allowed] = k
+            grow = _cross_dilate(m) & (lab < 0) & allowed
+            if nd_label is not None and grow.any():
+                comp, n = nd_label(grow, structure=np.ones((3, 3), bool))
+                sizes = np.bincount(comp.ravel(), minlength=n + 1)
+                sizes[0] = EXPAND_MIN_FRONT_PX  # background label is never "small"
+                grow &= (sizes >= EXPAND_MIN_FRONT_PX)[comp]
+            lab[grow] = k
 
 
 def _classify(
@@ -1358,20 +1370,66 @@ def _classify(
     lab = np.full(h * w, -1, np.int16)
     lab[idx] = ulabel[inv]
     lab = lab.reshape(h, w)
+    _log_colours(ucol, ulab, cnt, dull, pale, ulabel, centres, delta_e, max_classes)
+    _log_counts("initial", lab, region, ucol[centres])
 
     # a stain made of small / thin disconnected pieces is anti-aliasing: all of it becomes undefined
     for k in range(1, len(centres)):
         if _fragmented(lab, k):
+            logger.info(
+                "classify: stain %d dropped as fragmented (%d px)", k, int((lab == k).sum())
+            )
             lab[lab == k] = -1
+    _log_counts("after fragment filter", lab, region, ucol[centres])
 
     # the remaining stains grow into undefined pixels, darkest first; the rest goes to the base
     alive = [k for k in range(1, len(centres)) if (lab == k).any()]
     alive.sort(key=lambda k: ulab[centres[k], 0])
     # specks of a lighter stain next to a darker one are the darker stain's anti-aliasing
     _hand_specks_to_darker(lab, alive)
+    _log_counts("after speck handoff", lab, region, ucol[centres])
     _expand(lab, alive, expand_px, region)
+    _log_counts("after expansion", lab, region, ucol[centres])
     lab[(lab < 0) & region] = 0
+    _log_counts("final", lab, region, ucol[centres])
     return lab, ucol[centres]
+
+
+def _log_colours(
+    ucol, ulab, cnt, dull, pale, ulabel, centres, delta_e, max_classes, top=30
+) -> None:
+    """Debug: the most common exact colours of the map and what the classifier did with each."""
+    total = int(cnt.sum()) or 1
+    rows = []
+    for i in np.argsort(-cnt, kind="stable")[:top]:
+        de = float(_delta_e(ulab[i], ulab[centres[0]]))
+        rows.append(
+            f"  {_hex(ucol[i])} n={int(cnt[i])} ({100 * cnt[i] / total:.2f}%) "
+            f"dull={bool(dull[i])} pale={bool(pale[i])} dE_to_base={de:.1f} label={int(ulabel[i])}"
+        )
+    picked = ", ".join(
+        f"{'base' if j == 0 else f'stain {j}'}={_hex(ucol[c])}" for j, c in enumerate(centres)
+    )
+    logger.info(
+        "classify: delta_e=%s max_classes=%s, %d distinct colours. Picked: %s\n%s",
+        delta_e,
+        max_classes,
+        len(cnt),
+        picked,
+        "\n".join(rows),
+    )
+
+
+def _log_counts(stage: str, lab: np.ndarray, region: np.ndarray, colours: np.ndarray) -> None:
+    """Debug: pixels per label (base = 0, stains = 1..) after one step of the classifier."""
+    counts = np.bincount(lab[lab >= 0], minlength=len(colours))
+    parts = []
+    for i in range(len(colours)):
+        name = "base" if i == 0 else f"stain {i}"
+        parts.append(f"{name} {_hex(colours[i])}={int(counts[i])}")
+    logger.info(
+        "classify [%s] %s | undefined=%d", stage, " | ".join(parts), int(((lab < 0) & region).sum())
+    )
 
 
 def _drop_border_bits(
