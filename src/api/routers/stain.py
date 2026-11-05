@@ -6,7 +6,7 @@ Flow:  POST /technical/stain/upload   -> raw image bytes; kept in memory, return
                                          Nothing runs when no map was detected (unless the user drew a crop box);
                                          otherwise the detected box biases the search for the map.
 Uploads live in memory only (last few); a server restart means loading the image again (410).
-All colours inside the map are returned, with the biggest one flagged `base`; the app's own
+All colours inside the map are returned, with the base map flagged `base`; the app's own
 country map is drawn underneath, so the UI leaves the base unselected and exports only the stains.
 Map pins (pinpoint clues, any colour) are turned into small circles around the pin tip (see src/geo/pinpoint.py)
 and flagged `pin`.
@@ -50,9 +50,11 @@ from src.geo.stain_scan import write_last_report
 
 router = APIRouter()
 
-DEFAULT_TOL = 30
 FIXED_PARAMS = {"cap": 1.0}  # no longer tunable
 PIN_CLIP_DEG = 0.0009  # a pin circle may reach this far past the (simplified) country outline
+MIN_STAIN_PCT = (
+    0.0  # drop stains whose total area is below this % of the country (no longer in the UI)
+)
 
 MAX_UPLOADS = 5
 _UPLOADS: OrderedDict[str, dict] = OrderedDict()
@@ -114,21 +116,13 @@ def _prepare(data: bytes) -> dict:
 
 
 class StainParams(BaseModel):
-    """Live overrides of the stain step (the map registration is reused)."""
+    """Live settings of the stain step (the map registration is reused)."""
 
-    near_px: int = Field(3, ge=1, le=12)
-    grow_px: int = Field(5, ge=0, le=20)
-    flat_t: float = Field(25.0, ge=0.0, le=150.0)
-    blend_centre_tol: float = Field(75.0, ge=0.0, le=150.0)
-    max_classes: int = Field(5, ge=1, le=14)
-    min_class_share: float = Field(0.0005, ge=0.0, le=0.1)
-    hole_min: float = Field(10.0, ge=0.0, le=1000.0)
-    min_poly: float = Field(4.0, ge=0.0, le=200.0)
-    clip_px: int = Field(5, ge=0, le=20)
-    smooth_px: float = Field(0.5, ge=0.0, le=5.0)
-    min_stain_pct: float = Field(
-        0.0, ge=0.0, le=10.0
-    )  # drop stains whose total area is below this % of the country
+    delta_e: float = Field(
+        14.5, ge=1.0, le=60.0
+    )  # CIEDE2000 distance under which colours are one stain
+    expansion_px: int = Field(2, ge=0, le=20)  # pixel layers the stains grow into undefined pixels
+    max_classes: int = Field(4, ge=1, le=14)  # stains kept besides the base map
 
 
 @router.post("/technical/stain/upload")
@@ -158,7 +152,7 @@ async def stain_upload(request: Request, path: str | None = None):
         "width": w,
         "height": h,
         "map": up["map"],
-        "params": {**StainParams().model_dump(), "tol": DEFAULT_TOL},
+        "params": StainParams().model_dump(),
     }
 
 
@@ -229,9 +223,6 @@ class StainBody(BaseModel):
     country: str
     crop: list[float] | None = Field(None, min_length=4, max_length=4)
     projection: Literal["auto", "equirect", "plate", "mercator", "lcc", "albers"] = "auto"
-    tol: int = Field(
-        DEFAULT_TOL, ge=8, le=120
-    )  # shades closer than this are merged into one colour
     params: StainParams = Field(default_factory=StainParams)
     debug: bool = False  # also return the edge pixels the fit looks at
 
@@ -262,7 +253,6 @@ async def stain_analyze(body: StainBody, request: Request):
         raise HTTPException(422, f"No local outline for {code} (see scripts/convert_geo.py)")
     borders = await run_in_threadpool(_borders, local, code)
     params = body.params.model_dump()
-    min_pct = params.pop("min_stain_pct")
     try:
         res = await run_in_threadpool(
             analyze,
@@ -271,7 +261,6 @@ async def stain_analyze(body: StainBody, request: Request):
             outline,
             body.crop,
             body.projection,
-            body.tol,
             borders,
             up["reg"].setdefault(code, {}),
             hint,
@@ -279,7 +268,7 @@ async def stain_analyze(body: StainBody, request: Request):
             {**params, **FIXED_PARAMS},
         )
         res = await run_in_threadpool(_use_shared_base, res, local, code)
-        return _drop_small(_mark_pins(res), min_pct)
+        return _drop_small(_mark_pins(res), MIN_STAIN_PCT)
     except StainError as e:
         raise HTTPException(422, str(e)) from e
 

@@ -14,20 +14,11 @@ const MIN_ZOOM = 1;
 const MAX_ZOOM = 8;
 const memo = { country: "" }; // remembered while you move between pages
 
-// Small, bounded steps for the stain constants. `tol` is sent separately (it is a top-level API field).
+// The three stain settings. Defaults come from the upload response (StainParams in the API).
 const TUNING = [
-  { key: "tol", label: "TOL · shade merge", min: 8, max: 120, step: 1, digits: 0 },
-  { key: "near_px", label: "NEAR_PX · nearby colours", min: 1, max: 12, step: 1, digits: 0 },
-  { key: "grow_px", label: "GROW_PX · beyond outline", min: 0, max: 20, step: 1, digits: 0 },
-  { key: "flat_t", label: "FLAT_T · flatness", min: 0, max: 150, step: 1, digits: 0 },
-  { key: "blend_centre_tol", label: "BLEND_CENTRE_TOL", min: 0, max: 150, step: 1, digits: 0 },
-  { key: "max_classes", label: "MAX_CLASSES", min: 1, max: 14, step: 1, digits: 0 },
-  { key: "min_class_share", label: "MIN_CLASS_SHARE", min: 0, max: 0.1, step: 0.0005, digits: 4 },
-  { key: "hole_min", label: "HOLE_MIN · fill holes", min: 0, max: 1000, step: 5, digits: 0 },
-  { key: "min_poly", label: "MIN_POLY · drop specks", min: 0, max: 200, step: 1, digits: 0 },
-  { key: "clip_px", label: "CLIP_PX · past outline", min: 0, max: 20, step: 1, digits: 0 },
-  { key: "smooth_px", label: "SMOOTH_PX", min: 0, max: 5, step: 0.1, digits: 1 },
-  { key: "min_stain_pct", label: "MIN_STAIN_PCT · % of country", min: 0, max: 10, step: 0.05, digits: 2 },
+  { key: "delta_e", label: "DELTA E · colour difference", min: 1, max: 40, step: 0.5, digits: 1 },
+  { key: "expansion_px", label: "EXPANSION_PX · grow into undefined", min: 0, max: 20, step: 1, digits: 0 },
+  { key: "max_classes", label: "MAX_CLASSES · stains (base not counted)", min: 1, max: 14, step: 1, digits: 0 },
 ];
 
 // Wheel to zoom around the cursor, drag (on the caller's side) to pan. 1x is "fit".
@@ -148,7 +139,7 @@ export default function StainTool() {
   const [over, setOver] = useState(false);
   const [err, setErr] = useState("");
   const [dbg, setDbg] = useState(false); // debug: show the edges the fit looks at
-  const [tune, setTune] = useState({}); // stain constants (defaults come from the upload response)
+  const [tune, setTune] = useState({}); // the three stain settings (defaults come from the upload response)
   const [warpMode, setWarpMode] = useState(false);
   const [warp, setWarp] = useState({ sx: 1, sy: 1, dx: 0, dy: 0 });
   const [warpRes, setWarpRes] = useState(null);
@@ -211,8 +202,7 @@ export default function StainTool() {
     let stale = false;
     setBusy(true);
     const t = setTimeout(() => {
-      const { tol, ...params } = tune;
-      api("/technical/stain/analyze", { method: "POST", body: { token: up.token, country, crop, debug: dbg, tol, params } })
+      api("/technical/stain/analyze", { method: "POST", body: { token: up.token, country, crop, debug: dbg, params: tune } })
         .then((r) => { if (!stale) { setRes(r); setErr(""); setBusy(false); } })
         .catch((e) => { if (!stale) { setErr(errorText(e)); setBusy(false); } });
     }, 300);
