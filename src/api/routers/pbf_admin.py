@@ -63,9 +63,10 @@ MAX_PREVIEW_CACHE = 60  # (level, pct) entries per country
 PREVIEW_PCT = 5
 BBOX_PAD = 0.5  # degrees around the boundaries when picking coastlines for the cut
 MIN_LEFTOVER = 1e-12  # deg2: smaller uncovered bits of a boundary are numerical noise
-GAP_OPEN = (
-    0.0005  # deg (~50 m): empty slivers thinner than 2x this are border mismatches, not real gaps
+SMALL_SHARE = (
+    0.001  # a gap smaller than this share of the country's area is a fragment of a neighbour
 )
+TOUCH_TOL = 1e-5  # deg (~1 m): "touching" tolerance for gaps against the country edge / a boundary
 MIN_PIECE = 1e-7  # deg2: smaller filled pieces are dropped
 CACHE_DIR = Path(tempfile.gettempdir()) / "geoguessr-pbf-admin"
 UNNAMED_COLOR = (
@@ -712,14 +713,7 @@ def _country_land(data: dict):
         return g
 
 
-# ── gap filling: the empty land of a level becomes "Unnamed N" polygons ────
-
-
-def _open_gap(g):
-    """Drop slivers thinner than ~2 * GAP_OPEN (they come from borders that don't line up exactly)."""
-    if g is None or g.is_empty:
-        return None
-    return _polys(shapely.buffer(shapely.buffer(g, -GAP_OPEN), GAP_OPEN))
+# ── gap filling: the empty land of a level ─────────────────────────────────
 
 
 def _level_tree(data: dict, level: int):
@@ -729,24 +723,54 @@ def _level_tree(data: dict, level: int):
     return t
 
 
+def _neighbour(piece, geoms: list, tree) -> int | None:
+    """Index of the closest boundary to the gap `piece`, touching it or not (an island has nothing to touch).
+    Ties (several boundaries touching it) go to the one closest to the piece's centre.
+    """
+    cand = tree.query_nearest(piece, all_matches=True)
+    if not len(cand):
+        return None
+    centre = shapely.centroid(piece)
+    return int(min(cand, key=lambda i: float(shapely.distance(centre, geoms[i]))))
+
+
 def _fill_gaps(data: dict, level: int, base: dict) -> dict:
-    """Add to `base` (a level cut to land) the parts of the country's land that the level leaves empty.
-    By default every empty polygon becomes "Unnamed N" (flagged `unnamed`, `gap` = N). When the user chose another
-    level to fill this one (data["fill"][level]), that level's polygons are clipped to the empty area first (nothing
-    is added twice) and only what it still leaves empty becomes "Unnamed N". Custom names (data["renames"]) replace
-    the default ones.
+    """Handle the land of the country that `base` (a level cut to land) leaves empty. Each separate empty
+    polygon is either:
+      - a fragment: smaller than SMALL_SHARE of the country and touching the country's edge (coast / border;
+        an island always does);
+      - otherwise its own polygon, "Unnamed N" (flagged `unnamed`, `gap` = N).
+    When the user chose another level to fill this one (data["fill"][level]), that level's polygons are first
+    clipped to the empty area that is not a fragment (nothing is added twice) and only what it still leaves empty
+    becomes "Unnamed N". Custom names (data["renames"]) replace the default ones.
+    The fragments are assigned last, each one unioned into the closest polygon of everything that exists by then
+    (the level's own boundaries, the ones filled from another level and the "Unnamed N" ones), touching or not.
+    No gap is simplified or rounded.
     """
     country = _country_land(data)
     if country is None or country.is_empty:
         return base
-    geoms = base["geoms"]
-    cover = shapely.union_all(geoms) if len(geoms) else None
+    geoms = list(base["geoms"])
+    cover = shapely.union_all(geoms) if geoms else None
     gap = country if cover is None else _safe(shapely.difference, country, cover)
-    gap = _open_gap(gap)
-    if gap is None:
+    if gap is None or gap.is_empty:
+        return base
+    pieces = [q for q in shapely.get_parts(gap) if q.geom_type == "Polygon" and not q.is_empty]
+    if not pieces:
         return base
 
+    small = SMALL_SHARE * country.area
+    edge = shapely.boundary(country)
+    fragments: list = []
+    rest: list = []
+    for q in pieces:
+        if q.area < small and shapely.dwithin(q, edge, TOUCH_TOL):
+            fragments.append(q)
+        else:
+            rest.append(q)
+
     props, out = list(base["props"]), list(geoms)
+    gap = _polys(shapely.union_all(rest)) if rest else None
     src = data["fill"].get(level)
     sources = [src] if src is not None and src != level and src in data["by_level"] else []
     from_other = 0
@@ -776,9 +800,7 @@ def _fill_gaps(data: dict, level: int, base: dict) -> dict:
             from_other += len(added)
             props.extend(p for p, _ in added)
             out.extend(g for _, g in added)
-            gap = _open_gap(
-                _safe(shapely.difference, gap, shapely.union_all([g for _, g in added]))
-            )
+            gap = _polys(_safe(shapely.difference, gap, shapely.union_all([g for _, g in added])))
 
     names = data["renames"].get(level, {})
     unnamed = 0
@@ -800,7 +822,25 @@ def _fill_gaps(data: dict, level: int, base: dict) -> dict:
             )
             out.append(q)
 
-    log.info("Gap fill ADM%d: %d from another level, %d unnamed", level, from_other, unnamed)
+    merged: dict[int, list] = {}
+    if fragments and out:
+        tree = shapely.STRtree(np.array(out, dtype=object))
+        for q in fragments:
+            i = _neighbour(q, out, tree)
+            if i is not None:
+                merged.setdefault(i, []).append(q)
+        for i, qs in merged.items():
+            g = _polys(_safe(shapely.union, out[i], shapely.union_all(qs)))
+            if g is not None:
+                out[i] = g
+
+    log.info(
+        "Gap fill ADM%d: %d fragment(s) merged, %d from another level, %d unnamed",
+        level,
+        sum(map(len, merged.values())),
+        from_other,
+        unnamed,
+    )
     arr = np.empty(len(out), dtype=object)
     arr[:] = out
     return {"props": props, "geoms": arr}
