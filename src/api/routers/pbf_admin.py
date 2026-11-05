@@ -107,7 +107,9 @@ def _polys(geom):
     parts = [p for p in shapely.get_parts(geom) if p.geom_type == "Polygon" and not p.is_empty]
     if not parts:
         return None
-    return parts[0] if len(parts) == 1 else shapely.union_all(parts)
+    return (
+        parts[0] if len(parts) == 1 else shapely.multipolygons(parts)
+    )  # parts of a valid geometry never overlap
 
 
 def _safe(op, a, b):
@@ -458,6 +460,44 @@ def _load(ds: dict, country: str) -> dict:
 
 # ── land only: cut boundaries with the coastlines ──────────────────────────
 
+# Per ray direction (east, west, north, south): the map to "along the ray, across the ray" coordinates, and where
+# along the ray a bounding box (west, south, east, north) begins.
+_RAY_TF = (
+    operator.itemgetter((slice(None), 0), (slice(None), 1)),
+    lambda a: (-a[:, 0], a[:, 1]),
+    operator.itemgetter((slice(None), 1), (slice(None), 0)),
+    lambda a: (-a[:, 1], a[:, 0]),
+)
+_RAY_START = (
+    operator.itemgetter((slice(None), 0)),
+    lambda b: -b[:, 2],
+    operator.itemgetter((slice(None), 1)),
+    lambda b: -b[:, 3],
+)
+
+
+def _nearest_crossing(k: int, px: float, py: float, pxk: float, pyk: float, way):
+    """Nearest crossing of one coastline way with the ray from (px, py) in direction k.
+    Returns (distance along the ray, point is on land) or None when the way is not crossed (or only touched).
+    """
+    xy = shapely.get_coordinates(way)
+    a, b = xy[:-1], xy[1:]
+    ax_, ay_ = _RAY_TF[k](a)
+    bx_, by_ = _RAY_TF[k](b)
+    crossing = ((ay_ <= pyk) & (by_ > pyk)) | ((by_ <= pyk) & (ay_ > pyk))
+    if not crossing.any():
+        return None
+    t = (pyk - ay_[crossing]) / (by_[crossing] - ay_[crossing])
+    xc = ax_[crossing] + t * (bx_[crossing] - ax_[crossing])
+    ahead = xc > pxk
+    if not ahead.any():
+        return None
+    i = np.flatnonzero(crossing)[ahead][np.argmin(xc[ahead])]
+    cross = (b[i, 0] - a[i, 0]) * (py - a[i, 1]) - (b[i, 1] - a[i, 1]) * (px - a[i, 0])
+    if cross == 0:
+        return None
+    return float(xc[ahead].min()), bool(cross > 0)
+
 
 def _is_land(px: float, py: float, coast: np.ndarray, tree, cbox) -> tuple[bool | None, int | None]:
     """Is the point on land? Exact, no tuning: walk from the point to the nearest coastline and look at which
@@ -465,39 +505,26 @@ def _is_land(px: float, py: float, coast: np.ndarray, tree, cbox) -> tuple[bool 
     Between two coastline crossings the answer cannot change, so the nearest crossing decides.
     East is tried first, then west, north, south. Returns (land, index of the deciding coastline); land is None
     when no coastline is reachable in any direction.
+    The crossed ways are visited nearest-first and the search stops as soon as the next way starts beyond the
+    nearest crossing found, so a point among thousands of islands only reads the few ways close to it.
     """
     w, s, e, n = cbox
-    tf = (  # (along the ray, across the ray)
-        operator.itemgetter((slice(None), 0), (slice(None), 1)),
-        lambda a: (-a[:, 0], a[:, 1]),
-        operator.itemgetter((slice(None), 1), (slice(None), 0)),
-        lambda a: (-a[:, 1], a[:, 0]),
-    )
-    ends = ((e, py), (w, py), (px, n), (px, s))
     p = np.array([[px, py]])
-    for k, (tx, ty) in enumerate(ends):
-        cand = tree.query(shapely.linestrings([(px, py), (tx, ty)]), predicate="intersects")
+    for k, end in enumerate(((e, py), (w, py), (px, n), (px, s))):
+        cand = tree.query(shapely.linestrings([(px, py), end]), predicate="intersects")
         if not len(cand):
             continue
-        xy, li = shapely.get_coordinates(coast[cand], return_index=True)
-        same = li[1:] == li[:-1]
-        a, b = xy[:-1][same], xy[1:][same]
-        owner = cand[li[:-1][same]]
-        ax_, ay_ = tf[k](a)
-        bx_, by_ = tf[k](b)
-        pxk, pyk = (v[0] for v in tf[k](p))
-        crossing = ((ay_ <= pyk) & (by_ > pyk)) | ((by_ <= pyk) & (ay_ > pyk))
-        if not crossing.any():
-            continue
-        t = (pyk - ay_[crossing]) / (by_[crossing] - ay_[crossing])
-        xc = ax_[crossing] + t * (bx_[crossing] - ax_[crossing])
-        ahead = xc > pxk
-        if not ahead.any():
-            continue
-        i = np.flatnonzero(crossing)[ahead][np.argmin(xc[ahead])]
-        cross = (b[i, 0] - a[i, 0]) * (py - a[i, 1]) - (b[i, 1] - a[i, 1]) * (px - a[i, 0])
-        if cross != 0:
-            return bool(cross > 0), int(owner[i])
+        pxk, pyk = (v[0] for v in _RAY_TF[k](p))
+        start = _RAY_START[k](shapely.bounds(coast[cand]))
+        best = None  # (distance along the ray, land, way index)
+        for j in np.argsort(start):
+            if best is not None and start[j] > best[0]:
+                break  # every remaining way begins beyond the nearest crossing found
+            hit = _nearest_crossing(k, px, py, pxk, pyk, coast[cand[j]])
+            if hit is not None and (best is None or hit[0] < best[0]):
+                best = (hit[0], hit[1], int(cand[j]))
+        if best is not None:
+            return best[1], best[2]
     return None, None
 
 
@@ -508,9 +535,10 @@ def _land_only(g, coast: np.ndarray, tree, cbox) -> tuple:
     instead of closing, which lets land and sea run into each other.
 
     The boundary is split by the coastlines that touch it into faces (so nothing is cut when no coastline
-    touches it). Whatever the split does not cover is added back as extra parts, so the parts always add up
-    to the whole boundary and nothing can get lost silently. Every part is then tested with _is_land and only
-    the parts that are certainly sea are removed.
+    touches it). The faces that lie inside `g` tile it exactly, because they come from the noded outline of `g`
+    plus the coastlines. Every face is then tested with _is_land and only the faces that are certainly sea are
+    removed. The land faces share their edges exactly, so they are merged with a coverage union, which only
+    dissolves those shared edges instead of running a full overlay.
     """
     shapely.prepare(g)
     hits = tree.query(g, predicate="intersects")
@@ -545,16 +573,6 @@ def _land_only(g, coast: np.ndarray, tree, cbox) -> tuple:
             farr[:] = faces
             farr = farr[np.asarray(shapely.covers(g, shapely.point_on_surface(farr)), dtype=bool)]
             parts = list(farr)
-            if len(farr):
-                try:
-                    rest = shapely.difference(g, shapely.union_all(farr))
-                    parts += [
-                        q
-                        for q in shapely.get_parts(rest)
-                        if q.geom_type == "Polygon" and q.area > MIN_LEFTOVER
-                    ]
-                except Exception:
-                    log.warning("Could not check the coastline split for coverage", exc_info=True)
     if not parts:
         parts = [q for q in shapely.get_parts(g) if q.geom_type == "Polygon" and not q.is_empty]
 
@@ -568,7 +586,7 @@ def _land_only(g, coast: np.ndarray, tree, cbox) -> tuple:
             land.append(q)
     if not sea:
         return g, sea, gaps
-    return (_polys(shapely.union_all(land)) if land else None), sea, gaps
+    return (_polys(shapely.coverage_union_all(land)) if land else None), sea, gaps
 
 
 def _cut_level(data: dict, level: int) -> dict:

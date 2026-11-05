@@ -9,6 +9,7 @@ duplicating them would risk the copies drifting apart.
 COUNTRIES_COLORS = {
     "Albania": {"water_color": "#87D8EB", "land_color": "#CFF6DF"},
     "Andorra": {"water_color": "#90D9ED", "land_color": "#D3F8E1"},
+    "AntiguaBarbuda": {"water_color": "#90D9ED", "land_color": "#D3F7E1"},
     "Argentina": {"water_color": "#75D3E7", "land_color": "#BAEBD6"},
     "Australia": {"water_color": "#76D3E7", "land_color": "#FBF8F2"},
     "Austria": {"water_color": "#87D7EB", "land_color": "#B4EFCD"},
@@ -113,7 +114,17 @@ MOSTLY_COVERS_THRESHOLD = 0.5
 MINIMUM_AREA = 1e-10
 OVERLAY_GAP_POINT_SPACING = 8  # px in the output SVG's coordinate space (HEIGHT=800)
 
-NAME_FIELD_GUESSES = ["shapeName", "NAME_1", "NAME_2", "NAME_3", "NAME_4", "NAME", "name", "ref"]
+NAME_FIELD_GUESSES = [
+    "shapeName",
+    "NAME_1",
+    "NAME_2",
+    "NAME_3",
+    "NAME_4",
+    "NAME",
+    "name",
+    "ref",
+    "SUBDIVISION_NAME",
+]
 
 # For point datasets (e.g. gazetteers) that carry the whole admin hierarchy
 # as columns on every row (NAME_1..NAME_4 plus the point's own name), we
