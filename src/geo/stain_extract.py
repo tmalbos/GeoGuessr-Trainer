@@ -66,7 +66,7 @@ outline and first-level borders are known:
 The registration is a 2x3 affine in the projected plane: px = A @ (u, v) + t. A is a full 2x2 matrix
 (it may rotate / shear), so every consumer uses A and t, never separate scale factors.
 
-The outline used to fit and to clip is simplified by RESOLUTION (OUTLINE_RESOLUTION, see src/geo/simplify.py),
+The outline used to fit and to clip is simplified by mapshaper at MAPSHAPER_RESOLUTION,
 not by a fixed number of degrees, so small countries keep their detail.
 """
 
@@ -75,13 +75,16 @@ import io
 import json
 import logging
 import math
+import shutil
+import subprocess
+import tempfile
+from pathlib import Path
 
 import numpy as np
 import shapely
 from PIL import Image, ImageDraw, ImageOps
 from shapely.affinity import affine_transform
-
-from src.geo.simplify import tolerance
+from shapely.geometry import MultiPolygon
 
 try:  # much faster nearest-neighbour search when scipy is around
     from scipy.spatial import cKDTree
@@ -112,10 +115,7 @@ logger = logging.getLogger("uvicorn.error")
 
 WORK_MAX = 1600  # longest side of the image used to find the map, px (near native for a screenshot)
 FULL_MAX = 2400  # longest side of the image the stains are read from, px
-OUTLINE_RESOLUTION = (
-    1100,
-    2200,
-)  # the country outline (fit + clip) is simplified to one pixel of this grid
+MAPSHAPER_RESOLUTION = "1080x1080"  # the country outline (fit + clip) is simplified to this grid
 MIN_CROP = 32  # smallest crop side (in work px)
 EDGE_T = (
     250.0  # gradient magnitude (sum over channels) that counts as an edge (coarse search / ICP)
@@ -124,7 +124,7 @@ LIGHT_MIN = 170  # a pixel is "light" when its darkest channel is at least this
 COARSE_MAX = 300  # longest side of the image used by the coarse search
 SCALE_STEP = 1.05  # ratio between two scales of the coarse search
 MIN_MAP_FRACTION = 0.2  # smallest map considered, relative to the largest that fits the image
-TOP_K = 3  # coarse candidates that get refined
+TOP_K = 2  # coarse candidates that get refined
 ICP_ITERS = 45
 SIMPLIFY_PX = 0  # gap-free simplification tolerance, in full-res px (sub-pixel)
 SMOOTH_PX = 0.5  # final boundary smoothing radius, in full-res px (no shape change beyond it)
@@ -1036,24 +1036,64 @@ def _polish(sub: np.ndarray, uv, uvb, r: dict) -> dict | None:
     return {"A": ctx["A0"], "t": ctx["t0"], "honest": before}
 
 
+def _mapshaper_simplify(geom, resolution: str = MAPSHAPER_RESOLUTION):
+    """Simplify a lon/lat geometry with mapshaper's default algorithm at `resolution`."""
+    exe = shutil.which("mapshaper")
+    if exe is None:
+        msg = "mapshaper is not on PATH"
+        raise StainError(msg)
+    with tempfile.TemporaryDirectory() as tmp:
+        src = Path(tmp) / "in.geojson"
+        dst = Path(tmp) / "out.geojson"
+        src.write_text(shapely.to_geojson(geom), encoding="utf-8")
+        subprocess.run(
+            [
+                exe,
+                str(src),
+                "-simplify",
+                f"resolution={resolution}",
+                "keep-shapes",
+                "-o",
+                str(dst),
+                "format=geojson",
+            ],
+            check=True,
+            capture_output=True,
+        )
+        data = json.loads(dst.read_text(encoding="utf-8"))
+    if data.get("type") == "FeatureCollection":
+        data = data["features"][0]
+    return shapely.from_geojson(json.dumps(data))
+
+
+def _fit_prep_outline(parts, big):
+    return _mapshaper_simplify(MultiPolygon([p for p in parts if p.area >= 0.02 * big]))
+
+
+def _clip_prep_outline(parts):
+    return shapely.make_valid(_mapshaper_simplify(MultiPolygon(parts)))
+
+
+def _small_prep_outline(small):
+    return _mapshaper_simplify(MultiPolygon(small)) if small else None
+
+
 def _prep_outline(outline):
     """(fit, clip, extra): the outline used to MATCH the screenshot (small islands dropped: they only add
     noise), the full outline used to clip the results, and the small islands the fit leaves out
     (None when there are none). `extra` is where stains on those islands are read.
 
-    All three are simplified by the same RESOLUTION-based tolerance (OUTLINE_RESOLUTION on the whole
-    country's bounding box), never by a fixed number of degrees.
+    All three are simplified by mapshaper at MAPSHAPER_RESOLUTION, never by a fixed number of degrees.
     """
     parts = _polys(shapely.make_valid(outline))
     if not parts:
         msg = "That country has no outline to match against"
         raise StainError(msg)
-    tol = tolerance(shapely.union_all(parts).bounds, OUTLINE_RESOLUTION)
     big = max(p.area for p in parts)
-    fit = shapely.simplify(shapely.union_all([p for p in parts if p.area >= 0.02 * big]), tol)
-    clip = shapely.make_valid(shapely.simplify(shapely.union_all(parts), tol))
+    fit = _fit_prep_outline(parts, big)
+    clip = _clip_prep_outline(parts)
     small = [p for p in parts if p.area < 0.02 * big]
-    extra = shapely.simplify(shapely.union_all(small), tol) if small else None
+    extra = _small_prep_outline(small)
     if extra is not None and extra.is_empty:
         extra = None
     return fit, clip, extra
