@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import ErrorBox from "../../components/ErrorBox.jsx";
+import StatusIcon from "../../components/StatusIcon.jsx";
 import { api, errorText } from "../../lib/api.js";
 import ExtractPanel, { MODES } from "./ExtractPanel.jsx";
 import { download } from "./export.js";
@@ -165,7 +166,7 @@ export default function AdminExtractor() {
       if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || r.statusText);
       const name = (r.headers.get("Content-Disposition") || "").match(/filename="?([^";]+)/)?.[1] || "admin.topojson";
       download(await r.blob(), name);
-    } catch (e) { setErr(errorText(e)); } finally { setExporting(false); }
+    } catch (e) { setErr(e.message); } finally { setExporting(false); }
   };
 
   const shown = useMemo(() => {
@@ -186,11 +187,12 @@ export default function AdminExtractor() {
         <h3>OSM PBF file</h3>
         <div className="tp-row">
           <input id="pbf-path" value={path} placeholder="C:\maps\argentina-latest.osm.pbf" onChange={(e) => setPath(e.target.value)}
-            onKeyDown={(e) => { if (e.key === "Enter") openPath(); }} />
-          <button type="button" className="btn ghost"
-            onClick={async () => { if (path.trim() && await openPath()) return; pick.current?.click(); }}>Open</button>
+            onKeyDown={(e) => { if (e.key === "Enter" && !loading) openPath(); }} />
+          <button type="button" className="btn ghost" disabled={loading}
+            onClick={async () => { if (path.trim() && await openPath()) return; pick.current?.click(); }}>{loading ? "Opening…" : "Open"}</button>
           <input ref={pick} type="file" accept=".osm.pbf" hidden onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ""; upload(f); }} />
         </div>
+        {loading && <span className="muted" role="status"><StatusIcon kind="wait" />Opening the file. A big file can take a few minutes the first time.</span>}
       </div>
 
       {ds && <SplitCard ds={ds} onOpen={(p) => { setPath(p); openPath(p); }} />}
@@ -217,7 +219,7 @@ export default function AdminExtractor() {
           {!shown.length && <p className="muted">No match.</p>}
         </div>
 
-        {country && extracting && <p className="muted">Building the boundaries of this country. The first time takes a while (it reads the file once); after that, everything here is instant.</p>}
+        {country && extracting && <p className="muted" role="status"><StatusIcon kind="wait" />Building the boundaries of this country. The first time takes a while (it reads the file once); after that, everything here is instant.</p>}
 
         {country && info && <>
           <h3>Admin levels <span className="muted">· in this country</span></h3>
@@ -266,7 +268,7 @@ export default function AdminExtractor() {
 
     <div className="tp-main">
       {err && <ErrorBox message={err} />}
-      {admin && (extracting || busy) && <p className="muted">{extracting ? "Building this country…" : "Loading… a new level is cut to the coast and its gaps are filled the first time."}</p>}
+      {admin && (extracting || busy) && <p className="muted" role="status"><StatusIcon kind="wait" />{extracting ? "Building this country…" : "Loading… a new level is cut to the coast and its gaps are filled the first time."}</p>}
       {admin && ds && country && <PolyMap features={fc} fitKey={fc ? `${ds.token}|${country}` : null} onPick={setPicked} selected={sel?.tag ?? null} />}
       {!admin && ds && <>
         <PolyMap features={other?.geojson?.features.length ? other.geojson : null} fitKey={other?.key} />
