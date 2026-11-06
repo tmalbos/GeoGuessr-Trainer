@@ -178,12 +178,20 @@ def _asset(cc: str, name: str) -> Path:
     return p
 
 
-def _next_name(folder: Path, scope: str, general: str, suffix: str) -> str:
+def _next_num(folder: Path, scope: str, general: str) -> int:
+    """Next free number for this scope + category. One clue uses ONE number for all of its files."""
     key = "".join(general.split()).lower()
     prefix = f"{scope}_{key}_"
     pat = re.compile(re.escape(prefix) + r"(\d{5})\..+")
     nums = [int(m.group(1)) for p in folder.glob(prefix + "*") if (m := pat.fullmatch(p.name))]
-    return f"{prefix}{max(nums, default=-1) + 1:05d}{suffix}"
+    return max(nums, default=-1) + 1
+
+
+def _next_name(folder: Path, scope: str, general: str, suffix: str, num: int | None = None) -> str:
+    key = "".join(general.split()).lower()
+    if num is None:
+        num = _next_num(folder, scope, general)
+    return f"{scope}_{key}_{num:05d}{suffix}"
 
 
 def _staged_path(token: str, kind: str) -> Path:
@@ -868,9 +876,10 @@ def add_clue(cc: str, body: ClueBody, request: Request):
         names: dict[str, str] = {}
         made: list[str] = []  # overlay files written by this request
         try:
+            num = _next_num(folder, body.scope, general)  # image, region and overlay share it
             for kind in KINDS:
                 if kind in staged:
-                    name = _next_name(folder, body.scope, general, staged[kind].suffix)
+                    name = _next_name(folder, body.scope, general, staged[kind].suffix, num)
                     shutil.move(staged[kind], folder / name)
                     names[kind] = name
             entry = {
@@ -957,6 +966,7 @@ def update_clue(cc: str, clue_id: str, body: ClueBody, request: Request):
         location, general = _validate(body, {k for k in KINDS if old.get(k)})
         # File names carry the category tag (reg_roads_00003.webp): a file with another prefix is stale.
         prefix = f"{body.scope}_{''.join(general.split()).lower()}_"
+        num = _next_num(folder, body.scope, general)  # one number for every new file of this clue
         staged = {k: _staged_path(t, k) for k, t in body.files.items()}
         replaced = set(staged) | set(body.remove)
         if replaced & set(GEOM_KINDS):
@@ -984,7 +994,7 @@ def update_clue(cc: str, clue_id: str, body: ClueBody, request: Request):
                     names[kind] = old_name
                     overwrite[kind] = staged[kind]
                     continue
-                name = _next_name(folder, body.scope, general, staged[kind].suffix)
+                name = _next_name(folder, body.scope, general, staged[kind].suffix, num)
                 shutil.move(staged[kind], folder / name)
                 names[kind] = name
             # Files the clue keeps but whose name carries an old category: copy them under the right name
@@ -1001,7 +1011,7 @@ def update_clue(cc: str, clue_id: str, body: ClueBody, request: Request):
                     or not (folder / old_name).is_file()
                 ):
                     continue
-                name = _next_name(folder, body.scope, general, Path(old_name).suffix)
+                name = _next_name(folder, body.scope, general, Path(old_name).suffix, num)
                 shutil.copy2(folder / old_name, folder / name)
                 names[kind] = name
                 renamed.append(kind)

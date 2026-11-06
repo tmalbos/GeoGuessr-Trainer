@@ -18,8 +18,8 @@ import shapely
 from pyproj import Geod
 
 MAX_RADIUS_KM = 10.0
-MAX_AREA_SHARE = 0.02  # a circle may cover at most this share of the country
-MAX_SIZE_SHARE = 0.03  # a pin is at most this share of the country's longest side
+MAX_AREA_SHARE = 0.01  # a circle may cover at most this share of the country
+MAX_SIZE_SHARE = 0.1  # a pin is at most this share of the country's longest side
 ASPECT = (1.1, 2.4)  # height / width of a teardrop
 TOP_SHARE = 0.55  # share of the area in the upper half (the round head)
 MIN_SOLIDITY = 0.85  # area / convex hull area: a pin has no dents
