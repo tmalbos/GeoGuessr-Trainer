@@ -977,6 +977,7 @@ def _export(data: dict, country_label: str, levels: list[int], simplify: int) ->
     if not chosen:
         raise HTTPException(422, "Pick at least one admin level")
     feats = []
+    feat_levels = []
     for lv in chosen:
         item = _current(data, lv)
         geoms = _simplify(item["geoms"], _tol(data, simplify))
@@ -992,8 +993,11 @@ def _export(data: dict, country_label: str, levels: list[int], simplify: int) ->
                     "geometry": json.loads(shapely.to_geojson(g)),
                 }
             )
+            feat_levels.append(lv)
     if not feats:
         raise HTTPException(422, "Nothing of these levels is on land.")
+    if len(feats) == 1 and feat_levels[0] < 8:
+        del feats[0]["properties"]["SUBDIVISION_NAME"]
     topology = Topology({"type": "FeatureCollection", "features": feats}, object_name="ADM")
     return topology.to_json(), f"{country_label}-ADM{'-'.join(map(str, chosen))}.topojson"
 
