@@ -1,0 +1,1 @@
+**Andorra**: OSM extract for ADM0 and ADM1 (25-10-2026)
