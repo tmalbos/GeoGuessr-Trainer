@@ -32,17 +32,23 @@ const google = (template) => ({
     : null),
 });
 
-let config = { provider: "osm", google_key: false, street_view: false, tile_template: null, error: "" };
-let current = OSM;
+let config = null;
+let current = null;
 
 const pick = (c) => {
-  if (c.provider === "google" && c.tile_template) return google(c.tile_template);
-  return LOCAL.find((p) => p.id === c.provider) ?? OSM;
+  if (c.provider === "osm") return OSM;
+  if (c.provider === "google") {
+    // The only fallback: a missing/rejected Google key must not lock the user out of the app.
+    return c.tile_template ? google(c.tile_template) : OSM;
+  }
+  const local = LOCAL.find((p) => p.id === c.provider);
+  if (!local) throw new Error(`Unknown map source "${c.provider}".`);
+  return local;
 };
 
-/** Call once before the first map is drawn. Never throws: with no backend the map falls back to OSM. */
+/** Call once before the first map is drawn. Throws when the setting can't be read or used. */
 export async function initMapProvider() {
-  try { config = await api("/settings/map"); } catch { /* keep the defaults */ }
+  config = await api("/settings/map");
   current = pick(config);
   return config;
 }

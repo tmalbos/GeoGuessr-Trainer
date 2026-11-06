@@ -6,7 +6,7 @@ import { mapConfig, providerOptions, saveMapSettings } from "../lib/mapProviders
 export default function MapSourceCard() {
   const cfg = mapConfig();
   const options = providerOptions();
-  const [provider, setProvider] = useState(options.some((o) => o.id === cfg.provider) ? cfg.provider : "osm");
+  const [provider, setProvider] = useState(cfg.provider);
   const [key, setKey] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");

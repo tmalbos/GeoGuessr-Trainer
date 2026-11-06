@@ -955,6 +955,8 @@ def update_clue(cc: str, clue_id: str, body: ClueBody, request: Request):
         if old.get("scope") != body.scope:
             raise HTTPException(422, "A clue can't switch between national and regional")
         location, general = _validate(body, {k for k in KINDS if old.get(k)})
+        # File names carry the category tag (reg_roads_00003.webp): a file with another prefix is stale.
+        prefix = f"{body.scope}_{''.join(general.split()).lower()}_"
         staged = {k: _staged_path(t, k) for k, t in body.files.items()}
         replaced = set(staged) | set(body.remove)
         if replaced & set(GEOM_KINDS):
@@ -974,6 +976,7 @@ def update_clue(cc: str, clue_id: str, body: ClueBody, request: Request):
                 if (
                     old_name
                     and ASSET_RE.fullmatch(old_name)
+                    and old_name.startswith(prefix)
                     and Path(old_name).suffix == staged[kind].suffix
                     and (folder / old_name).is_file()
                 ):
@@ -984,6 +987,24 @@ def update_clue(cc: str, clue_id: str, body: ClueBody, request: Request):
                 name = _next_name(folder, body.scope, general, staged[kind].suffix)
                 shutil.move(staged[kind], folder / name)
                 names[kind] = name
+            # Files the clue keeps but whose name carries an old category: copy them under the right name
+            # (the old ones are deleted after the yaml is saved, so a failure loses nothing).
+            renamed: list[str] = []
+            for kind in KINDS:
+                old_name = old.get(kind)
+                if (
+                    kind in staged
+                    or kind in replaced
+                    or not old_name
+                    or old_name.startswith(prefix)
+                    or not ASSET_RE.fullmatch(old_name)
+                    or not (folder / old_name).is_file()
+                ):
+                    continue
+                name = _next_name(folder, body.scope, general, Path(old_name).suffix)
+                shutil.copy2(folder / old_name, folder / name)
+                names[kind] = name
+                renamed.append(kind)
             kept = {k: old[k] for k in KINDS if old.get(k) and k not in replaced}
             entry = {
                 "id": old["id"],
@@ -1018,9 +1039,14 @@ def update_clue(cc: str, clue_id: str, body: ClueBody, request: Request):
                     if entry["overlay"] != old.get("overlay"):
                         fresh_overlay = entry["overlay"]
                 elif old.get("overlay") and geo_kind not in staged:
-                    entry["overlay"] = old[
-                        "overlay"
-                    ]  # same geometry, can't redraw now: keep the picture
+                    # Same geometry, can't redraw now: keep the picture (under the geometry's new name, if it has one).
+                    want = _overlay_name(entry[geo_kind])
+                    if want != old["overlay"] and (folder / old["overlay"]).is_file():
+                        shutil.copy2(folder / old["overlay"], folder / want)
+                        fresh_overlay = want
+                        entry["overlay"] = want
+                    else:
+                        entry["overlay"] = old["overlay"]
             updated = [entry if c is old else c for c in items]
             books = {cc: updated}
             _sync_relations(books, cc, entry, old.get("relations") or [], rels)
@@ -1043,7 +1069,7 @@ def update_clue(cc: str, clue_id: str, body: ClueBody, request: Request):
                 raise HTTPException(500, msg) from e
         # Old files that no longer belong to the clue (replaced by a differently named file).
         kept_names = set(names.values())
-        for kind in replaced:
+        for kind in replaced | set(renamed):
             old_name = old.get(kind)
             if old_name and old_name not in kept_names and ASSET_RE.fullmatch(old_name):
                 (folder / old_name).unlink(missing_ok=True)

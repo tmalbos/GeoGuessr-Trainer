@@ -1,6 +1,6 @@
-"""status.py — Health of DB, Anki, geo layers and cookie."""
+"""status.py — Health/readiness of the API and the resources it needs."""
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Request, Response
 
 from src.api.deps import get_ctx
 from src.geoguessr.cookie_store import load_cookie
@@ -8,16 +8,39 @@ from src.geoguessr.cookie_store import load_cookie
 router = APIRouter()
 
 
+def _geo_state(ctx) -> str:
+    task = ctx._geodata_task  # noqa: SLF001
+    if ctx.local_geo is not None:
+        return "ready"
+    if task is None:
+        return "starting"
+    if task.done():
+        return "error" if task.cancelled() or task.exception() is not None else "loading"
+    return "loading"
+
+
+@router.get("/health")
+async def health():
+    """Liveness: the process is serving. Touches no resource."""
+    return {"status": "ok"}
+
+
+@router.get("/ready")
+async def ready(request: Request, response: Response):
+    """Readiness: 200 only when every startup resource is up; 503 with the per-check detail until then."""
+    ctx = get_ctx(request)
+    db = ctx._db_adapter is not None and await ctx._db_adapter.check_connection()  # noqa: SLF001
+    checks = {"db": db, "geodata": _geo_state(ctx), "http": ctx.http_client is not None}
+    ok = db and checks["geodata"] == "ready" and checks["http"]
+    if not ok:
+        response.status_code = 503
+    return {"ready": ok, "checks": checks}
+
+
 @router.get("/status")
 async def status(request: Request):
     ctx = get_ctx(request)
-    task = ctx._geodata_task  # noqa: SLF001
-    if ctx.local_geo is not None:
-        geo = "ready"
-    elif task is not None and task.done() and task.exception():
-        geo = "error"
-    else:
-        geo = "loading"
+    geo = _geo_state(ctx)
     anki = False
     if ctx.http_client is not None:
         try:

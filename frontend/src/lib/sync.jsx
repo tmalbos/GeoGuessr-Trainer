@@ -52,7 +52,7 @@ export function SyncProvider({ children }) {
   }, []);
 
   useEffect(() => {
-    api("/status").then((s) => { if (s.sync_running) listen(); }).catch(() => {});
+    api("/status").then((s) => { if (s.sync_running) listen(); }).catch((e) => setErr(errorText(e)));
     return () => es.current?.close();
   }, [listen]);
 

@@ -174,7 +174,9 @@ def render_overlay(
                 )[0]
                 if d:
                     op = 0.85 * shade_factor(v, top) if v else None
-                    parts.append(f'<path d="{d}" {POLY}{_opacity(op)} {NSS} fill-rule="evenodd"/>')
+                    # POLY already has a fill-opacity: a second one makes the SVG invalid (broken image).
+                    poly = POLY if op is None else POLY.replace(' fill-opacity=".85"', "")
+                    parts.append(f'<path d="{d}" {poly}{_opacity(op)} {NSS} fill-rule="evenodd"/>')
         elif rest_geoms:
             d = _shapes(shapely.GeometryCollection(rest_geoms))[0]
             if d:
