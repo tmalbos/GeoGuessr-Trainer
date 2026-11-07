@@ -37,7 +37,7 @@ class MapBody(BaseModel):
 @router.get("/settings")
 async def get_settings():
     return {
-        "lang": os.environ.get("GEOGUESSR_LANG", "en"),
+        "lang": str(prefs.load().get("lang") or "en"),
         "user_id": os.environ.get("GEOGUESSR_USER_ID") or DEFAULT_USER_ID,
         "cookie": bool(load_cookie()),
     }
@@ -62,7 +62,7 @@ async def refresh():
 @router.put("/settings/lang")
 async def put_lang(body: LangBody):
     await load_lang(body.lang)
-    os.environ["GEOGUESSR_LANG"] = body.lang
+    prefs.update(lang=body.lang)
     return {"ok": True}
 
 

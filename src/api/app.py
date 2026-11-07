@@ -28,6 +28,7 @@ from src.api.routers import (
 )
 from src.app_context import AppContext
 from src.i18n.lang import load as load_lang
+from src.shared import prefs
 
 DIST = Path(__file__).parents[2] / "frontend" / "dist"
 
@@ -35,7 +36,7 @@ DIST = Path(__file__).parents[2] / "frontend" / "dist"
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     load_dotenv()
-    await load_lang(os.environ.get("GEOGUESSR_LANG", "en"))
+    await load_lang(str(prefs.load().get("lang") or "en"))
     app.state.ctx = AppContext(db_dsn=os.environ.get("PG_DSN", ""))
     app.state.job = None
     await app.state.ctx.init()
