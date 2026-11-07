@@ -1,0 +1,16 @@
+/* Named, colored areas (a clue made from a CSV of groups of subdivisions). */
+.cl-area { stroke: #0d1117; stroke-width: 1px; stroke-linejoin: round; vector-effect: non-scaling-stroke; fill-opacity: .92; }
+.cl-area.click { cursor: pointer; }
+.cl-area.click:hover, .cl-area.sel { stroke: #fff; stroke-width: 2px; fill-opacity: 1; }
+.cl-area:focus-visible { outline: none; stroke: #fff; stroke-width: 2px; }
+
+/* The extra_info of the clicked area, shown beside the map */
+.area-info { position: relative; display: grid; gap: 8px; margin-bottom: 12px; padding: 12px 36px 12px 14px;
+  background: var(--raise); border: 1px solid var(--line); border-radius: 8px; }
+.area-info b { font-size: 16px; }
+.area-info p { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.area-info a { color: var(--sea-hi); }
+.area-info img { max-width: 100%; max-height: 320px; object-fit: contain; border-radius: 6px; }
+.area-info > button { position: absolute; top: 6px; right: 8px; padding: 0 4px; background: none; border: 0;
+  color: var(--mute); cursor: pointer; font-size: 18px; line-height: 1; }
+.area-info > button:hover { color: var(--ink); }

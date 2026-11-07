@@ -12,6 +12,7 @@ import { photoFit, useBoxHeight } from "./overlayFit.js";
 import "./blur.css";
 import "./editor.css";
 import "./relations.css";
+import "./areas.css";
 
 const ico = { width: 16, height: 16, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 2, strokeLinecap: "round", strokeLinejoin: "round", "aria-hidden": true };
 const Trash = () => <svg {...ico}><path d="M3 6h18" /><path d="M8 6V4h8v2" /><path d="M19 6l-1 14H6L5 6" /><path d="M10 11v6M14 11v6" /></svg>;
@@ -30,14 +31,23 @@ export function SourceChip({ source }) {
       onError={(e) => { e.currentTarget.style.display = "none"; }} /></a>;
 }
 
+// The extra_info of a clicked area: an embedded image, or text.
+function AreaInfo({ pick, onClose }) {
+  return <div className="area-info">
+    <button type="button" aria-label="Close" onClick={onClose}>×</button>
+    <b>{pick.name}</b>
+    {pick.extra.startsWith("data:image/") ? <img src={pick.extra} alt={pick.name} /> : <p><RichText text={pick.extra} /></p>}
+  </div>;
+}
+
 // Image (with the regional map overlaid) or, without an image, just the map.
 // An SVG stands for the region itself: alone it is the whole card picture, next to a photo it is the overlay.
 // `clue.max_height` (px) caps the image: it keeps its proportions, so a tall image just gets narrower.
 // If the regional map is taller than that cap, the photo box grows to fit the map and the image stays centred in it.
-function Media({ cc, clue, children }) {
+function Media({ cc, clue, children, onArea, selected }) {
   const isReg = clue.scope === "reg";
   const hasSvg = !!clue.svg;
-  const map = isReg && !clue.image && <ClueMap cc={cc} clue={clue} />;
+  const map = isReg && !clue.image && <ClueMap cc={cc} clue={clue} onArea={onArea} selected={selected} />;
   const limited = !!clue.image && !!clue.max_height;
   const [ovNode, setOvNode] = useState(null);
   const ovH = useBoxHeight(ovNode);
@@ -120,6 +130,7 @@ export default function ClueCard({ cc, clue, editing, onDelete, onEdit, dragging
   showTags = true, showSource = true }) {
   const { nameOf } = useCountries();
   const [open, setOpen] = useState([]); // countries whose related clue is shown next to this one
+  const [pick, setPick] = useState(null); // the area of a colored-areas clue that was clicked
   const toggleOpen = (c) => setOpen((o) => (o.includes(c) ? o.filter((x) => x !== c) : [...o, c]));
   const loc = clue.tags.find((t) => LOCATION_TAGS.includes(t));
   const cat = clue.tags.find((t) => GENERAL_TAGS.includes(t));
@@ -134,9 +145,10 @@ export default function ClueCard({ cc, clue, editing, onDelete, onEdit, dragging
     </div>}
     {editing && <span className="clue-grip" draggable title="Drag to reorder" aria-label="Drag to reorder"
       onDragStart={onGrab} onDragEnd={onRelease}><Grip /></span>}
-    <Media cc={cc} clue={clue}><Badges clue={clue} /></Media>
+    <Media cc={cc} clue={clue} onArea={setPick} selected={pick?.name}><Badges clue={clue} /></Media>
     {shown.map((c) => <RelatedMedia key={c} cc={c} ids={idsOf(c)} name={nameOf(c)} onClose={() => toggleOpen(c)} />)}
     <div className={`clue-body ${editing ? "has-tools" : ""}`}>
+      {pick && <AreaInfo pick={pick} onClose={() => setPick(null)} />}
       <div className="clue-tags">
         {showTags && loc && <LocationChip t={loc} />}
         {showTags && cat && <CategoryChip t={cat} />}

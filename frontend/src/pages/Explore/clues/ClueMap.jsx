@@ -26,13 +26,13 @@ function csvLevels(rows) {
 // - Geometry files without an overlay (not built yet): drawn on the country's own outline and borders (RegionPreview).
 // - CSV: the country's first-level subdivisions, painted.
 // align="right": the map sits against the right edge of its box (overlay on a clue photo).
-export default function ClueMap({ cc, clue, align }) {
+export default function ClueMap({ cc, clue, align, onArea, selected }) {
   const [map, setMap] = useState(null);
   const [geo, setGeo] = useState({});
   const [err, setErr] = useState("");
   const kinds = GEO_KINDS.filter((k) => clue[k]);
   const hasGeo = kinds.length > 0;
-  const overlay = hasGeo ? clue.overlay : null;
+  const overlay = hasGeo && !clue.areas ? clue.overlay : null;
 
   useEffect(() => {
     let off = false;
@@ -57,7 +57,7 @@ export default function ClueMap({ cc, clue, align }) {
 
   if (hasGeo) {
     if (!kinds.every((k) => geo[k])) return <p className="muted">Loading map…</p>;
-    return <RegionPreview cc={cc} layers={kinds.map((k) => geo[k])} align={align} />;
+    return <RegionPreview cc={cc} layers={kinds.map((k) => geo[k])} align={align} onArea={onArea} selected={selected} />;
   }
 
   if (!map) return <p className="muted">Loading map…</p>;

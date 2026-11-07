@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { api } from "../../../lib/api.js";
 import { bboxOf, fitProjection, shadeFactor, shapes } from "./geoDraw.js";
 import "./import-extras.css";
+import "./areas.css";
 
 // A region (polygons / lines / points, lon/lat GeoJSON) drawn ON its country: the country's outline and
 // first-level borders come from the backend (/clues/{cc}/base), so the region is never shown floating alone.
@@ -80,7 +81,7 @@ function Pin({ at: [x, y], className = "cl-poly", style, children, ...rest }) {
  *  polygon. With `onStain(id)` each one can be clicked (or Enter / Space) to switch it off and on; an inactive stain is
  *  drawn grey, faint and dashed. A stain smaller than 2% of the country is drawn as a pin (see above).
  *  align="right": the country is drawn against the right edge of the box (used by the overlay on a clue photo). */
-export default function RegionPreview({ cc, layers, stains, onStain, style, align, label = "Map of the country with the region painted on it" }) {
+export default function RegionPreview({ cc, layers, stains, onStain, onArea, selected, style, align, label = "Map of the country with the region painted on it" }) {
   const [base, setBase] = useState(undefined); // undefined = loading, null = not available
   useEffect(() => {
     let off = false;
@@ -109,7 +110,9 @@ export default function RegionPreview({ cc, layers, stains, onStain, style, alig
   const stainTop = Math.max(0, ...(stains ?? []).filter((s) => s.active).map((s) => s.shade ?? 0));
 
   const total = outline ? polyArea(outline, project) : 0;
-  const split = layers.map((g) => splitPins(g, total, project));
+  const plain = layers.filter((g) => !g.colors);
+  const areaLayers = layers.filter((g) => g.colors); // named, colored areas (see areas.css)
+  const split = plain.map((g) => splitPins(g, total, project));
   const smallStains = (stains ?? []).filter((s) => isSmall(s.geometry, total, project));
   const pinned = new Set(smallStains.length <= MAX_PINS ? smallStains.map((s) => s.id) : []);
 
@@ -138,6 +141,18 @@ export default function RegionPreview({ cc, layers, stains, onStain, style, alig
         })}
       </g>;
     })}
+    {areaLayers.flatMap((g) => g.geometries.map((geom, i) => {
+      const name = g.names?.[i] ?? "";
+      const extra = g.extras?.[i] ?? "";
+      const click = !!onArea && !!extra;
+      const act = click ? {
+        role: "button", tabIndex: 0, "aria-label": name,
+        onClick: () => onArea({ name, extra }),
+        onKeyDown: (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onArea({ name, extra }); } },
+      } : {};
+      return <path key={`${name}-${i}`} className={`cl-area ${click ? "click" : ""} ${selected === name ? "sel" : ""}`}
+        d={shapes(geom, project).polys} fillRule="evenodd" style={{ fill: g.colors[i] }} {...act}><title>{name}</title></path>;
+    }))}
     {(stains ?? []).map((s) => {
       const op = s.active && s.shade ? 0.85 * shadeFactor(s.shade, stainTop) : null;
       const toggle = () => onStain?.(s.id);
