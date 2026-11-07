@@ -899,6 +899,32 @@ def _set_fill(data: dict, level: int, source: int | None) -> None:
         _drop_preview(data, level)
 
 
+def _merge(data: dict, level: int, idxs: list[int]) -> None:
+    """Merge any number of polygons of a finished level into one (the first one that keeps its name wins)."""
+    with _LAND:
+        item = _current(data, level)
+        ids = sorted(set(idxs))
+        if len(ids) < 2 or ids[0] < 0 or ids[-1] >= len(item["props"]):
+            raise HTTPException(422, "Pick at least two different polygons.")
+        merged = item["geoms"][ids[0]]
+        for i in ids[1:]:
+            merged = _safe(shapely.union, merged, item["geoms"][i])
+        merged = _polys(merged)
+        if merged is None:
+            raise HTTPException(422, "Those polygons could not be merged.")
+        keep = next(
+            (item["props"][i] for i in ids if not item["props"][i].get("unnamed")),
+            item["props"][ids[0]],
+        )
+        drop = set(ids[1:])
+        props = [p for i, p in enumerate(item["props"]) if i not in drop]
+        geoms = item["geoms"].copy()
+        props[ids[0] - sum(1 for d in drop if d < ids[0])] = keep
+        geoms[ids[0]] = merged
+        data["land"][level] = {"props": props, "geoms": np.delete(geoms, list(drop))}
+        _drop_preview(data, level)
+
+
 # ── step 3: preview / export (from memory) ─────────────────────────────────
 
 
@@ -940,6 +966,7 @@ def _preview_features(data: dict, level: int, pct: int) -> list[str]:
             + json.dumps(
                 {
                     **p,
+                    "idx": i,
                     "tag": f"ADM{level} · {p['name']}",
                     "color": UNNAMED_COLOR if p.get("unnamed") else _color(level),
                     "shade": 0,
@@ -950,7 +977,7 @@ def _preview_features(data: dict, level: int, pct: int) -> list[str]:
             + ',"geometry":'
             + g
             + "}"
-            for p, g in zip(lv["props"], gj, strict=True)
+            for i, (p, g) in enumerate(zip(lv["props"], gj, strict=True))
         ]
         data["cache"][key] = hit
         while len(data["cache"]) > MAX_PREVIEW_CACHE:
@@ -1030,6 +1057,11 @@ class FillBody(CountryBody):
     source: int | None = None
 
 
+class MergeBody(CountryBody):
+    level: int
+    idxs: list[int] = Field(min_length=2, max_length=1000)
+
+
 def _levels(values: list[int]) -> list[int]:
     return sorted({int(v) for v in values if 1 <= int(v) <= 20})
 
@@ -1094,6 +1126,15 @@ async def fill_pbf(body: FillBody):
         raise HTTPException(422, "Pick a different admin level to fill from.")
     await run_in_threadpool(_set_fill, data, body.level, body.source)
     return {"fills": dict(data["fill"])}
+
+
+@router.post("/technical/pbf/merge")
+async def merge_pbf(body: MergeBody):
+    data = await run_in_threadpool(_load, _dataset(body.token), body.country)
+    if body.level not in data["by_level"]:
+        raise HTTPException(422, "That admin level is not in this country.")
+    await run_in_threadpool(_merge, data, body.level, body.idxs)
+    return {"ok": True}
 
 
 @router.post("/technical/pbf/export")

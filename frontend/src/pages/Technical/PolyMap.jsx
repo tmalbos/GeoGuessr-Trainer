@@ -20,7 +20,7 @@ const CLICK_PX = 4; // a press that moves less than this is a click, not a pan
 /** features: GeoJSON FeatureCollection | null. fitKey: refit the view to the features when it changes.
  *  A feature with properties.shade > 0 is a rarer part of its tag: drawn lighter. Lines are stroked, points are dots.
  *  onPick(properties | null): called when a shape (or empty map) is clicked. selected: tag to highlight. */
-export default function PolyMap({ features, fitKey, onPick, selected = null }) {
+export default function PolyMap({ features, fitKey, onPick, selected = null, marked = null }) {
   const box = useRef(null);
   const tiles = useRef(null);
   const canvas = useRef(null);
@@ -30,7 +30,7 @@ export default function PolyMap({ features, fitKey, onPick, selected = null }) {
   pickRef.current = onPick;
 
   useEffect(() => {
-    const st = { features: null, hits: [], dpr: 1, selected: null };
+    const st = { features: null, hits: [], dpr: 1, selected: null, marked: null };
     const cv = canvas.current;
 
     const draw = (v, size) => {
@@ -51,6 +51,7 @@ export default function PolyMap({ features, fitKey, onPick, selected = null }) {
       const top = {}; // rarest shade of each tag
       for (const f of st.features?.features ?? []) top[f.properties.tag] = Math.max(top[f.properties.tag] ?? 0, f.properties.shade ?? 0);
       let chosen = null;
+      const extra = [];
       for (const f of st.features?.features ?? []) {
         const g = f.geometry;
         const path = new Path2D();
@@ -90,13 +91,15 @@ export default function PolyMap({ features, fitKey, onPick, selected = null }) {
           ctx.stroke(path);
         }
         if (st.selected && f.properties.tag === st.selected) chosen = path;
+        if (st.marked?.some((m) => m.admin_level === f.properties.admin_level && m.idx === f.properties.idx)) extra.push(path);
         st.hits.push({ path, tag: f.properties.tag, props: f.properties, line });
       }
-      if (chosen) { // the selected shape gets a bright outline on top of everything
+      if (chosen) extra.push(chosen);
+      if (extra.length) { // the selected shapes get a bright outline on top of everything
         ctx.globalAlpha = 1;
         ctx.strokeStyle = "#ffffff";
         ctx.lineWidth = 2.5;
-        ctx.stroke(chosen);
+        for (const q of extra) ctx.stroke(q);
       }
     };
 
@@ -137,7 +140,7 @@ export default function PolyMap({ features, fitKey, onPick, selected = null }) {
       if (!d || Math.hypot(e.clientX - d.x, e.clientY - d.y) > CLICK_PX) return;
       const r = el.getBoundingClientRect();
       const hit = hitAt(e.clientX - r.left, e.clientY - r.top);
-      pickRef.current?.(hit ? hit.props : null);
+      pickRef.current?.(hit ? hit.props : null, e.shiftKey);
     };
 
     el.addEventListener("pointermove", onHover);
@@ -167,6 +170,12 @@ export default function PolyMap({ features, fitKey, onPick, selected = null }) {
     api.current.st.selected = selected;
     api.current.engine.render(true);
   }, [selected]);
+
+  useEffect(() => {
+    if (!api.current) return;
+    api.current.st.marked = marked;
+    api.current.engine.render(true);
+  }, [marked]);
 
   // Fit to the features when fitKey changes (the tools change it when the result for a new selection arrives).
   const latest = useRef({});

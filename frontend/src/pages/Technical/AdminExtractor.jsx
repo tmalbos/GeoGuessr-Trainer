@@ -25,6 +25,7 @@ export default function AdminExtractor() {
   const [info, setInfo] = useState(null); // { levels: [{ level, count }] } of the selected country only
   const [fills, setFills] = useState({}); // level -> level whose polygons fill its gaps (absent = "Unnamed N")
   const [picked, setPicked] = useState(null); // properties of the clicked polygon
+  const [marks, setMarks] = useState([]); // polygons picked with click / Shift+click, to merge
   const [nameDraft, setNameDraft] = useState("");
   const [bump, setBump] = useState(0); // forces a refetch of levels removed from the cache
   const [path, setPath] = useState("");
@@ -43,7 +44,7 @@ export default function AdminExtractor() {
 
   const accept = (d) => {
     cache.current.clear();
-    setDs(d); setCountry(""); setLevels([]); setInfo(null); setErr(""); setView(null); setPicked(null); setFills({});
+    setDs(d); setCountry(""); setLevels([]); setInfo(null); setErr(""); setView(null); setPicked(null); setFills({}); setMarks([]);
   };
 
   const upload = async (file) => {
@@ -66,7 +67,7 @@ export default function AdminExtractor() {
 
   // Step 1: build the selected country (slow once, instant when the server already has it).
   useEffect(() => {
-    setInfo(null); setPicked(null);
+    setInfo(null); setPicked(null); setMarks([]);
     if (!ds || !country) { setExtracting(false); return undefined; }
     let stale = false;
     setExtracting(true); setErr("");
@@ -177,9 +178,32 @@ export default function AdminExtractor() {
         return next;
       });
       cache.current.delete(`${ds.token}|${country}|${level}|${pct}`);
-      setPicked(null);
+      setPicked(null); setMarks([]);
       setVer((v) => v + 1);
       setBump((b) => b + 1);
+    } catch (e) { setErr(errorText(e)); }
+  };
+
+  const onPick = (p, shift) => {
+    const m = p && p.idx != null ? p : null;
+    if (!shift) { setPicked(p); setMarks(m ? [m] : []); return; }
+    if (!m) return;
+    setMarks((ms) => {
+      const same = ms.filter((x) => x.admin_level === m.admin_level);
+      if (same.some((x) => x.idx === m.idx)) return same.filter((x) => x.idx !== m.idx);
+      return [...same, m];
+    });
+  };
+
+  const mergeMarked = async () => {
+    const first = marks[0];
+    setErr("");
+    try {
+      await api("/technical/pbf/merge", { method: "POST", body: { token: ds.token, country, level: first.admin_level, idxs: marks.map((m) => m.idx) } });
+      cache.current.delete(`${ds.token}|${country}|${first.admin_level}|${pct}`);
+      setMarks([]); setPicked(null);
+      setVer((v) => v + 1);
+      setBump((n) => n + 1);
     } catch (e) { setErr(errorText(e)); }
   };
 
@@ -280,6 +304,12 @@ export default function AdminExtractor() {
             </div>
           </div>}
 
+          {!!levels.length && <div className="tp-field">
+            <label>Merge <span className="muted">{marks.length} selected</span></label>
+            <p className="muted">Click a polygon, then Shift+click more of the same level.</p>
+            <button type="button" className="btn ghost" disabled={marks.length < 2 || !levels.includes(marks[0].admin_level)} onClick={mergeMarked}>Merge selected</button>
+          </div>}
+
           <h3>Simplification</h3>
           <div className="tp-field">
             <label htmlFor="pbf-simplify">Export <span className="muted">{simplify ? `${simplify}%` : "Off"}</span></label>
@@ -297,7 +327,7 @@ export default function AdminExtractor() {
     <div className="tp-main">
       {err && <ErrorBox message={err} />}
       {admin && (extracting || busy) && <p className="muted" role="status"><StatusIcon kind="wait" />{extracting ? "Building this country…" : "Loading… a new level is cut to the coast and its gaps are filled the first time."}</p>}
-      {admin && ds && country && <PolyMap features={fc} fitKey={fc ? `${ds.token}|${country}` : null} onPick={setPicked} selected={sel?.tag ?? null} />}
+      {admin && ds && country && <PolyMap features={fc} fitKey={fc ? `${ds.token}|${country}` : null} onPick={onPick} selected={sel?.tag ?? null} marked={marks} />}
       {!admin && ds && <>
         <PolyMap features={other?.geojson?.features.length ? other.geojson : null} fitKey={other?.key} />
         <div className="tp-stats muted">
