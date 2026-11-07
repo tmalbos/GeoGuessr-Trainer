@@ -78,7 +78,7 @@ export default function SplitCard({ ds, onOpen }) {
 
   const missing = tool && !tool.found;
   return <details className="tp-drop">
-    <summary><b>Split into one file per country</b> <span className="muted">· {ds.countries.length} country borders in this file</span></summary>
+    <summary><b>Split into one file per country</b> <span className="muted">· {ds.countries.length} {ds.countries.length === 1 ? "country" : "countries"}</span></summary>
     <p className="muted">Roads, lakes and boundaries that cross a border are kept whole in every country they touch, so neighbouring files overlap a little. Big files take a while: it keeps running in the background.</p>
 
     {missing && <OsmiumSetup onSaved={setTool} />}
