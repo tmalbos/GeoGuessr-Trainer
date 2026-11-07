@@ -133,19 +133,20 @@ export default function AdminExtractor() {
     } catch (e) { setErr(errorText(e)); }
   };
 
-  // Delete/Backspace drops the picked polygon from what the map shows (the export is built from the cache).
-  const removePicked = () => {
-    if (!picked) return;
-    const key = `${ds.token}|${country}|${picked.admin_level}|${pct}`;
-    const feats = cache.current.get(key);
-    if (feats) {
-      const drop = picked.gap != null
-        ? (p) => p.admin_level === picked.admin_level && p.gap === picked.gap
-        : (p) => p.tag === picked.tag;
-      cache.current.set(key, feats.filter((f) => !drop(f.properties)));
-    }
-    setPicked(null);
-    setVer((v) => v + 1);
+  // Delete/Backspace removes the picked polygon (or every Shift-selected one) from the server's copy of the level,
+  // so exports and coarser-layer lookups don't see it either.
+  const removePicked = async () => {
+    const list = marks.length ? marks : picked?.idx != null ? [picked] : [];
+    if (!list.length) return;
+    const level = list[0].admin_level;
+    setErr("");
+    try {
+      await api("/technical/pbf/delete", { method: "POST", body: { token: ds.token, country, level, idxs: list.map((m) => m.idx) } });
+      cache.current.delete(`${ds.token}|${country}|${level}|${pct}`);
+      setMarks([]); setPicked(null);
+      setVer((v) => v + 1);
+      setBump((n) => n + 1);
+    } catch (e) { setErr(errorText(e)); }
   };
 
   useEffect(() => {
@@ -159,7 +160,7 @@ export default function AdminExtractor() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [picked, ds, country, pct, mode]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [picked, marks, ds, country, pct, mode]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const setFill = async (level, value) => {
     const source = value === "" ? null : Number(value);

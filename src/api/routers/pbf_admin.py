@@ -1258,6 +1258,11 @@ class MergeBody(CountryBody):
     idxs: list[int] = Field(min_length=2, max_length=1000)
 
 
+class DeleteBody(CountryBody):
+    level: int
+    idxs: list[int] = Field(min_length=1, max_length=1000)
+
+
 class ParentSpec(BaseModel):
     adm: int = Field(ge=1, le=MAX_ADM)  # which coarser ADM number this source provides
     level: int | None = None  # an OSM level of the open country...
@@ -1342,6 +1347,30 @@ async def merge_pbf(body: MergeBody):
     if body.level not in data["by_level"]:
         raise HTTPException(422, "That admin level is not in this country.")
     await run_in_threadpool(_merge, data, body.level, body.idxs)
+    return {"ok": True}
+
+
+def _delete(data: dict, level: int, idxs: list[int]) -> None:
+    """Remove polygons of a finished level (what exports and coarser-layer lookups then see)."""
+    with _LAND:
+        item = _current(data, level)
+        drop = set(idxs)
+        if min(drop) < 0 or max(drop) >= len(item["props"]):
+            raise HTTPException(422, "Those polygons are not in this level any more.")
+        keep = [i for i in range(len(item["props"])) if i not in drop]
+        data["land"][level] = {
+            "props": [item["props"][i] for i in keep],
+            "geoms": item["geoms"][keep],
+        }
+        _drop_preview(data, level)
+
+
+@router.post("/technical/pbf/delete")
+async def delete_pbf(body: DeleteBody):
+    data = await run_in_threadpool(_load, _dataset(body.token), body.country)
+    if body.level not in data["by_level"]:
+        raise HTTPException(422, "That admin level is not in this country.")
+    await run_in_threadpool(_delete, data, body.level, body.idxs)
     return {"ok": True}
 
 
