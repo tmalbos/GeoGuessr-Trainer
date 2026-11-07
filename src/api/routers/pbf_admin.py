@@ -39,7 +39,7 @@ import operator
 import tempfile
 import threading
 from array import array
-from collections import OrderedDict
+from collections import Counter, OrderedDict
 from pathlib import Path
 from uuid import uuid4
 
@@ -994,6 +994,73 @@ def _preview_body(data: dict, levels: list[int], pct: int) -> str:
     return '{"pct":%d,"levels":{%s}}' % (pct, ",".join(parts))
 
 
+# ── export names: strip the words that only add noise ──────────────────────
+
+COMMON_WORD_SHARE = (
+    0.8  # a word in at least this share of a level's names is dropped from all of them
+)
+MIN_NAMES_FOR_COMMON = 3  # fewer names than this and "common" means nothing
+# Administrative-type words dropped from every name. City / town / village and similar are kept.
+_ADMIN_WORDS = frozenset(
+    [
+        "municipality",
+        "municipal",
+        "county",
+        "province",
+        "region",
+        "district",
+        "department",
+        "governorate",
+        "prefecture",
+        "canton",
+        "parish",
+        "oblast",
+        "voivodeship",
+        "division",
+        "commune",
+        "territory",
+    ]
+)
+_LINKS = frozenset(
+    {"of", "de", "del", "da", "do"}
+)  # left dangling at the edges once a word is gone
+
+
+def _word_key(word: str) -> str:
+    return word.strip(".,;:()[]\"'").casefold()
+
+
+def _clean_names(names: list[str]) -> list[str]:
+    """Names without the admin-type words and without the words shared by >= COMMON_WORD_SHARE of them.
+    A name that would end up empty keeps its original text.
+    """
+    counts: Counter[str] = Counter()
+    for n in names:
+        counts.update({_word_key(w) for w in n.split()} - {""})
+    common: set[str] = set()
+    if len(names) >= MIN_NAMES_FOR_COMMON:
+        common = {w for w, c in counts.items() if c >= COMMON_WORD_SHARE * len(names)}
+    drop = common | _ADMIN_WORDS
+    out = []
+    for n in names:
+        kept = [w for w in n.split() if _word_key(w) not in drop]
+        while kept and _word_key(kept[0]) in _LINKS:
+            kept.pop(0)
+        while kept and _word_key(kept[-1]) in _LINKS:
+            kept.pop()
+        out.append(" ".join(kept) or n)
+    return out
+
+
+def _export_names(props: list[dict]) -> list[str]:
+    """Export name of every polygon of one level. Filled-in gaps ("Unnamed N" or renamed) are left as they are."""
+    idx = [i for i, p in enumerate(props) if p.get("gap") is None]
+    names = [p["name"] for p in props]
+    for i, clean in zip(idx, _clean_names([names[i] for i in idx]), strict=True):
+        names[i] = clean
+    return names
+
+
 def _export(data: dict, country_label: str, levels: list[int], simplify: int) -> tuple[str, str]:
     try:
         from topojson import Topology
@@ -1008,14 +1075,15 @@ def _export(data: dict, country_label: str, levels: list[int], simplify: int) ->
     for lv in chosen:
         item = _current(data, lv)
         geoms = _simplify(item["geoms"], _tol(data, simplify))
-        for p, g in zip(item["props"], geoms, strict=True):
+        names = _export_names(item["props"])
+        for p, g, name in zip(item["props"], geoms, names, strict=True):
             feats.append(
                 {
                     "type": "Feature",
                     "properties": {
                         "COUNTRY": data["country"],
                         "ISO": p["iso"],
-                        "SUBDIVISION_NAME": p["name"],
+                        "SUBDIVISION_NAME": name,
                     },
                     "geometry": json.loads(shapely.to_geojson(g)),
                 }
@@ -1023,7 +1091,7 @@ def _export(data: dict, country_label: str, levels: list[int], simplify: int) ->
             feat_levels.append(lv)
     if not feats:
         raise HTTPException(422, "Nothing of these levels is on land.")
-    if len(feats) == 1 and feat_levels[0] < 8:
+    if len(feats) == 1 and feat_levels[0] < 6:
         del feats[0]["properties"]["SUBDIVISION_NAME"]
     topology = Topology({"type": "FeatureCollection", "features": feats}, object_name="ADM")
     return topology.to_json(), f"{country_label}-ADM{'-'.join(map(str, chosen))}.topojson"
