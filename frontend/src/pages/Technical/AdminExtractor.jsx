@@ -138,6 +138,34 @@ export default function AdminExtractor() {
     } catch (e) { setErr(errorText(e)); }
   };
 
+  // Delete/Backspace drops the picked polygon from what the map shows (the export is built from the cache).
+  const removePicked = () => {
+    if (!picked) return;
+    const key = `${ds.token}|${country}|${picked.admin_level}|${pct}`;
+    const feats = cache.current.get(key);
+    if (feats) {
+      const drop = picked.gap != null
+        ? (p) => p.admin_level === picked.admin_level && p.gap === picked.gap
+        : (p) => p.tag === picked.tag;
+      cache.current.set(key, feats.filter((f) => !drop(f.properties)));
+    }
+    setPicked(null);
+    setVer((v) => v + 1);
+  };
+
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.key !== "Delete" && e.key !== "Backspace" && e.keyCode !== 46 && e.keyCode !== 8) return;
+      const t = e.target;
+      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.isContentEditable)) return;
+      if (mode !== "admin" || !picked) return;
+      e.preventDefault();
+      removePicked();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [picked, ds, country, pct, mode]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const setFill = async (level, value) => {
     const source = value === "" ? null : Number(value);
     setErr("");
