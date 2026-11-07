@@ -49,7 +49,7 @@ UA = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/124.0 Safari/537.36"
 )
-WINDOW = 2
+WINDOW = 1
 MAX_SESSIONS = 3
 PAUSE_S = 1.0
 MAPS_RE = re.compile(
