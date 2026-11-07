@@ -133,6 +133,30 @@ def _set_has(cc: str, items: list[dict]) -> None:
         (_HAS.add if _has_shown(items) else _HAS.discard)(cc)
 
 
+def _apply_medal(cc: str, entry: dict, request: Request, folder: Path, override=None) -> None:
+    """Store `score` and `medal` on a clue. Computed once, when the clue is saved (see clue_medal.py).
+
+    Nothing is stored when a regional clue's area can't be measured right now (geo layers not loaded);
+    scripts/backfill_clue_medals.py fills those in later.
+    """
+    # imported here because clue_source imports this module
+    from src.analysis.clue_medal import medal_for  # noqa: PLC0415
+    from src.api.clue_source import ClueSource  # noqa: PLC0415
+
+    local = get_ctx(request).local_geo
+    try:
+        outline = _outline(local, cc) if local is not None else None
+        res = medal_for(cc, entry, ClueSource(local), folder, outline, override)
+    except Exception:
+        logger.exception("Could not score clue %s/%s", cc, entry.get("id"))
+        return
+    if res is None:
+        return
+    entry["score"] = res[0]
+    if res[1]:
+        entry["medal"] = res[1]
+
+
 router = APIRouter()
 
 
@@ -910,6 +934,7 @@ def add_clue(cc: str, body: ClueBody, request: Request):
                     entry["overlay"] = _overlay_name(names[geo_kind])
                     _write_overlay(folder, entry["overlay"], svg)
                     made.append(entry["overlay"])
+            _apply_medal(cc, entry, request, folder)
             items = [*_load(cc), entry]
             books = {cc: items}
             _sync_relations(books, cc, entry, [], rels)
@@ -1057,6 +1082,8 @@ def update_clue(cc: str, clue_id: str, body: ClueBody, request: Request):
                         entry["overlay"] = want
                     else:
                         entry["overlay"] = old["overlay"]
+            # files being overwritten are still staged at this point: score from those
+            _apply_medal(cc, entry, request, folder, {names[k]: s for k, s in overwrite.items()})
             updated = [entry if c is old else c for c in items]
             books = {cc: updated}
             _sync_relations(books, cc, entry, old.get("relations") or [], rels)

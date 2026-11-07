@@ -63,6 +63,10 @@ function Media({ cc, clue, children }) {
 // ⚠️ same_as, ℹ️ similar_to (automatic) + one manual uniqueness badge (chess "great" / "brilliant"). Three at most.
 function Badges({ clue }) {
   const items = [];
+  if (clue.medal) {
+    const t = `${clue.medal[0].toUpperCase()}${clue.medal.slice(1)} medal · ${clue.score}/10`;
+    items.push(<img key="m" className="cb-img medal" src={`/medals/${clue.medal}.png`} alt={t} title={t} />);
+  }
   if (relsOf(clue, "same_as").length) items.push(<span key="w" className="cb" role="img" aria-label="Same clue in other countries" title="The same clue exists in other countries">⚠️</span>);
   if (relsOf(clue, "similar_to").length) items.push(<span key="i" className="cb" role="img" aria-label="Similar clue in other countries" title="A similar clue exists in other countries">ℹ️</span>);
   if (clue.badge === "subcontinent") {
