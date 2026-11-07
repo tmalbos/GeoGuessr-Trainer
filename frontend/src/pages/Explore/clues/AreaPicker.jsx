@@ -280,13 +280,6 @@ export default function AreaPicker({ cc, value, current, onChange, stage, initia
     if (d && d[2] - d[0] >= MIN_BOX && d[3] - d[1] >= MIN_BOX) setCrop(d);
   };
 
-  const stop = () => {
-    if (shot.current?.url?.startsWith("blob:")) URL.revokeObjectURL(shot.current.url);
-    discardStaged(shot.current?.token);
-    shot.current = null;
-    setPic(null); setUp(null); setRes(null); setOff([]); setCrop(null); setDraft(null); setErr("");
-  };
-
   let status;
   if (busy) status = up ? "Looking for the map…" : "Loading the picture…";
   else if (err) status = err;
@@ -319,7 +312,6 @@ export default function AreaPicker({ cc, value, current, onChange, stage, initia
       </div>
       <div className="ar-row">
         <span className="muted">{status}</span>
-        <button type="button" className="btn ghost" onClick={stop}>Close</button>
       </div>
     </div>}
   </>;
