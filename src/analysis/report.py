@@ -6,6 +6,16 @@ from src.analysis.geo_levels import GEO_LEVELS
 from src.analysis.scoring import NO_GUESS_KM
 from src.db.repositories.game_repository import GameRepository
 
+# Rounds per (match_type, move_type, time_limit_sec). Read-only for callers; cleared after a sync.
+_ROUNDS_CACHE: dict[tuple, list[dict]] = {}
+_cache_version = 0
+
+
+def clear_rounds_cache() -> None:
+    global _cache_version  # noqa: PLW0603
+    _cache_version += 1
+    _ROUNDS_CACHE.clear()
+
 
 async def load_rounds(
     db: GameRepository,
@@ -18,10 +28,17 @@ async def load_rounds(
     Rounds without a guess are stored with distance_km = NULL. For analysis they count
     as a 0-point round: they get NO_GUESS_KM, which maps to a score of 0.
     """
+    key = (match_type, move_type, time_limit_sec)
+    cached = _ROUNDS_CACHE.get(key)
+    if cached is not None:
+        return cached
+    version = _cache_version
     rounds = await db.fetch_all_rounds(match_type, move_type, time_limit_sec)
     for r in rounds:
         if r["distance_km"] is None:
             r["distance_km"] = NO_GUESS_KM
+    if version == _cache_version:
+        _ROUNDS_CACHE[key] = rounds
     return rounds
 
 

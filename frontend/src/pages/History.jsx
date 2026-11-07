@@ -170,6 +170,7 @@ export default function History({ seg = [] }) {
   useEffect(() => {
     if (!ready) return undefined;
     let stale = false;
+    const ac = new AbortController();
     setBusy(true);
     const t = setTimeout(() => {
       const qs = new URLSearchParams({ time_limit: f.timeLimit, sort_by: sort.by, sort_dir: sort.dir, page, page_size: pageSize });
@@ -177,7 +178,7 @@ export default function History({ seg = [] }) {
       if (f.moveType) qs.set("move_type", f.moveType);
       if (f.minScore > 0) qs.set("min_score", f.minScore);
       if (f.maxScore < MAX_TOTAL) qs.set("max_score", f.maxScore);
-      api(`/history?${qs}`).then((r) => {
+      api(`/history?${qs}`, { signal: ac.signal }).then((r) => {
         if (stale) return;
         if (!r.items.length && page > 1) { setPage(page - 1); return; }
         setData(r); setErr(""); setBusy(false);
@@ -185,7 +186,7 @@ export default function History({ seg = [] }) {
         appliedKey.current = queryKey;
       }).catch((e) => { if (!stale) { setData({ items: [], total: 0 }); setErr(errorText(e)); setBusy(false); } });
     }, 250);
-    return () => { stale = true; clearTimeout(t); };
+    return () => { stale = true; clearTimeout(t); ac.abort(); };
   }, [ready, queryKey, page, refreshKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // The report does not need the list or the filters, so it shows right away (also when opened straight from a URL).

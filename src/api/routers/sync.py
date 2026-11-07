@@ -9,6 +9,7 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
+from src.analysis.report import clear_rounds_cache
 from src.api.deps import get_ctx
 from src.app_context import AppContext
 from src.geoguessr.client import CookieExpiredError
@@ -90,6 +91,7 @@ async def _run_sync(ctx: AppContext, job: SyncJob, match_types: set[str]) -> Non
             f"{type(e).__name__}: {e}",
         )
     finally:
+        clear_rounds_cache()
         job.running = False
         await job.emit(Event("done"))
 

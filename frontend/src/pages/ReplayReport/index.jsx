@@ -115,11 +115,12 @@ export default function ReplayReport({ g, title, onBack }) {
 
   useEffect(() => {
     let off = false;
+    const ac = new AbortController();
     setData(null); setErr("");
-    api(`/replay-report/${encodeURIComponent(g.challenge_token)}/${encodeURIComponent(g.game_id)}`)
+    api(`/replay-report/${encodeURIComponent(g.challenge_token)}/${encodeURIComponent(g.game_id)}`, { signal: ac.signal })
       .then((d) => !off && setData(d))
       .catch((e) => !off && setErr(e.message));
-    return () => { off = true; };
+    return () => { off = true; ac.abort(); };
   }, [g.challenge_token, g.game_id]);
 
   return <>

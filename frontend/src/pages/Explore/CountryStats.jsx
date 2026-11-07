@@ -15,10 +15,11 @@ export default function CountryStats({ code, name }) {
   useEffect(() => {
     if (!usable) return undefined;
     let off = false;
+    const ac = new AbortController();
     setD(null);
-    api(`/analysis/country/${code.toUpperCase()}?match_type=${f.matchType}&move_type=${f.moveType}&time_limit=${f.timeLimit}`)
+    api(`/analysis/country/${code.toUpperCase()}?match_type=${f.matchType}&move_type=${f.moveType}&time_limit=${f.timeLimit}`, { signal: ac.signal })
       .then((r) => !off && setD(r)).catch(() => !off && setD({ total: 0, zone: null }));
-    return () => { off = true; };
+    return () => { off = true; ac.abort(); };
   }, [usable, code, f.matchType, f.moveType, f.timeLimit]);
 
   if (!d || !d.total) return null;

@@ -139,7 +139,7 @@ def _round_payload(row: dict, locate, countries_in, region_bounds) -> dict:
     }
 
 
-async def _build(ctx, local, challenge_token: str, game_id: str) -> dict:
+async def _build(ctx, request: Request, local, challenge_token: str, game_id: str) -> dict:
     rows = await ctx.db_adapter.fetch_rows(_QUERY, challenge_token, game_id)
     if not rows:
         raise HTTPException(404, "Game not found")
@@ -162,9 +162,13 @@ async def _build(ctx, local, challenge_token: str, game_id: str) -> dict:
         except Exception:  # noqa: BLE001
             return None
 
-    rounds = await run_in_threadpool(
-        lambda: [_round_payload(r, locate, countries_in, region_bounds) for r in rows]
-    )
+    rounds = []
+    for r in rows:
+        if await request.is_disconnected():  # threads can't be killed, so stop between rounds
+            raise HTTPException(499, "Client closed the request")
+        rounds.append(
+            await run_in_threadpool(_round_payload, r, locate, countries_in, region_bounds)
+        )
     facts = [r.pop("_facts") for r in rounds]
     grades = [
         it["grade"]
@@ -215,7 +219,7 @@ async def replay_report(challenge_token: str, game_id: str, request: Request):
     cache_key = (challenge_token, game_id)
     entry = _CACHE.get(cache_key)
     if entry is None:
-        entry = await _build(ctx, local, challenge_token, game_id)
+        entry = await _build(ctx, request, local, challenge_token, game_id)
         if len(_CACHE) >= _CACHE_MAX:
             _CACHE.pop(next(iter(_CACHE)))
         _CACHE[cache_key] = entry
