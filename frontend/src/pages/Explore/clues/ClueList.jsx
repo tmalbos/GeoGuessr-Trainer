@@ -21,6 +21,7 @@ const locOf = (c) => c.tags.find((t) => LOCATION_TAGS.includes(t));
 // Urban / Rural also show the "Anywhere" clues (they apply there too); Anywhere shows only itself.
 const locMatches = (c, loc) => !loc || locOf(c) === loc || (loc !== "Anywhere" && locOf(c) === "Anywhere");
 const UNDO_MS = 5000;
+const MIN_GROUP = 10; // a regional category gets its own group only with MORE clues than this
 const SHOWN = ["visible", "guide-only"]; // what counts as "has clues" on the world map
 const Funnel = () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
   strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M3 4h18l-7 8v6l-4 2v-8z" /></svg>;
@@ -31,7 +32,7 @@ const ImportIcon = () => <svg width="18" height="18" viewBox="0 0 24 24" fill="n
 /** The tools drawn into the page's side panel (`slotEl`): the filter toggle on the left and, in edit mode,
  *  "Import from…" and "+ Add clue" on the far right of the same line. The filter chips open in a box below the
  *  line; the import sources open in a small dropdown under their button. A click outside (or Escape) closes both. */
-function SideTools({ slotEl, showFilter, editing, onAdd, onImport, cat, loc, scope, fromReport, cats, count, onCat, onLoc, onScope, onReport, onClear }) {
+function SideTools({ slotEl, showFilter, editing, onAdd, onImport, cat, loc, scope, fromReport, cats, count, onCat, onLoc, onScope, onReport, onClear, sections, onJump }) {
   const [open, setOpen] = useState(false);
   const [srcOpen, setSrcOpen] = useState(false);
   const active = (cat ? 1 : 0) + (loc ? 1 : 0) + (scope ? 1 : 0) + (fromReport ? 1 : 0);
@@ -77,6 +78,11 @@ function SideTools({ slotEl, showFilter, editing, onAdd, onImport, cat, loc, sco
           </div>
         </div>}
       </div>}
+      {sections.length > 1 && <nav className="cf-jump" aria-label="Jump to a group">
+        {sections.map((s) => <button key={s.key} type="button" className="cf-jump-item" title={`${s.label} · ${s.items.length} clue${s.items.length === 1 ? "" : "s"}`} onClick={() => onJump(s.key)}>
+          <span className="cf-jump-ico" aria-hidden="true">{s.icon}</span><span className="cf-jump-name">{s.label}</span>
+        </button>)}
+      </nav>}
       {editing && <div className="cf-right">
         <div className="cf-import-wrap">
           <button type="button" className="btn ghost cf-import" aria-haspopup="menu" aria-expanded={srcOpen}
@@ -363,27 +369,26 @@ export default function ClueList({ id, name, editing, query }) {
   });
   const clear = () => { setCat(""); setLoc(""); setScope(""); setIds(null); };
 
-  let list;
-  if (!filtered.length) {
-    list = null;
-  } else {
-    // National clues sit under one "National" subtitle (only shown when there are regional clues too).
-    // Regional clues always sit under the subtitle of their category.
-    const nat = filtered.filter((c) => c.scope !== "reg");
-    const reg = filtered.filter((c) => c.scope === "reg");
-    const regCats = GENERAL_TAGS.filter((t) => reg.some((c) => catOf(c) === t));
-    const heading = (icon, label, n) => <h4 className="clue-group">{icon && <span aria-hidden="true">{icon}</span>} {label} <span className="count">{n}</span></h4>;
-    list = <>
-      {nat.length > 0 && (reg.length > 0
-        ? <section>{heading("🌍", "National", nat.length)}{blocks(nat, "nat")}</section>
-        : blocks(nat, "nat"))}
-      {regCats.map((t) => {
-        const g = reg.filter((c) => catOf(c) === t);
-        return <section key={t}>{heading(CATEGORY_ICONS[t], t, g.length)}{blocks(g, t)}</section>;
-      })}
-      {blocks(reg.filter((c) => !catOf(c)), "reg")}
-    </>;
+  // Clues are ordered by medal score (best first; unscored last, keeping their saved order among themselves).
+  // National clues are one group. Regional clues get a group per category with more than MIN_GROUP clues;
+  // all the other regional clues share one "Regional" group, shown before the category groups.
+  const byScore = (a, b) => (b.score ?? -1) - (a.score ?? -1);
+  const sections = []; // { key, icon, label, items }
+  if (filtered.length) {
+    const nat = filtered.filter((c) => c.scope !== "reg").sort(byScore);
+    const reg = filtered.filter((c) => c.scope === "reg").sort(byScore);
+    const big = GENERAL_TAGS.filter((t) => reg.filter((c) => catOf(c) === t).length > MIN_GROUP);
+    if (nat.length) sections.push({ key: "nat", icon: "🌍", label: "National", items: nat });
+    const rest = reg.filter((c) => !big.includes(catOf(c)));
+    if (rest.length) sections.push({ key: "reg", icon: "📍", label: "Regional", items: rest });
+    for (const t of big) sections.push({ key: t, icon: CATEGORY_ICONS[t], label: t, items: reg.filter((c) => catOf(c) === t) });
   }
+  const heading = (s) => <h4 className="clue-group" data-group={s.key}>{s.icon && <span aria-hidden="true">{s.icon}</span>} {s.label} <span className="count">{s.items.length}</span></h4>;
+  const list = !sections.length ? null
+    : sections.length === 1 ? blocks(sections[0].items, sections[0].key)
+      : sections.map((s) => <section key={s.key}>{heading(s)}{blocks(s.items, s.key)}</section>);
+  // Scrolls the page so the group's title is at the top of the view.
+  const jump = (key) => document.querySelector(`[data-group="${CSS.escape(key)}"]`)?.scrollIntoView({ behavior: "smooth", block: "start" });
 
   const showFilter = !!items && (visible.length >= 4 || !!(cat || loc || scope || ids || qScope || qLoc || qIds));
   const ic = imp?.clue;
@@ -395,9 +400,9 @@ export default function ClueList({ id, name, editing, query }) {
     {editing && !fslot && <div className="clue-bar">
       <button type="button" className="btn" onClick={startAdd}>+ Add clue</button>
     </div>}
-    {fslot && (editing || showFilter) && <SideTools slotEl={fslot} showFilter={showFilter} editing={editing} onAdd={startAdd}
+    {fslot && (editing || showFilter || sections.length > 1) && <SideTools slotEl={fslot} showFilter={showFilter} editing={editing} onAdd={startAdd}
       onImport={startImport} cat={cat} loc={loc} scope={scope} fromReport={!!ids} cats={cats} count={count}
-      onCat={setCat} onLoc={setLoc} onScope={setScope} onReport={() => setIds(null)} onClear={clear} />}
+      onCat={setCat} onLoc={setLoc} onScope={setScope} onReport={() => setIds(null)} onClear={clear} sections={sections} onJump={jump} />}
     {err && <ErrorBox message={err} onRetry={() => { setErr(""); reload(); }} />}
     {!items && !err ? <><SkeletonCard /><SkeletonCard /></>
       : items && !visible.length ? (editing ? null : <EmptyCat />)

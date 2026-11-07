@@ -19,7 +19,7 @@ main.bleed { padding: 0; height: 100vh; overflow: hidden; }
    The page itself scrolls (scrollbar at the screen edge). Three columns: a thin left rail (back),
    the clues, a thin right rail (edit / filter / add / import). The rails are sticky and have no
    background, so they stay in view while the clues scroll underneath the same page. */
-.cp { height: 100%; overflow-y: auto; display: grid; grid-template-columns: 176px minmax(0, 1fr) 170px; }
+.cp { height: 100%; overflow-y: auto; display: grid; grid-template-columns: 176px minmax(0, 1fr) 220px; }
 .cp-main { min-width: 0; padding: 32px 8px 48px; }
 .cp-empty h3 { margin: 0 0 8px; font-size: 26px; font-weight: 800; letter-spacing: -.02em; }
 .cp-empty p { margin: 0; max-width: 46ch; font-size: 15px; }
@@ -70,7 +70,7 @@ main.bleed { padding: 0; height: 100vh; overflow: hidden; }
 .cp .modal.wide { width: min(calc(100vw - 160px), 100%); }
 
 @media (max-width: 900px) {
-  .cp { grid-template-columns: 168px minmax(0, 1fr) 160px; }
+  .cp { grid-template-columns: 168px minmax(0, 1fr) 210px; }
   .cp-rail-left { padding-left: 18px; }
   .cp-rail-right { padding: 32px 8px 24px; }
   .cp-header { grid-template-columns: 1fr; }
