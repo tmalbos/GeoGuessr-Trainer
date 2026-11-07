@@ -100,10 +100,12 @@ export default function SplitCard({ ds, onOpen }) {
         </label>)}
       </div>
       <label htmlFor="split-folder" className="muted">Save in (empty = next to the file)</label>
-      <input id="split-folder" value={folder} placeholder="C:\maps\countries" onChange={(e) => setFolder(e.target.value)} />
-      <button type="button" className="btn" disabled={running || !sel.length}
-        onClick={() => start("/technical/osm/split", { countries: sel, folder })}>
-        {running ? "Splitting…" : `Split into ${sel.length} file${sel.length === 1 ? "" : "s"}`}</button>
+      <div className="tp-row">
+        <input id="split-folder" value={folder} placeholder="C:\maps\countries" onChange={(e) => setFolder(e.target.value)} />
+        <button type="button" className="btn" disabled={running || !sel.length}
+          onClick={() => start("/technical/osm/split", { countries: sel, folder })}>
+          {running ? "Splitting…" : `Split into ${sel.length} file${sel.length === 1 ? "" : "s"}`}</button>
+      </div>
     </>}
 
     {err && <ErrorBox message={err.message} detail={err.detail} />}
