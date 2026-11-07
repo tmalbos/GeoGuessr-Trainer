@@ -335,8 +335,8 @@ export default function ClueEditor({ cc, name, clue, prefill, onClose, onSaved, 
     <img className="cb-img" src={src} alt="" /></button>;
   // Same badges as the card. The warning / info ones follow the relations by themselves; the two chess icons are toggles.
   const badges = <div className="clue-badges ed-badges">
-    <span className={`cb ${present("same_as") ? "" : "dim"}`} role="img" aria-label="Same clue in other countries" title="Same clue in other countries (from relations)">⚠️</span>
-    <span className={`cb ${present("similar_to") ? "" : "dim"}`} role="img" aria-label="Similar clue in other countries" title="Similar clue in other countries (from relations)">ℹ️</span>
+    {present("same_as") && <span className="cb" role="img" aria-label="Same clue in other countries" title="Same clue in other countries (from relations)">⚠️</span>}
+    {present("similar_to") && <span className="cb" role="img" aria-label="Similar clue in other countries" title="Similar clue in other countries (from relations)">ℹ️</span>}
     {badgeBtn("subcontinent", "/grades/great.png", sub ? `Unique to ${sub}` : "Subcontinent unique")}
     {badgeBtn("world", "/grades/brilliant.png", "World unique")}
   </div>;
