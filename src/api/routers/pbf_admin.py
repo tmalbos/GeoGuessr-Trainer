@@ -6,7 +6,8 @@ Flow:
     POST /technical/pbf/country  {token, country}             -> SLOW, once per country: builds every admin boundary of that
                                                                  country, returns the levels it really has (+ counts, + fills)
     POST /technical/pbf/preview  {token, country, levels, simplify} -> per-level GeoJSON features (fast, cached)
-    POST /technical/pbf/export   {token, country, levels, simplify} -> TopoJSON download
+    POST /technical/pbf/export   {token, country, levels, simplify, name, adm, parents} -> TopoJSON download
+    POST /technical/pbf/parent-file (raw body, ?token=&filename=) -> imports a polygon file to use as a coarser layer
     POST /technical/pbf/rename   {token, country, level, gap, name} -> renames one filled-in ("Unnamed N") polygon
     POST /technical/pbf/fill     {token, country, level, source}    -> fills the gaps of a level with the polygons of
                                                                        another level (null = back to "Unnamed N")
@@ -1061,7 +1062,107 @@ def _export_names(props: list[dict]) -> list[str]:
     return names
 
 
-def _export(data: dict, country_label: str, levels: list[int], simplify: int) -> tuple[str, str]:
+MAX_ADM = 5  # no country has more official levels than this
+_NAME_PREFIX = "SUBDIVISION_NAME_"
+
+
+def _layer_of(ds: dict, data: dict, spec) -> dict | None:
+    """A coarser layer {"names", "geoms", "inherit"}: a level of this country as the user left it (merges, fills)
+    or an imported file. None when the spec points at nothing.
+    """
+    if spec.file:
+        imp = ds.get("imports", {}).get(spec.file)
+        if imp is None:
+            raise HTTPException(410, "That parent file expired. Import it again.")
+        return imp
+    if spec.level is not None and spec.level in data["by_level"]:
+        item = _current(data, spec.level)
+        return {"names": _export_names(item["props"]), "geoms": item["geoms"], "inherit": None}
+    return None
+
+
+def _parent_fields(geoms: np.ndarray, adm: int, layers: dict[int, dict]) -> list[dict[int, str]]:
+    """For every polygon, the names of the coarser subdivisions it sits in: {ADM number: name}.
+
+    The polygon's representative point is looked up in the directly coarser layer (adm - 1) and the coarser names
+    of the polygon found there are inherited. Only what is still missing is looked up in the next coarser layers.
+    """
+    out: list[dict[int, str]] = [{} for _ in range(len(geoms))]
+    if not len(geoms):
+        return out
+    pts = shapely.point_on_surface(geoms)
+    for k in range(adm - 1, 0, -1):
+        lay = layers.get(k)
+        todo = [i for i in range(len(geoms)) if k not in out[i]]
+        if lay is None or not todo or not len(lay["geoms"]):
+            continue
+        if lay.get("inherit") is None:
+            lay["inherit"] = _parent_fields(lay["geoms"], k, layers)
+        if "tree" not in lay:
+            lay["tree"] = shapely.STRtree(lay["geoms"])
+        first: dict[int, int] = {}
+        hits = lay["tree"].query(pts[todo], predicate="intersects")
+        for a, b in zip(hits[0].tolist(), hits[1].tolist(), strict=True):
+            first.setdefault(a, b)
+        for a, b in first.items():
+            i = todo[a]
+            out[i][k] = lay["names"][b]
+            for j, v in lay["inherit"][b].items():
+                out[i].setdefault(j, v)
+    return out
+
+
+def _import_parent(ds: dict, raw: bytes, filename: str) -> dict:
+    """Read a polygon file (GeoJSON, TopoJSON...) to use as a coarser layer. Coarser names it already carries
+    (SUBDIVISION_NAME_1...) are kept and inherited.
+    """
+    import pyogrio
+
+    CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    path = CACHE_DIR / f"parent-{uuid4().hex}{Path(filename).suffix.lower() or '.json'}"
+    path.write_bytes(raw)
+    try:
+        df = pyogrio.read_dataframe(str(path))
+    except Exception as e:
+        raise HTTPException(422, f"Could not read this file: {_oneline(e)}") from e
+    finally:
+        path.unlink(missing_ok=True)
+    keep = np.isin(shapely.get_type_id(df.geometry.to_numpy()), [3, 6]) & ~shapely.is_empty(
+        df.geometry.to_numpy()
+    )
+    df = df[keep]
+    if df.empty:
+        raise HTTPException(422, "That file has no polygons.")
+    geoms = shapely.make_valid(df.geometry.to_numpy())
+    cols = [c for c in df.columns if c != df.geometry.name]
+    coarser = {
+        int(c[len(_NAME_PREFIX) :]): c
+        for c in cols
+        if c.startswith(_NAME_PREFIX) and c[len(_NAME_PREFIX) :] in set("012345")
+    }
+    own = (
+        coarser.pop(max(coarser))
+        if coarser
+        else next((c for c in ("SUBDIVISION_NAME", "name:en", "name", "NAME") if c in cols), None)
+    )
+    if own is None:
+        own = next((c for c in cols if df[c].dtype == object), None)
+    if own is None:
+        raise HTTPException(422, "No name field found in that file.")
+    names = [_clean(v) for v in df[own].tolist()]
+    extra = {k: [_clean(v) for v in df[c].tolist()] for k, c in coarser.items() if k >= 1}
+    inherit = [{k: v[i] for k, v in extra.items() if v[i]} for i in range(len(names))]
+    imports = ds.setdefault("imports", OrderedDict())
+    imp_id = uuid4().hex
+    imports[imp_id] = {"names": names, "geoms": geoms, "inherit": inherit}
+    while len(imports) > 5:
+        imports.popitem(last=False)
+    return {"id": imp_id, "name": filename, "count": len(names), "field": own}
+
+
+def _export(
+    ds: dict, data: dict, levels: list[int], simplify: int, name: str, adm: int, parents: list
+) -> tuple[str, str]:
     try:
         from topojson import Topology
     except ImportError as e:  # pragma: no cover
@@ -1070,31 +1171,58 @@ def _export(data: dict, country_label: str, levels: list[int], simplify: int) ->
     chosen = [lv for lv in levels if lv in data["by_level"]]
     if not chosen:
         raise HTTPException(422, "Pick at least one admin level")
+    layers: dict[int, dict] = {}
+    for spec in parents:
+        if 1 <= spec.adm < adm:
+            lay = _layer_of(ds, data, spec)
+            if lay is not None:
+                layers[spec.adm] = lay
+    field = f"{_NAME_PREFIX}{adm}"
     feats = []
     feat_levels = []
     for lv in chosen:
         item = _current(data, lv)
         geoms = _simplify(item["geoms"], _tol(data, simplify))
         names = _export_names(item["props"])
-        for p, g, name in zip(item["props"], geoms, names, strict=True):
+        up = _parent_fields(item["geoms"], adm, layers)
+        for p, g, label, coarser in zip(item["props"], geoms, names, up, strict=True):
             feats.append(
                 {
                     "type": "Feature",
                     "properties": {
                         "COUNTRY": data["country"],
                         "ISO": p["iso"],
-                        "SUBDIVISION_NAME": name,
+                        **{f"{_NAME_PREFIX}{k}": v for k, v in sorted(coarser.items())},
+                        field: label,
                     },
                     "geometry": json.loads(shapely.to_geojson(g)),
                 }
             )
             feat_levels.append(lv)
+
     if not feats:
         raise HTTPException(422, "Nothing of these levels is on land.")
+
     if len(feats) == 1 and feat_levels[0] < 6:
-        del feats[0]["properties"]["SUBDIVISION_NAME"]
-    topology = Topology({"type": "FeatureCollection", "features": feats}, object_name="ADM")
-    return topology.to_json(), f"{country_label}-ADM{'-'.join(map(str, chosen))}.topojson"
+        del feats[0]["properties"][field]
+
+    topology = Topology(
+        {"type": "FeatureCollection", "features": feats}, object_name="ADM", ignore_index=True
+    )
+
+    topo_str = topology.to_json()
+    topo_dict = json.loads(topo_str)
+
+    # Iterate through the geometries and remove the 'id' key
+    for geom in topo_dict["objects"]["ADM"]["geometries"]:
+        geom.pop("id", None)  # Removes 'id' if it exists, does nothing if it doesn't
+
+    # If you need the string back:
+    cleaned_topo_str = json.dumps(topo_dict)
+
+    stem = "".join(c if c.isascii() and (c.isalnum() or c in "._-") else "_" for c in name.strip())
+    stem = stem.removesuffix(".topojson") or f"ADM{adm}"
+    return cleaned_topo_str, f"{stem}.topojson"
 
 
 # ── API ────────────────────────────────────────────────────────────────────
@@ -1128,6 +1256,18 @@ class FillBody(CountryBody):
 class MergeBody(CountryBody):
     level: int
     idxs: list[int] = Field(min_length=2, max_length=1000)
+
+
+class ParentSpec(BaseModel):
+    adm: int = Field(ge=1, le=MAX_ADM)  # which coarser ADM number this source provides
+    level: int | None = None  # an OSM level of the open country...
+    file: str | None = None  # ...or an imported file (id from /technical/pbf/parent-file)
+
+
+class ExportBody(ExtractBody):
+    name: str = Field("", max_length=80)  # file name, without extension
+    adm: int = Field(1, ge=0, le=MAX_ADM)  # the ADM number of what is exported
+    parents: list[ParentSpec] = Field(default_factory=list, max_length=MAX_ADM)
 
 
 def _levels(values: list[int]) -> list[int]:
@@ -1205,13 +1345,22 @@ async def merge_pbf(body: MergeBody):
     return {"ok": True}
 
 
+@router.post("/technical/pbf/parent-file")
+async def parent_file_pbf(request: Request, token: str, filename: str = "parent.json"):
+    """A polygon file (GeoJSON / TopoJSON) to use as a coarser layer when exporting."""
+    ds = _dataset(token)
+    raw = await request.body()
+    if not raw:
+        raise HTTPException(422, "Empty file")
+    return await run_in_threadpool(_import_parent, ds, raw, filename)
+
+
 @router.post("/technical/pbf/export")
-async def export_pbf(body: ExtractBody):
+async def export_pbf(body: ExportBody):
     ds = _dataset(body.token)
     data = await run_in_threadpool(_load, ds, body.country)
-    code = next((c["code"] for c in ds["countries"] if c["id"] == body.country), "")
     content, filename = await run_in_threadpool(
-        _export, data, code or body.country, _levels(body.levels), body.simplify
+        _export, ds, data, _levels(body.levels), body.simplify, body.name, body.adm, body.parents
     )
     return Response(
         content=content,

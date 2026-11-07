@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import ErrorBox from "../../components/ErrorBox.jsx";
 import StatusIcon from "../../components/StatusIcon.jsx";
 import { api, errorText } from "../../lib/api.js";
+import ExportDialog from "./ExportDialog.jsx";
 import ExtractPanel, { MODES } from "./ExtractPanel.jsx";
 import { download } from "./export.js";
 import PolyMap from "./PolyMap.jsx";
@@ -12,7 +13,7 @@ const COLORS = ["#4e79a7", "#f28e2b", "#e15759", "#76b7b2", "#59a14f", "#edc948"
 const UNNAMED_COLOR = "#e5484d"; // keep equal to UNNAMED_COLOR in pbf_admin.py
 const colorOf = (level) => COLORS[level % COLORS.length];
 const PREVIEW_PCT = 5; // same floor as the server
-const memo = { ds: null, mode: "admin", country: "", levels: [], simplify: 0 };
+const memo = { ds: null, mode: "admin", country: "", levels: [] };
 
 export default function AdminExtractor() {
   const [ds, setDs] = useState(memo.ds);
@@ -20,8 +21,7 @@ export default function AdminExtractor() {
   const [view, setView] = useState(null); // { res, busy } of the preview of a non-admin kind
   const [country, setCountry] = useState(memo.country);
   const [levels, setLevels] = useState(memo.levels);
-  const [simplify, setSimplify] = useState(memo.simplify);
-  const [pct, setPct] = useState(Math.max(PREVIEW_PCT, memo.simplify)); // debounced preview simplification
+  const pct = PREVIEW_PCT; // the preview is always lightly simplified; the export dialog sets the real amount
   const [info, setInfo] = useState(null); // { levels: [{ level, count }] } of the selected country only
   const [fills, setFills] = useState({}); // level -> level whose polygons fill its gaps (absent = "Unnamed N")
   const [picked, setPicked] = useState(null); // properties of the clicked polygon
@@ -33,14 +33,14 @@ export default function AdminExtractor() {
   const [loading, setLoading] = useState(false);
   const [extracting, setExtracting] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [exporting, setExporting] = useState(false);
+  const [exportOpen, setExportOpen] = useState(false);
   const [over, setOver] = useState(false);
   const [err, setErr] = useState("");
   const [ver, setVer] = useState(0);
   const cache = useRef(new Map()); // `${token}|${country}|${level}|${pct}` -> features (a level is fetched once)
   const last = useRef({ k: "", fc: null });
   const pick = useRef(null);
-  memo.ds = ds; memo.mode = mode; memo.country = country; memo.levels = levels; memo.simplify = simplify;
+  memo.ds = ds; memo.mode = mode; memo.country = country; memo.levels = levels;
 
   const accept = (d) => {
     cache.current.clear();
@@ -80,12 +80,6 @@ export default function AdminExtractor() {
       .catch((e) => { if (!stale) { setErr(errorText(e)); setExtracting(false); } });
     return () => { stale = true; };
   }, [ds, country]);
-
-  // Slider: the preview follows it after a short pause.
-  useEffect(() => {
-    const t = setTimeout(() => setPct(Math.max(PREVIEW_PCT, simplify)), 250);
-    return () => clearTimeout(t);
-  }, [simplify]);
 
   // Step 2: only fetch levels we don't have yet. Toggling a level that was already shown is purely local.
   // The server finishes a new level on its first request (cut to the coast, gaps filled).
@@ -207,18 +201,17 @@ export default function AdminExtractor() {
     } catch (e) { setErr(errorText(e)); }
   };
 
-  const exportTopo = async () => {
-    setExporting(true); setErr("");
-    try {
-      const r = await fetch("/api/technical/pbf/export", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ token: ds.token, country, levels, simplify }),
-      });
-      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || r.statusText);
-      const name = (r.headers.get("Content-Disposition") || "").match(/filename="?([^";]+)/)?.[1] || "admin.topojson";
-      download(await r.blob(), name);
-    } catch (e) { setErr(e.message); } finally { setExporting(false); }
+  // Called by the export dialog (name, adm, simplify, parents). It throws so the dialog can show the error.
+  const exportTopo = async (settings) => {
+    const r = await fetch("/api/technical/pbf/export", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token: ds.token, country, levels, ...settings }),
+    });
+    if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || r.statusText);
+    const name = (r.headers.get("Content-Disposition") || "").match(/filename="?([^";]+)/)?.[1] || "ADM.topojson";
+    download(await r.blob(), name);
+    setExportOpen(false);
   };
 
   const shown = useMemo(() => {
@@ -310,21 +303,14 @@ export default function AdminExtractor() {
             <button type="button" className="btn ghost" disabled={marks.length < 2 || !levels.includes(marks[0].admin_level)} onClick={mergeMarked}>Merge selected</button>
           </div>}
 
-          <h3>Simplification</h3>
-          <div className="tp-field">
-            <label htmlFor="pbf-simplify">Export <span className="muted">{simplify ? `${simplify}%` : "Off"}</span></label>
-            <input id="pbf-simplify" type="range" min="0" max="100" step="1" value={simplify} onChange={(e) => setSimplify(Number(e.target.value))} />
-          </div>
-
           <h3>Export</h3>
-          <button type="button" className="btn ghost" disabled={!levels.length || exporting} onClick={exportTopo}>
-            {exporting ? "Building…" : "TopoJSON"}
-          </button>
+          <button type="button" className="btn ghost" disabled={!levels.length} onClick={() => setExportOpen(true)}>TopoJSON</button>
         </>}
       </>}
     </div>
 
     <div className="tp-main">
+      {exportOpen && info && <ExportDialog ds={ds} levels={info.levels} selected={levels} onClose={() => setExportOpen(false)} onExport={exportTopo} />}
       {err && <ErrorBox message={err} />}
       {admin && (extracting || busy) && <p className="muted" role="status"><StatusIcon kind="wait" />{extracting ? "Building this country…" : "Loading… a new level is cut to the coast and its gaps are filled the first time."}</p>}
       {admin && ds && country && <PolyMap features={fc} fitKey={fc ? `${ds.token}|${country}` : null} onPick={onPick} selected={sel?.tag ?? null} marked={marks} />}
