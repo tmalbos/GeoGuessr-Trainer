@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import ErrorBox from "../../components/ErrorBox.jsx";
 import { api, errorText } from "../../lib/api.js";
 import { download, svgToPng, toGeoJSON, toSVG, toTopoJSON } from "./export.js";
+import FileDropPanel from "./FileDropPanel.jsx";
 import PolyMap from "./PolyMap.jsx";
 import ShapeControls, { SHAPE_DEFAULTS } from "./ShapeControls.jsx";
 import "./technical.css";
@@ -19,9 +20,7 @@ export default function Polygonizer() {
   const [loading, setLoading] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [picker, setPicker] = useState(null); // { kind, countries, code } while the user picks a country for an image
-  const [over, setOver] = useState(false);
   const [err, setErr] = useState("");
-  const input = useRef(null);
   memo.ds = ds; memo.sel = sel; memo.params = params; memo.colors = colors;
 
   const upload = async (file) => {
@@ -91,14 +90,8 @@ export default function Polygonizer() {
 
   return <div className="tp">
     <div className="tp-side">
-      <div className={`tp-drop ${over ? "over" : ""}`}
-        onDragOver={(e) => { e.preventDefault(); setOver(true); }} onDragLeave={() => setOver(false)}
-        onDrop={(e) => { e.preventDefault(); setOver(false); upload(e.dataTransfer.files[0]); }}>
-        <h3>mapmaking.app file</h3>
-        <span className="muted">{loading ? "Reading…" : ds ? `${ds.name} · ${ds.total.toLocaleString()} locations · ${ds.tags.length} tags` : "Drop the exported JSON here"}</span>
-        <button type="button" className="btn ghost" disabled={loading} onClick={() => input.current.click()}>{ds ? "Load another" : "Choose file"}</button>
-        <input ref={input} type="file" accept=".json,application/json" hidden onChange={(e) => { upload(e.target.files[0]); e.target.value = ""; }} />
-      </div>
+      <FileDropPanel title="mapmaking.app file" accept=".json,application/json" loading={loading} upload={upload}
+        value={ds?.name ?? ""} placeholder="C:\maps\mapmaking-export.json" />
 
       {ds && <>
         <h3>Tags {sel.length > 0 && <span className="muted">· {sel.length} selected</span>}</h3>

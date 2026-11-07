@@ -5,6 +5,7 @@ import { api, errorText } from "../../lib/api.js";
 import { loadWorld } from "../Explore/geo.js";
 import { alignedProjection, bboxOf, fitProjection, shapes } from "../Explore/clues/geoDraw.js";
 import { download, toGeoJSON } from "./export.js";
+import FileDropPanel from "./FileDropPanel.jsx";
 import "./technical.css";
 import "./stain.css";
 
@@ -136,7 +137,6 @@ export default function StainTool() {
   const [pick, setPick] = useState({}); // hex -> bool, the user's own picks (the base map starts unselected)
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [over, setOver] = useState(false);
   const [err, setErr] = useState("");
   const [dbg, setDbg] = useState(false); // debug: show the edges the fit looks at
   const [tune, setTune] = useState({}); // the three stain settings (defaults come from the upload response)
@@ -147,7 +147,6 @@ export default function StainTool() {
   const [warpErr, setWarpErr] = useState("");
   const [scanBusy, setScanBusy] = useState(false);
   const [scanErr, setScanErr] = useState("");
-  const input = useRef(null);
   const stage = useRef(null);
   const start = useRef(null);
   const draftRef = useRef(null);
@@ -348,14 +347,8 @@ export default function StainTool() {
 
   return <div className="tp st">
     <div className="tp-side">
-      <div className={`tp-drop ${over ? "over" : ""}`}
-        onDragOver={(e) => { e.preventDefault(); setOver(true); }} onDragLeave={() => setOver(false)}
-        onDrop={(e) => { e.preventDefault(); setOver(false); upload(e.dataTransfer.files[0]); }}>
-        <h3>Map screenshot</h3>
-        <span className="muted">{loading ? "Reading…" : up ? `${up.width}×${up.height} px` : "Drop an image, or press Ctrl+V"}</span>
-        <button type="button" className="btn ghost" disabled={loading} onClick={() => input.current.click()}>{up ? "Load another" : "Choose file"}</button>
-        <input ref={input} type="file" accept="image/*" hidden onChange={(e) => { upload(e.target.files[0]); e.target.value = ""; }} />
-      </div>
+      <FileDropPanel title="Map screenshot" accept="image/*" loading={loading} upload={upload}
+        value={up ? `${up.width}×${up.height} px` : ""} placeholder="C:\maps\screenshot.png" />
 
       <h3>Country</h3>
       <div className="tp-row">
