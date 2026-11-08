@@ -423,7 +423,7 @@ export default function StainTool() {
           </div>
           {det && det.found != null && <p className="st-detect">
             {det.found
-              ? <><b className="yes">Map detected</b> <span className="muted">· outlined on the image, used to guide the search · {det.ms} ms</span></>
+              ? <><b className="yes">Map detected</b></>
               : <><b className="no">No map detected</b> <span className="muted">· {det.ms} ms. Matching is skipped; draw a box around the map to search anyway.</span></>}
           </p>}
           <div className="st-bar">

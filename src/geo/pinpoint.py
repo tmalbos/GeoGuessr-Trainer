@@ -20,12 +20,12 @@ from pyproj import Geod
 MAX_RADIUS_KM = 10.0
 MAX_AREA_SHARE = 0.01  # a circle may cover at most this share of the country
 MAX_SIZE_SHARE = 0.1  # a pin is at most this share of the country's longest side
-ASPECT = (1.1, 2.4)  # height / width of a teardrop
+ASPECT = (1.3, 2.0)  # height / width of a teardrop
 TOP_SHARE = 0.55  # share of the area in the upper half (the round head)
-MIN_SOLIDITY = 0.85  # area / convex hull area: a pin has no dents
-TIP_ZONE = 0.15  # the bottom share of the height that must be the narrow point
-TIP_WIDTH = 0.45  # the width of that zone is at most this share of the pin's width
-TIP_OFFSET = 0.2  # ...and its centre is within this share of the width from the pin's axis
+MIN_SOLIDITY = 0.95  # area / convex hull area: a pin has no dents
+TIP_ZONE = 0.05  # the bottom share of the height that must be the narrow point
+TIP_WIDTH = 0.25  # the width of that zone is at most this share of the pin's width
+TIP_OFFSET = 0.1  # ...and its centre is within this share of the width from the pin's axis
 CIRCLE_POINTS = 64
 
 _GEOD = Geod(ellps="WGS84")
@@ -66,16 +66,21 @@ def pin_tip(poly, extent_km: float) -> tuple[float, float] | None:
     x0, y0, x1, y1 = solid.bounds
     w, h = x1 - x0, y1 - y0
     if w <= 0 or h <= 0 or max(w, h) > MAX_SIZE_SHARE * extent_km:
+        print("Rejected because of MAX_SIZE_SHARE")
         return None
     if not ASPECT[0] <= h / w <= ASPECT[1]:
+        print("Rejected because of ASPECT")
         return None
     top = shapely.clip_by_rect(solid, x0, y0 + h / 2, x1, y1).area
     if top < TOP_SHARE * solid.area:
+        print("Rejected because of TOP_SHARE")
         return None
     if solid.area < MIN_SOLIDITY * solid.convex_hull.area:
+        print("Rejected because of MIN_SOLIDITY")
         return None
     tx0, _, tx1, _ = shapely.clip_by_rect(solid, x0, y0, x1, y0 + TIP_ZONE * h).bounds
     if not (tx1 - tx0 <= TIP_WIDTH * w and abs((tx0 + tx1) / 2 - (x0 + x1) / 2) <= TIP_OFFSET * w):
+        print("Rejected because of TIP_WIDTH or TIP OFFSET")
         return None
     lat_min, lat_max = float(ring[:, 1].min()), float(ring[:, 1].max())
     low = ring[ring[:, 1] <= lat_min + 0.1 * (lat_max - lat_min)]
