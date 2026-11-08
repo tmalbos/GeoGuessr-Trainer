@@ -36,6 +36,7 @@ from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
 from src.api.deps import get_ctx
+from src.api.plonkit_titles import classify
 from src.api.routers.stain import _borders, _outline  # noqa: PLC2701
 
 logger = logging.getLogger("uvicorn.error")
@@ -47,7 +48,8 @@ UA = (
     "(KHTML, like Gecko) Chrome/124.0 Safari/537.36"
 )
 MAX_SESSIONS = 3
-PAUSE_S = 2.0
+PAUSE_S = 3.0
+MAX_WAIT_S = 60.0  # longer than this to wait after a 429: stop retrying and tell the user
 MAPS_RE = re.compile(
     r"https?://(?:maps\.app\.goo\.gl|goo\.gl/maps|(?:www\.)?google\.[a-z.]+/maps)\S*", re.IGNORECASE
 )
@@ -134,6 +136,27 @@ def _close(s: dict) -> None:
         s["warm"].cancel()
 
 
+def _log_blocked(where: str, r) -> None:
+    """Log what Plonkit answered instead of 200: tells a rate limit apart from a Cloudflare challenge."""
+    keep = (
+        "retry-after",
+        "cf-mitigated",
+        "server",
+        "cf-ray",
+        "content-type",
+        "x-ratelimit-remaining",
+        "x-ratelimit-reset",
+    )
+    headers = {k: v for k, v in r.headers.items() if k.lower() in keep}
+    logger.warning(
+        "Plonkit import: %s answered %s, headers=%s, body=%r",
+        where,
+        r.status_code,
+        headers,
+        r.text[:300],
+    )
+
+
 async def _warm(ctx, cc: str) -> None:
     """Load the country outline / borders now so the stain tool is quick when a regional clue comes."""
     try:
@@ -173,10 +196,19 @@ async def _build(ctx, s: dict, i: int) -> dict:
                     timeout=30,
                 )
                 s["last"] = time.monotonic()
+                if r.status_code >= 400:
+                    _log_blocked(full, r)
                 if r.status_code != 429:
                     break
+                asked = 0.0
                 with contextlib.suppress(ValueError):
-                    delay = max(delay, float(r.headers.get("Retry-After", 0)))
+                    asked = float(r.headers.get("Retry-After", 0))
+                delay = max(delay, asked)
+                if delay > MAX_WAIT_S:
+                    mins = max(1, round(delay / 60))
+                    return {
+                        "error": f"Plonkit is limiting requests. Try again in about {mins} min."
+                    }
                 await _wait(s, delay)
                 delay *= 2
             r.raise_for_status()
@@ -220,6 +252,8 @@ async def plonkit_start(body: StartBody, request: Request):
                 page_url, headers={"User-Agent": UA}, follow_redirects=True, timeout=30
             )
             if r.status_code != 200:
+                if r.status_code != 404:
+                    _log_blocked(page_url, r)
                 continue
             g = mod.read_guide(r.text)
         except Exception:  # noqa: BLE001
@@ -252,6 +286,8 @@ async def plonkit_start(body: StartBody, request: Request):
             if pending is not None:
                 sections.append({"step": len(sections) + 1, "title": pending, "index": len(tips)})
                 pending = None
+            tags = item.get("tags") or []
+            category, title = classify(text, mod.category_for(text, tags))
             tips.append(
                 {
                     "id": item.get("id") or uuid4().hex[:8],
@@ -260,6 +296,8 @@ async def plonkit_start(body: StartBody, request: Request):
                     "tags": item.get("tags") or [],
                     "image_url": image_url,
                     "link": _find_link(data),
+                    "category": category,
+                    "title": title,
                 }
             )
     if not tips:
@@ -286,7 +324,10 @@ async def plonkit_start(body: StartBody, request: Request):
     _SESSIONS[token] = s
     while len(_SESSIONS) > MAX_SESSIONS:
         _close(_SESSIONS.popitem(last=False)[1])
-    return {"token": token, "total": len(tips), "sections": sections}
+    clues = [
+        {"index": i, "category": t["category"], "title": t["title"]} for i, t in enumerate(tips)
+    ]
+    return {"token": token, "total": len(tips), "sections": sections, "clues": clues}
 
 
 @router.get("/import/plonkit/{token}/wait")
@@ -308,7 +349,7 @@ async def plonkit_clue(token: str, index: int):
         raise HTTPException(404, "No such clue")
     tip = s["tips"][index]
     mod = _script()
-    category = mod.category_for(tip["text"], tip["tags"])
+    category = tip["category"]
     return {
         "index": index,
         "total": n,

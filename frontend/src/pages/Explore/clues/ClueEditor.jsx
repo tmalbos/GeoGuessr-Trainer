@@ -515,7 +515,10 @@ export default function ClueEditor({ cc, name, clue, prefill, onClose, onSaved, 
                 <span aria-hidden="true">{skipOpen ? "▴" : "▾"}</span></button>
               {skipOpen && <div className="ed-skip-menu" role="menu" aria-label="Skip to a section">
                 {skipTo.map((s) => <button key={s.key} type="button" role="menuitem" className="ed-skip-item"
-                  onClick={() => { setSkipOpen(false); s.go(); }}>Skip to {s.label}</button>)}
+                  style={s.head ? { fontWeight: 700 } : { paddingLeft: 24 }}
+                  onClick={() => { setSkipOpen(false); s.go(); }}>
+                  {s.head ? `Skip to ${s.label}` : <><span aria-hidden="true">{CATEGORY_ICONS[s.category]}</span> {s.label}</>}
+                </button>)}
               </div>}
             </div>
           : <button type="button" className="btn ghost" disabled={saving} onClick={onSkip}>Skip</button>)}

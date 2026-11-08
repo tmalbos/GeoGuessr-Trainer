@@ -200,11 +200,11 @@ export default function ClueList({ id, name, editing, query }) {
 
   // ── Import from Plonkit: one clue at a time; the text is instant, the image downloads on demand ──
   // `sections` = [{ step, title, index }] from the start call: the guide's sections and where each one begins.
-  const loadImport = async (token, index, total, sections) => {
+  const loadImport = async (token, index, total, sections, clues) => {
     const mine = () => impRef.current?.token === token && impRef.current.want === index;
     const set = (patch) => { impRef.current = { ...impRef.current, ...patch }; setImp(impRef.current); };
     if (impRef.current?.token !== token) impRef.current = { clue: null, file: null, pending: false };
-    set({ token, want: index, total, sections, err: "" });
+    set({ token, want: index, total, sections, err: "", ...(clues ? { clues } : {}) });
     try {
       const d = await api(`/import/plonkit/${token}/${index}`);
       if (!mine()) return;
@@ -227,7 +227,7 @@ export default function ClueList({ id, name, editing, query }) {
     try {
       const r = await api("/import/plonkit/start", { method: "POST", body: { cc: id } });
       setForm(null);
-      loadImport(r.token, 0, r.total, r.sections ?? []);
+      loadImport(r.token, 0, r.total, r.sections ?? [], r.clues ?? []);
     } catch (e) { toast.push(errorText(e), { kind: "err", ms: 6000 }); }
   };
 
@@ -388,8 +388,13 @@ export default function ClueList({ id, name, editing, query }) {
 
   const showFilter = !!items && (visible.length >= 4 || !!(cat || loc || scope || ids || qScope || qLoc || qIds));
   const ic = imp?.clue;
-  // The guide sections that start after the clue on screen, for the "Skip to <section>" dropdown.
-  const laterSections = imp ? (imp.sections ?? []).filter((s) => s.index > imp.index) : [];
+  // What the Skip dropdown offers: the clues after the one on screen, each section's name before its first clue.
+  const skipItems = [];
+  for (const c of imp ? (imp.clues ?? []).filter((x) => x.index > imp.index) : []) {
+    const sec = (imp.sections ?? []).find((s) => s.index === c.index);
+    if (sec) skipItems.push({ key: `s-${sec.step}`, label: sec.title, head: true, go: () => skipTo(sec) });
+    skipItems.push({ key: `c-${c.index}`, label: c.title, category: c.category, go: () => skipTo(c) });
+  }
 
   return <>
     {/* Normally the button lives in the side panel; this is only a fallback if that panel isn't there. */}
@@ -419,7 +424,7 @@ export default function ClueList({ id, name, editing, query }) {
         areaFile: ic.scope === "reg" ? imp.file : null, imageFile: ic.scope === "reg" ? null : imp.file,
         progress: `Plonkit ${imp.index + 1} of ${imp.total}`,
       }}
-      skipTo={laterSections.map((s) => ({ key: s.step, label: s.title, go: () => skipTo(s) }))}
+      skipTo={skipItems}
       onClose={stopImport} onSaved={importSaved} onSkip={advance} />}
   </>;
 }
