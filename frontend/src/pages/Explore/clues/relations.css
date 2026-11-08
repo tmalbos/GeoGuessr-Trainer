@@ -16,8 +16,8 @@
 .rel-cap button { margin-left: auto; background: none; border: 0; color: var(--mute); cursor: pointer; font-size: 18px; line-height: 1; padding: 0 4px; }
 .rel-cap button:hover { color: var(--ink); }
 
-/* ── Card: badges, top right of the image ── */
-.clue-badges { position: absolute; top: 8px; right: 8px; z-index: 2; display: flex; gap: 6px; align-items: center; }
+/* ── Card: badges, top left of the image ── */
+.clue-badges { position: absolute; top: 8px; left: 8px; z-index: 2; display: flex; gap: 6px; align-items: center; }
 .cb { font-size: 20px; line-height: 1; filter: drop-shadow(0 1px 3px rgba(0,0,0,.7)); }
 /* Scoped to .clue-badges so the card's `.clue-media img { width: 100% }` doesn't stretch these. */
 .clue-badges .cb-img { display: block; width: 20px; height: 20px; object-fit: contain; filter: drop-shadow(0 1px 3px rgba(0,0,0,.7)); }
