@@ -4,6 +4,7 @@ import ErrorBox from "../../../components/ErrorBox.jsx";
 import { SkeletonCard } from "../../../components/Skeleton.jsx";
 import { useToast } from "../../../components/Toast.jsx";
 import { api, errorText } from "../../../lib/api.js";
+import { streetViewAvailable } from "../../../lib/mapProviders.js";
 import { invalidateClueCountries, setHasClues } from "../clueCountries.js";
 import ClueCard, { SourceChip } from "./ClueCard.jsx";
 import ClueEditor from "./ClueEditor.jsx";
@@ -126,25 +127,13 @@ export default function ClueList({ id, name, editing, query }) {
   const [ids, setIds] = useState(() => idsOf(qIds)); // the "From report" filter
   const [drag, setDrag] = useState(null); // { id, key } of the clue being dragged
   const [over, setOver] = useState(null); // id of the clue it is hovering
-  const [imp, setImp] = useState(null); // running import: { token, index, total, sections, clue, file, err }
-  const [wait, setWait] = useState(0); // seconds Plonkit makes us wait before the next clue
+  const [imp, setImp] = useState(null); // running import: { token, index, want, total, sections, clue, file, pending, err }
   const pending = useRef(new Map()); // key -> { cc, clueId }, deletes waiting out their undo window
   const [fslot, setFslot] = useState(null); // the side panel element the tools render into
   const itemsRef = useRef(null);
   itemsRef.current = items;
   const impRef = useRef(null);
   impRef.current = imp;
-  const loadingImp = !!imp && !imp.clue && !imp.err; // the clue is still downloading: show how long we wait
-  const impToken = imp?.token;
-  const impIndex = imp?.index;
-  useEffect(() => {
-    if (!loadingImp) { setWait(0); return undefined; }
-    let off = false;
-    const tick = () => api(`/import/plonkit/${impToken}/wait`).then((r) => !off && setWait(r.seconds)).catch(() => {});
-    tick();
-    const t = setInterval(tick, 1000);
-    return () => { off = true; clearInterval(t); };
-  }, [loadingImp, impToken, impIndex]);
   const addAt = useRef(null); // where the list was on screen when "Add clue" was pressed
 
   const wantAll = editing || !!ids; // analysis-only clues are needed to show the ones a report picked
@@ -209,20 +198,27 @@ export default function ClueList({ id, name, editing, query }) {
     });
   };
 
-  // ── Import from Plonkit: one clue at a time; the server keeps the next two ready ──
+  // ── Import from Plonkit: one clue at a time; the text is instant, the image downloads on demand ──
   // `sections` = [{ step, title, index }] from the start call: the guide's sections and where each one begins.
   const loadImport = async (token, index, total, sections) => {
-    setImp({ token, index, total, sections, clue: null, file: null, err: "" });
+    const mine = () => impRef.current?.token === token && impRef.current.want === index;
+    const set = (patch) => { impRef.current = { ...impRef.current, ...patch }; setImp(impRef.current); };
+    if (impRef.current?.token !== token) impRef.current = { clue: null, file: null, pending: false };
+    set({ token, want: index, total, sections, err: "" });
     try {
       const d = await api(`/import/plonkit/${token}/${index}`);
-      let file = null;
-      if (d.scope === "reg") {
-        const r = await fetch(`/api/import/plonkit/${token}/${index}/image`);
-        if (r.ok) { const b = await r.blob(); file = new File([b], "plonkit.png", { type: b.type || "image/png" }); }
-      }
-      setImp((p) => (p && p.token === token && p.index === index ? { ...p, clue: d, file } : p));
+      if (!mine()) return;
+      const sv = !!d.link && streetViewAvailable();
+      const needsImage = d.zone || !sv; // before the Regional sections the Street View link is enough
+      set({ index, clue: { ...d, scope: d.zone && sv ? "reg" : "nat", street_view_url: sv ? d.link : null }, file: null, pending: needsImage });
+      if (!needsImage) return;
+      const r = await fetch(`/api/import/plonkit/${token}/${index}/image`);
+      if (!mine()) return;
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || r.statusText);
+      const b = await r.blob();
+      if (mine()) set({ file: new File([b], "plonkit.png", { type: b.type || "image/png" }), pending: false });
     } catch (e) {
-      setImp((p) => (p && p.token === token && p.index === index ? { ...p, err: errorText(e) } : p));
+      if (mine()) set({ err: errorText(e), pending: false });
     }
   };
 
@@ -238,8 +234,8 @@ export default function ClueList({ id, name, editing, query }) {
   const advance = () => {
     const p = impRef.current;
     if (!p) return;
-    if (p.index + 1 >= p.total) { toast.push("Import finished", { kind: "ok" }); stopImport(); return; }
-    loadImport(p.token, p.index + 1, p.total, p.sections);
+    if (p.want + 1 >= p.total) { toast.push("Import finished", { kind: "ok" }); stopImport(); return; }
+    loadImport(p.token, p.want + 1, p.total, p.sections);
   };
 
   // "Skip to <section>": jump to the first clue of a later section, leaving the rest of this one (and any in between) out.
@@ -409,25 +405,18 @@ export default function ClueList({ id, name, editing, query }) {
       : items && list}
     {form && <ClueEditor key={form === "new" ? "new" : form.id} cc={id} name={name} clue={form === "new" ? null : form} onClose={() => setForm(null)}
       onSaved={saved} />}
-    {imp && !ic && <div className="modal-back"><div className="modal">
-      {imp.err
-        ? <>
-            <ErrorBox message={imp.err} onRetry={() => loadImport(imp.token, imp.index, imp.total, imp.sections)} />
-            <div className="modal-actions">
-              <button type="button" className="btn ghost" onClick={stopImport}>Close</button>
-              <button type="button" className="btn" onClick={advance}>Skip</button>
-            </div>
-          </>
-        : <>
-            <p className="muted">Loading clue {imp.index + 1} of {imp.total} from Plonkit…</p>
-            {wait > 0 && <p className="muted">Waiting {wait}s so Plonkit doesn't block us.</p>}
-          </>}
+    {imp?.err && <div className="modal-back" style={{ zIndex: 130 }}><div className="modal">
+      <ErrorBox message={imp.err} onRetry={() => loadImport(imp.token, imp.want, imp.total, imp.sections)} />
+      <div className="modal-actions">
+        <button type="button" className="btn ghost" onClick={stopImport}>Close</button>
+        <button type="button" className="btn" onClick={advance}>Skip</button>
+      </div>
     </div></div>}
-    {imp && ic && <ClueEditor key={`imp-${imp.token}-${imp.index}`} cc={id} name={name} clue={null}
+    {imp && ic && <ClueEditor key={`imp-${imp.token}-${ic.index}`} cc={id} name={name} clue={null}
       prefill={{
         scope: ic.scope, info: ic.info, general: ic.category, location: ic.location, source: ic.source,
-        image: ic.image, mediaText: ic.scope === "reg" ? ic.street_view_url : null,
-        mediaError: ic.scope === "reg" ? ic.street_view_error : "", areaFile: imp.file,
+        mediaText: ic.street_view_url, pending: !!imp.pending,
+        areaFile: ic.scope === "reg" ? imp.file : null, imageFile: ic.scope === "reg" ? null : imp.file,
         progress: `Plonkit ${imp.index + 1} of ${imp.total}`,
       }}
       skipTo={laterSections.map((s) => ({ key: s.step, label: s.title, go: () => skipTo(s) }))}

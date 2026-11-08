@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { api, errorText } from "../../../lib/api.js";
+import StatusIcon from "../../../components/StatusIcon.jsx";
 import { discardStaged, stagePath, stagedUrl } from "./imageTools.js";
 import { resolveStreetView, streetViewShot } from "./mediaKinds.js";
 import ClueMap from "./ClueMap.jsx";
@@ -71,7 +72,7 @@ const shadesOf = (parts, off) => {
  *  carries `stats.spread_km` from the server (average distance between the points of each polygon, shades ignored),
  *  which the editor uses to rate the frequency.
  *  `clue` = the clue being edited (its stored region is drawn when nothing new was picked). */
-export default function AreaPicker({ cc, value, current, onChange, stage, initialPicture, overlayEl, clue }) {
+export default function AreaPicker({ cc, value, current, onChange, stage, initialPicture, overlayEl, clue, loading }) {
   const [pic, setPic] = useState(null);     // { url, token? } — the picture shown right away
   const [up, setUp] = useState(null);       // { token, map, ... } — the picture once the stain tool has it
   const [crop, setCrop] = useState(null);   // [x0, y0, x1, y1] as fractions of the picture, drawn by hand
@@ -133,7 +134,7 @@ export default function AreaPicker({ cc, value, current, onChange, stage, initia
   };
 
   // Imported clue: the picture Plonkit shows is run through the stain tool right away.
-  useEffect(() => { if (initialPicture) takePicture({ file: initialPicture }); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (initialPicture) takePicture({ file: initialPicture }); }, [initialPicture]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // A .json dropped into the Region box may be a mapmaking export: then it is handled here (undefined = "handled",
   // FilePicker leaves the current region alone). Anything else goes on to the normal geometry staging.
@@ -314,6 +315,7 @@ export default function AreaPicker({ cc, value, current, onChange, stage, initia
         <span className="muted">{status}</span>
       </div>
     </div>}
+    {loading && !pic && <StatusIcon kind="wait" />}
   </>;
 
   return <div className="ar">

@@ -102,6 +102,7 @@ export default function ClueEditor({ cc, name, clue, prefill, onClose, onSaved, 
   const [incoming, setIncoming] = useState(prefill?.image ?? null); // a staged image to hand to ClueImage
   const [imageGone, setImageGone] = useState(false);
   const [mediaErr, setMediaErr] = useState(prefill?.mediaError ?? "");
+  const [mediaBusy, setMediaBusy] = useState(false);
   const [stagedKind] = useState(() => ({ media: initialMedia(clue).kind, area: initialArea(clue).kind }));
   const [source, setSource] = useState(clue?.source ?? prefill?.source ?? "");
   const [relations, setRelations] = useState(clue?.relations ?? []);
@@ -258,7 +259,7 @@ export default function ClueEditor({ cc, name, clue, prefill, onClose, onSaved, 
   };
 
   const takeMedia = async (input) => {
-    setMediaErr("");
+    setMediaErr(""); setMediaBusy(true);
     try {
       const up = await stageInput(input);
       if (up.kind === "image") {
@@ -271,7 +272,7 @@ export default function ClueEditor({ cc, name, clue, prefill, onClose, onSaved, 
         if (area.upload) { discardStaged(area.upload.token); setArea({ kind: null, upload: null }); }
         setMedia({ kind: uiKind(up.kind), upload: up });
       }
-    } catch (e) { setMediaErr(e.message); }
+    } catch (e) { setMediaErr(e.message); } finally { setMediaBusy(false); }
   };
 
   const takeArea = (up) => {
@@ -287,6 +288,9 @@ export default function ClueEditor({ cc, name, clue, prefill, onClose, onSaved, 
 
   // Imported regional clue: the Street View picture goes into the media slot as soon as the editor opens.
   useEffect(() => { if (prefill?.mediaText) takeMedia({ text: prefill.mediaText }); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // The Plonkit picture of a clue without a usable Street View link arrives after the editor opened.
+  useEffect(() => { if (prefill?.imageFile) takeMedia({ file: prefill.imageFile }); }, [prefill?.imageFile]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Removing the photo leaves its region: that becomes the clue's media instead of losing it.
   const removeMedia = () => {
@@ -401,14 +405,14 @@ export default function ClueEditor({ cc, name, clue, prefill, onClose, onSaved, 
         <div className="ed-left" ref={colRef}>
           {drawing ? <DrawMap cc={cc} stage={stageInput} onResult={takeDrawn} trailing={modeToggle} /> : <ClueImage ref={imgApi} current={imageGone ? null : clue?.image ? fileUrl(cc, clue.image, clue.rev) : null} colRef={colRef} overlay={badges}
             preview={mediaPreview} incoming={incoming}
-            regionSlot={showArea} onOverlay={setOvEl}
+            regionSlot={showArea} onOverlay={setOvEl} loading={mediaBusy || (!!prefill?.pending && !mainKind)}
             onOtherFile={(f) => takeMedia({ file: f })} onOtherText={(t) => takeMedia({ text: t })} onRemove={removeMedia}
             blur={blur} onBlur={setBlur} maxH={maxH} onMaxH={setMaxH} trailing={modeToggle}
             onState={(h, sig) => setImg((p) => (p.has === h && p.sig === sig ? p : { has: h, sig }))} />}
           {mediaErr && <p className="err">{mediaErr}</p>}
           {/* A photo can't say which region it is: the region is mandatory in that case. It is drawn on the photo above. */}
           {showArea && <AreaPicker cc={cc} value={area.upload} current={areaCurrent} onChange={takeArea} stage={stageInput}
-            initialPicture={prefill?.areaFile} overlayEl={ovEl} clue={clue} />}
+            initialPicture={prefill?.areaFile} overlayEl={ovEl} clue={clue} loading={!!prefill?.pending} />}
           <div className="ed-rels">
             {relations.map((r) => {
               const o = snippetOf(r);

@@ -36,10 +36,7 @@ from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
 from src.api.deps import get_ctx
-from src.api.routers.clues import _discard, _stage
 from src.api.routers.stain import _borders, _outline  # noqa: PLC2701
-from src.geo.map_detect import detect_map
-from src.geo.stain_extract import StainError, load_image
 
 logger = logging.getLogger("uvicorn.error")
 router = APIRouter()
@@ -49,9 +46,8 @@ UA = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/124.0 Safari/537.36"
 )
-WINDOW = 1
 MAX_SESSIONS = 3
-PAUSE_S = 1.0
+PAUSE_S = 2.0
 MAPS_RE = re.compile(
     r"https?://(?:maps\.app\.goo\.gl|goo\.gl/maps|(?:www\.)?google\.[a-z.]+/maps)\S*", re.IGNORECASE
 )
@@ -130,26 +126,9 @@ async def _resolve(client, url: str) -> str:
     return final
 
 
-def _has_map(data: bytes) -> bool:
-    try:
-        _, work = load_image(data)
-    except StainError:
-        return False
-    return detect_map(work).get("found") is True
-
-
-def _drop(res: dict | None) -> None:
-    img = (res or {}).get("image")
-    if img and img.get("token"):
-        _discard(img["token"])
-
-
 def _close(s: dict) -> None:
     for t in s["tasks"].values():
-        if t.done() and not t.cancelled():
-            _drop(t.result())
-        else:
-            t.cancel()
+        t.cancel()
     s["tasks"].clear()
     if s.get("warm"):
         s["warm"].cancel()
@@ -178,19 +157,22 @@ async def _build(ctx, s: dict, i: int) -> dict:
     tip = s["tips"][i]
     async with s["lock"]:  # one download at a time, with a pause: Plonkit must not see a burst
         try:
-            mod = _script()
             client = ctx.http_client
             url = tip["image_url"]
             full = f"{BASE}{url}" if url.startswith("/") else url
             full = urllib.parse.quote(full, safe=":/?#[]@!$&'()*+,;=%~")
             delay = 10.0
             for _ in range(8):  # "too many requests": wait (as long as Plonkit asks) and try again
+                gap = s["last"] + PAUSE_S - time.monotonic()
+                if gap > 0:  # never two requests to Plonkit closer than PAUSE_S
+                    await _wait(s, gap)
                 r = await client.get(
                     full,
                     headers={"User-Agent": UA, "Referer": s["page_url"]},
                     follow_redirects=True,
                     timeout=30,
                 )
+                s["last"] = time.monotonic()
                 if r.status_code != 429:
                     break
                 with contextlib.suppress(ValueError):
@@ -198,48 +180,7 @@ async def _build(ctx, s: dict, i: int) -> dict:
                 await _wait(s, delay)
                 delay *= 2
             r.raise_for_status()
-            data = r.content
-            regional = await run_in_threadpool(_has_map, data)
-            street_view_url = None
-            if regional:
-                # A drawn map needs a Street View view to make a complete regional clue. Without one
-                # (no link, or one that can't be opened) the picture is kept as it is, as a national clue.
-                if not tip["link"]:
-                    regional = False
-                else:
-                    try:
-                        street_view_url = await _resolve(client, tip["link"])
-                    except Exception:  # noqa: BLE001
-                        logger.warning(
-                            "Plonkit import: clue %s has a Street View link that can't be opened", i
-                        )
-                        regional = False
-            category = mod.category_for(tip["text"], tip["tags"])
-            out = {
-                "index": i,
-                "total": len(s["tips"]),
-                "id": tip["id"],
-                "step": tip["step"],
-                "info": tip["text"],
-                "category": category,
-                "location": mod.DEFAULT_LOCATION.get(category, "Anywhere"),
-                "source": f"{s['page_url']}#{tip['step']}",
-                "scope": "reg" if regional else "nat",
-                "image": None,
-                "has_image": True,
-                "street_view_url": street_view_url,
-                "street_view_error": "",
-                "_image": data if regional else None,
-                "_media": r.headers.get("content-type", "image/png"),
-            }
-            if not regional:
-                try:
-                    up = await run_in_threadpool(_stage, "image", "plonkit.png", data)
-                    out["image"] = {"token": up["token"], "kind": "image"}
-                except HTTPException as e:
-                    out["street_view_error"] = str(e.detail)
-            await _wait(s, PAUSE_S)
-            return out
+            return {"data": r.content, "media": r.headers.get("content-type", "image/png")}
         except Exception as e:
             logger.exception("Plonkit import: clue %s failed", i)
             return {"error": f"Could not load clue {i + 1}: {e}"}
@@ -247,7 +188,7 @@ async def _build(ctx, s: dict, i: int) -> dict:
 
 def _task(ctx, s: dict, i: int) -> asyncio.Task:
     t = s["tasks"].get(i)
-    if t is None:
+    if t is None or t.cancelled():
         t = s["tasks"][i] = asyncio.create_task(_build(ctx, s, i))
     return t
 
@@ -324,6 +265,12 @@ async def plonkit_start(body: StartBody, request: Request):
     if not tips:
         raise HTTPException(404, f"The Plonkit guide for {name} has no clues to import.")
 
+    # From the first "Regional ..." section on, every clue is expected to be regional.
+    reg_from = next(
+        (x["index"] for x in sections if re.match(r"\s*regional\b", x["title"], re.IGNORECASE)),
+        None,
+    )
+
     token = uuid4().hex
     s = {
         "cc": cc,
@@ -332,6 +279,8 @@ async def plonkit_start(body: StartBody, request: Request):
         "tasks": {},
         "lock": asyncio.Lock(),
         "wait_until": 0.0,
+        "reg_from": reg_from,
+        "last": time.monotonic(),  # when Plonkit was last called
     }
     s["warm"] = asyncio.create_task(_warm(ctx, cc))
     _SESSIONS[token] = s
@@ -350,41 +299,52 @@ async def plonkit_wait(token: str):
 
 
 @router.get("/import/plonkit/{token}/{index}")
-async def plonkit_clue(token: str, index: int, request: Request):
-    ctx = get_ctx(request)
+async def plonkit_clue(token: str, index: int):
     s = _SESSIONS.get(token)
     if s is None:
         raise HTTPException(410, "That import expired. Start it again.")
     n = len(s["tips"])
     if not 0 <= index < n:
         raise HTTPException(404, "No such clue")
-    await ctx.geoguessr_ready.wait()
-    for j in [j for j in s["tasks"] if j < index]:  # the ones behind us are done with
-        t = s["tasks"].pop(j)
-        if t.done() and not t.cancelled():
-            _drop(t.result())
-        else:
-            t.cancel()
-    cur = _task(ctx, s, index)
-    for j in range(index + 1, min(index + WINDOW, n)):  # next ones, in the background
-        _task(ctx, s, j)
-    res = await cur
-    if "error" in res:
-        s["tasks"].pop(index, None)
-        raise HTTPException(502, res["error"])
-    return {k: v for k, v in res.items() if not k.startswith("_")}
+    tip = s["tips"][index]
+    mod = _script()
+    category = mod.category_for(tip["text"], tip["tags"])
+    return {
+        "index": index,
+        "total": n,
+        "id": tip["id"],
+        "step": tip["step"],
+        "info": tip["text"],
+        "category": category,
+        "location": mod.DEFAULT_LOCATION.get(category, "Anywhere"),
+        "source": f"{s['page_url']}#{tip['step']}",
+        "link": tip["link"],
+        "zone": s["reg_from"] is not None and index >= s["reg_from"],
+    }
 
 
 @router.get("/import/plonkit/{token}/{index}/image")
-async def plonkit_image(token: str, index: int):
+async def plonkit_image(token: str, index: int, request: Request):
+    """Downloads the clue's Plonkit image (only now, when it is needed) and returns it."""
+    ctx = get_ctx(request)
     s = _SESSIONS.get(token)
-    t = s["tasks"].get(index) if s else None
-    if t is None or not t.done() or t.cancelled():
-        raise HTTPException(404, "Image not available")
-    res = t.result()
-    if not res.get("_image"):
-        raise HTTPException(404, "Image not available")
-    return Response(res["_image"], media_type=res.get("_media") or "image/png")
+    if s is None:
+        raise HTTPException(410, "That import expired. Start it again.")
+    if not 0 <= index < len(s["tips"]):
+        raise HTTPException(404, "No such clue")
+    for j in [j for j in s["tasks"] if j != index]:  # clues the user already moved away from
+        s["tasks"].pop(j).cancel()
+    cur = _task(ctx, s, index)
+    try:
+        res = await cur
+    except asyncio.CancelledError:
+        if cur.cancelled():
+            raise HTTPException(409, "Superseded") from None
+        raise
+    if "error" in res:
+        s["tasks"].pop(index, None)
+        raise HTTPException(502, res["error"])
+    return Response(res["data"], media_type=res["media"])
 
 
 @router.delete("/import/plonkit/{token}")
