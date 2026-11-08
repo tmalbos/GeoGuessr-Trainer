@@ -19,6 +19,7 @@ import pandas as pd
 import shapely
 
 from src.analysis.report_actions import area_km2
+from src.geo.local_geo import CountryAreaMissingError
 
 
 def area_score(share_pct: float) -> int:
@@ -78,15 +79,24 @@ def _stain_areas(src, folder, cc: str, clue: dict, override: dict) -> list[tuple
     return []
 
 
-def medal_for(cc: str, clue: dict, src, folder, outline, override: dict | None = None):
-    """(score, medal) of a clue, or None when a regional clue's area can't be measured now
-    (no country outline because the geo layers are not loaded).
+def medal_for(
+    cc: str,
+    clue: dict,
+    src,
+    folder,
+    override: dict | None = None,
+    country_km2: float | None = None,
+):
+    """(score, medal) of a clue.
+
+    A regional clue raises CountryAreaMissingError when `country_km2` (the area stored in the
+    national parquet, see scripts/convert_geo.py) is missing or not positive; run
+    scripts/backfill_country_area.py. National clues never need the area.
     """
-    country, stains = 0.0, []
+    country, stains = country_km2 if country_km2 is not None and country_km2 > 0 else 0.0, []
     if clue.get("scope") == "reg":
-        if outline is None or outline.is_empty:
-            return None
-        country = area_km2(outline)
+        if country <= 0:
+            raise CountryAreaMissingError(cc)
         stains = [a for _, a in _stain_areas(src, folder, cc, clue, override or {})]
     score = clue_score(clue, stains, country)
     return round(score, 2), medal_of(score)

@@ -57,7 +57,7 @@ from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 
 from src.api.deps import get_ctx
-from src.api.routers.stain import _borders, _outline  # noqa: PLC2701
+from src.api.routers.stain import _borders, _country_km2, _outline  # noqa: PLC2701
 from src.geo.clue_overlay import recolour, render_overlay
 from src.geo.region_stats import region_stats
 from src.geo.subcontinents import SUBCONTINENTS
@@ -137,8 +137,8 @@ def _set_has(cc: str, items: list[dict]) -> None:
 def _apply_medal(cc: str, entry: dict, request: Request, folder: Path, override=None) -> None:
     """Store `score` and `medal` on a clue. Computed once, when the clue is saved (see clue_medal.py).
 
-    Nothing is stored when a regional clue's area can't be measured right now (geo layers not loaded);
-    scripts/backfill_clue_medals.py fills those in later.
+    A regional clue whose country area is not stored (see scripts/backfill_country_area.py) is logged
+    and left unscored.
     """
     # imported here because clue_source imports this module
     from src.analysis.clue_medal import medal_for  # noqa: PLC0415
@@ -146,8 +146,12 @@ def _apply_medal(cc: str, entry: dict, request: Request, folder: Path, override=
 
     local = get_ctx(request).local_geo
     try:
-        outline = _outline(local, cc) if local is not None else None
-        res = medal_for(cc, entry, ClueSource(local), folder, outline, override)
+        # Only a regional clue needs the country's area, stored in the national parquet
+        # (scripts/convert_geo.py).
+        country = None
+        if local is not None and entry.get("scope") == "reg":
+            country = _country_km2(local, cc)
+        res = medal_for(cc, entry, ClueSource(local), folder, override, country_km2=country)
     except Exception:
         logger.exception("Could not score clue %s/%s", cc, entry.get("id"))
         return

@@ -37,6 +37,7 @@ from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 
 from src.api.deps import get_ctx
+from src.geo.local_geo import CountryAreaMissingError
 from src.geo.map_detect import detect_map
 from src.geo.pinpoint import convert_pins
 from src.geo.simplify import simplified_map
@@ -98,6 +99,23 @@ def _outline(local, code: str):
 def _borders(local, code: str):
     """Simplified first-level borders as lon/lat lines (shared borders appear once), or None."""
     return _simplified(local, code)[1]
+
+
+def _country_km2(local, code: str) -> float:
+    """Country area (km²) stored in the national parquet by scripts/convert_geo.py.
+
+    Raises CountryAreaMissingError when the file predates that column or has no positive value.
+    """
+    layer = local._admin_layer(code)  # noqa: SLF001
+    if layer is None or not len(layer) or "country_km2" not in layer.columns:
+        raise CountryAreaMissingError(code)
+    try:
+        value = float(layer["country_km2"].iloc[0])
+    except (TypeError, ValueError):
+        raise CountryAreaMissingError(code) from None
+    if value <= 0:
+        raise CountryAreaMissingError(code)
+    return value
 
 
 def _use_shared_base(res: dict, local, code: str) -> dict:

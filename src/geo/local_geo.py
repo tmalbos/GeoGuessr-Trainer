@@ -4,7 +4,7 @@ Layout under data/geo/ (built with scripts/convert_geo.py):
     biomes.parquet          BIOME_NAME, geometry
     urban.parquet           geometry
     countries.parquet       code, name, geometry   (only countries that have a local admin file)
-    admin/{CC}.parquet      state, [subregion], city, geometry   (finest admin level, lazy-loaded)
+    admin/{CC}.parquet      state, [subregion], city, country_km2, geometry   (finest admin level, lazy-loaded)
 """
 
 import threading
@@ -16,6 +16,15 @@ from shapely.geometry import Point, box
 
 COUNTRY_TOL_DEG = 0.01  # ~1 km: absorbs simplification gaps without stealing neighbours' points
 ADMIN_TOL_DEG = 0.05  # ~5 km: coasts / gaps between admin polygons, already inside the country
+
+
+class CountryAreaMissingError(Exception):
+    """The national parquet has no positive `country_km2` for this country."""
+
+    def __init__(self, code: str) -> None:
+        super().__init__(
+            f"No country area (country_km2) stored for {code}; run scripts/backfill_country_area.py"
+        )
 
 
 def _nearest_idx(gdf, point, max_distance: float | None = None) -> int | None:
