@@ -1,11 +1,13 @@
-import { kmToScore, scorePos, tierHue } from "../../lib/tiers.js";
+import { kmToScore, scorePos, tierHue, tierIndex } from "../../lib/tiers.js";
 
 /** Tier ladder with a "you are here" dot. Full size also draws the likely range (95% interval, km). */
-export default function TierLadder({ tiers, score, ciLo, ciHi, compact }) {
+export default function TierLadder({ tiers, score, label, ciLo, ciHi, compact }) {
   if (score == null || !tiers?.length) return null;
   const n = tiers.length;
-  const dot = scorePos(tiers, score);
-  const current = Math.min(n - 1, Math.floor(dot * n));
+  const ti = label ? tierIndex(tiers, label) : -1;
+  const topTier = ti >= 0 && tiers[ti].max === tiers[n - 1].max;
+  const dot = topTier ? (ti + 0.5) / n : scorePos(tiers, score);
+  const current = ti >= 0 ? ti : Math.min(n - 1, Math.floor(dot * n));
   const band = !compact && ciLo != null && ciHi != null ? [scorePos(tiers, kmToScore(ciHi)), scorePos(tiers, kmToScore(ciLo))] : null;
   const hint = band ? `Typical distance between ${Math.round(ciLo)} and ${Math.round(ciHi)} km` : undefined;
   return <div className={`ladder ${compact ? "compact" : ""}`} role="img" aria-label={`Score ${score} out of 5000, ${tiers[current].label} tier${hint ? `. ${hint}` : ""}`}>

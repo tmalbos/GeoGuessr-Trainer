@@ -24,28 +24,32 @@ def dist_to_score(km: float) -> int:
     return int(5000 * math.exp(-0.000673 * km) + 0.5)
 
 
-def score_label(score: int) -> str:
-    low, mid, high, top = SCORE_CUTOFFS
-    if score <= low:
-        return translate("Terrible")
-    if score <= mid:
-        return translate("Decent")
-    if score <= high:
-        return translate("High")
-    if score <= top:
-        return translate("Elite")
-    return translate("Inhuman")
+RANK_CUTOFFS = (
+    ("Clueless", 1000),
+    ("Gullible", 3000),
+    ("Sloppy", 4000),
+    ("Decent", 4500),
+    ("Savvy", 4900),
+)
+# Above the last cutoff the rank depends on the share of 5K rounds: (label, minimum share), best first.
+TOP_RANKS = (("Legendary", 0.5), ("Insane", 0.2), ("Flawless", 0.05))
+
+
+def score_label(score: int, five_k_share: float = 0.0) -> str:
+    for label, cap in RANK_CUTOFFS:
+        if score <= cap:
+            return translate(label)
+    for label, share in TOP_RANKS:
+        if five_k_share >= share:
+            return translate(label)
+    return translate(RANK_CUTOFFS[-1][0])
 
 
 def score_tiers() -> list[dict]:
-    """The tier ladder (same thresholds as score_label), lowest first. `max` is the upper bound."""
-    low, mid, high, top = SCORE_CUTOFFS
+    """The tier ladder, lowest first. `max` is the upper bound; the top ranks share 5000."""
     return [
-        {"label": translate("Terrible"), "max": low},
-        {"label": translate("Decent"), "max": mid},
-        {"label": translate("High"), "max": high},
-        {"label": translate("Elite"), "max": top},
-        {"label": translate("Inhuman"), "max": 5000},
+        *({"label": translate(label), "max": cap} for label, cap in RANK_CUTOFFS),
+        *({"label": translate(label), "max": 5000} for label, _ in reversed(TOP_RANKS)),
     ]
 
 

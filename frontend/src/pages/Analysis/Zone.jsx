@@ -30,7 +30,7 @@ export default function Zone({ z, tiers, open, onToggle }) {
       <span className="muted zone-n">{z.total} rounds</span>
       <span className="zone-sum">
         <TierChip tiers={tiers} label={z.level_label} />
-        <TierLadder tiers={tiers} score={z.score_high} compact />
+        <TierLadder tiers={tiers} score={z.score_high} label={z.level_label} compact />
         <TrendBadge arrow={z.level_arrow} />
       </span>
     </button>
@@ -38,7 +38,7 @@ export default function Zone({ z, tiers, open, onToggle }) {
       <div className="stats">
         <div><span className="muted">Current level</span>
           <div className="zone-stat" style={{ color: tone(z.score_high ?? 0) }}><TierChip tiers={tiers} label={z.level_label} /><TrendBadge arrow={z.level_arrow} /></div>
-          <TierLadder tiers={tiers} score={z.score_high} ciLo={z.ci_lo} ciHi={z.ci_hi} /></div>
+          <TierLadder tiers={tiers} score={z.score_high} label={z.level_label} ciLo={z.ci_lo} ciHi={z.ci_hi} /></div>
         <div><span className="muted">Worst rounds</span>
           <div className="zone-stat"><TierChip tiers={tiers} label={z.p90_label} /><TrendBadge arrow={z.p90_arrow} /></div>
           <span className="muted">worst 10% ≈ {num(z.p90_now_km)} km</span></div>

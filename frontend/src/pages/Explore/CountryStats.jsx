@@ -28,7 +28,7 @@ export default function CountryStats({ code, name }) {
     {z ? <>
       <div className="cs-row"><TierChip tiers={options.tiers} label={z.level_label} /><TrendBadge arrow={z.level_arrow} />
         <span className="muted">{d.total} rounds</span></div>
-      <TierLadder tiers={options.tiers} score={z.score_high} compact />
+      <TierLadder tiers={options.tiers} score={z.score_high} label={z.level_label} compact />
     </> : <>
       <div className="cs-row"><span className="muted">{d.total} / {MIN_ROUNDS} rounds</span></div>
       <div className="bar" role="progressbar" aria-valuemin={0} aria-valuemax={MIN_ROUNDS} aria-valuenow={d.total}><i style={{ width: `${(d.total / MIN_ROUNDS) * 100}%` }} /></div>

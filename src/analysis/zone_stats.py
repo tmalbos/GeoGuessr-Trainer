@@ -64,12 +64,15 @@ def _zone_stats(rounds: list[dict], level: str | None) -> dict[str, dict]:
         )
 
         ci = bootstrap_ci(d_high)
+        five_k_share = (
+            sum(dist_to_score(d) >= 5000 for d in d_high) / len(d_high) if d_high else 0.0
+        )
 
         result[zone] = {
             "total": len(zrounds),
             "window": len(w_high),
             "score_high": score_high,
-            "level_label": score_label(score_high) if score_high is not None else "—",
+            "level_label": score_label(score_high, five_k_share) if score_high is not None else "—",
             "level_arrow": arrow(med_low, med_before, lower_is_better=True),
             "p90_label": score_label(p90_score_high) if p90_score_high is not None else "—",
             "p90_arrow": arrow(p90_low, p90_before, lower_is_better=True),
