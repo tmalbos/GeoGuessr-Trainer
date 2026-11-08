@@ -12,10 +12,9 @@ Map pins (pinpoint clues, any colour) are turned into small circles around the p
 and flagged `pin`.
 The maths is in src/geo/stain_extract.py; the "is there a map?" check is in src/geo/map_detect.py.
 
-Country maps: `_outline_full` is the country's full-resolution outline (used to REGISTER the screenshot).
-`_outline` / `_borders` are the SIMPLIFIED outline and first-level borders, made together in one coverage
-simplification (src/geo/simplify.py) so they always agree. They are what the preview and the clue overlays use
-(clues.py imports them).
+Country maps: the outline and the first-level borders come ready-made from LocalGeo (scripts/convert_geo.py
+writes them, already simplified together, at the resolution chosen in Settings). Nothing is dissolved or
+simplified here. `_outline_full`, `_outline` and `_borders` stay as thin wrappers because clues.py imports them.
 """
 
 import contextlib
@@ -40,7 +39,6 @@ from src.api.deps import get_ctx
 from src.geo.local_geo import CountryAreaMissingError
 from src.geo.map_detect import detect_map
 from src.geo.pinpoint import convert_pins
-from src.geo.simplify import simplified_map
 from src.geo.stain_extract import (
     StainError,
     analyze,
@@ -59,46 +57,22 @@ MIN_STAIN_PCT = (
 
 MAX_UPLOADS = 5
 _UPLOADS: OrderedDict[str, dict] = OrderedDict()
-_OUTLINES: dict[str, object] = {}
-_MAPS: dict[str, tuple] = {}
 _LOCK = threading.Lock()
 
 
 def _outline_full(local, code: str):
-    """The country's full-resolution lon/lat geometry from the local geo layers (cached), or None."""
-    if code in _OUTLINES:
-        return _OUTLINES[code]
-    geom = None
-    c = local.countries
-    if c is not None and not c.empty:
-        sel = c[c["code"] == code]
-        if len(sel):
-            geom = shapely.union_all(shapely.make_valid(sel.geometry.to_numpy()))
-    if geom is None:
-        layer = local._admin_layer(code)  # noqa: SLF001
-        if layer is not None and len(layer):
-            geom = shapely.union_all(shapely.make_valid(layer.geometry.to_numpy()))
-    if geom is not None:
-        _OUTLINES[code] = geom
-    return geom
-
-
-def _simplified(local, code: str) -> tuple:
-    """(outline, borders), simplified together in one coverage (cached). Either can be None."""
-    if code not in _MAPS:
-        layer = local._admin_layer(code)  # noqa: SLF001
-        _MAPS[code] = simplified_map(layer, lambda: _outline_full(local, code))
-    return _MAPS[code]
+    """The country outline at the chosen resolution (used to REGISTER the screenshot), or None."""
+    return local.outline(code)
 
 
 def _outline(local, code: str):
-    """Simplified country outline, consistent with `_borders`. None when there is no local data."""
-    return _simplified(local, code)[0]
+    """Same outline, consistent with `_borders`. None when there is no local data."""
+    return local.outline(code)
 
 
 def _borders(local, code: str):
-    """Simplified first-level borders as lon/lat lines (shared borders appear once), or None."""
-    return _simplified(local, code)[1]
+    """First-level borders as lon/lat lines (shared borders appear once), or None."""
+    return local.borders(code)
 
 
 def _country_km2(local, code: str) -> float:

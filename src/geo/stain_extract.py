@@ -66,8 +66,8 @@ outline and first-level borders are known:
 The registration is a 2x3 affine in the projected plane: px = A @ (u, v) + t. A is a full 2x2 matrix
 (it may rotate / shear), so every consumer uses A and t, never separate scale factors.
 
-The outline used to fit and to clip is simplified by mapshaper at MAPSHAPER_RESOLUTION,
-not by a fixed number of degrees, so small countries keep their detail.
+The outline used to fit and to clip comes ready-made and already simplified (scripts/convert_geo.py,
+at the resolution chosen in Settings); nothing is simplified or dissolved here.
 """
 
 import base64
@@ -75,16 +75,11 @@ import io
 import json
 import logging
 import math
-import shutil
-import subprocess
-import tempfile
-from pathlib import Path
 
 import numpy as np
 import shapely
 from PIL import Image, ImageDraw, ImageOps
 from shapely.affinity import affine_transform
-from shapely.geometry import MultiPolygon
 
 try:  # much faster nearest-neighbour search when scipy is around
     from scipy.spatial import cKDTree
@@ -115,7 +110,6 @@ logger = logging.getLogger("uvicorn.error")
 
 WORK_MAX = 1600  # longest side of the image used to find the map, px (near native for a screenshot)
 FULL_MAX = 2400  # longest side of the image the stains are read from, px
-MAPSHAPER_RESOLUTION = "1080x1080"  # the country outline (fit + clip) is simplified to this grid
 MIN_CROP = 32  # smallest crop side (in work px)
 EDGE_T = (
     250.0  # gradient magnitude (sum over channels) that counts as an edge (coarse search / ICP)
@@ -1036,67 +1030,24 @@ def _polish(sub: np.ndarray, uv, uvb, r: dict) -> dict | None:
     return {"A": ctx["A0"], "t": ctx["t0"], "honest": before}
 
 
-def _mapshaper_simplify(geom, resolution: str = MAPSHAPER_RESOLUTION):
-    """Simplify a lon/lat geometry with mapshaper's default algorithm at `resolution`."""
-    exe = shutil.which("mapshaper")
-    if exe is None:
-        msg = "mapshaper is not on PATH"
-        raise StainError(msg)
-    with tempfile.TemporaryDirectory() as tmp:
-        src = Path(tmp) / "in.geojson"
-        dst = Path(tmp) / "out.geojson"
-        src.write_text(shapely.to_geojson(geom), encoding="utf-8")
-        subprocess.run(
-            [
-                exe,
-                str(src),
-                "-simplify",
-                f"resolution={resolution}",
-                "keep-shapes",
-                "-o",
-                str(dst),
-                "format=geojson",
-            ],
-            check=True,
-            capture_output=True,
-        )
-        data = json.loads(dst.read_text(encoding="utf-8"))
-    if data.get("type") == "FeatureCollection":
-        data = data["features"][0]
-    return shapely.from_geojson(json.dumps(data))
-
-
-def _fit_prep_outline(parts, big):
-    return _mapshaper_simplify(MultiPolygon([p for p in parts if p.area >= 0.02 * big]))
-
-
-def _clip_prep_outline(parts):
-    return shapely.make_valid(_mapshaper_simplify(MultiPolygon(parts)))
-
-
-def _small_prep_outline(small):
-    return _mapshaper_simplify(MultiPolygon(small)) if small else None
-
-
 def _prep_outline(outline):
     """(fit, clip, extra): the outline used to MATCH the screenshot (small islands dropped: they only add
-    noise), the full outline used to clip the results, and the small islands the fit leaves out
-    (None when there are none). `extra` is where stains on those islands are read.
+    noise), the outline used to clip the results, and the small islands the fit leaves out (None when
+    there are none). `extra` is where stains on those islands are read.
 
-    All three are simplified by mapshaper at MAPSHAPER_RESOLUTION, never by a fixed number of degrees.
+    The outline already comes simplified and valid (scripts/convert_geo.py), so nothing is simplified
+    or repaired here: the parts are just sorted by size.
     """
-    parts = _polys(shapely.make_valid(outline))
-    if not parts:
+    parts = shapely.get_parts(outline)
+    parts = parts[shapely.get_type_id(parts) == 3]  # polygons only
+    if not len(parts):
         msg = "That country has no outline to match against"
         raise StainError(msg)
-    big = max(p.area for p in parts)
-    fit = _fit_prep_outline(parts, big)
-    clip = _clip_prep_outline(parts)
-    small = [p for p in parts if p.area < 0.02 * big]
-    extra = _small_prep_outline(small)
-    if extra is not None and extra.is_empty:
-        extra = None
-    return fit, clip, extra
+    area = shapely.area(parts)
+    big = parts[area >= 0.02 * float(area.max())]
+    small = parts[area < 0.02 * float(area.max())]
+    clip = outline if shapely.is_valid(outline) else shapely.make_valid(outline)
+    return shapely.multipolygons(big), clip, (shapely.multipolygons(small) if len(small) else None)
 
 
 def register(sub: np.ndarray, outline, borders, projection: str, hint=None) -> dict:

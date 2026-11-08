@@ -1,10 +1,13 @@
 """local_geo.py — Offline geo lookups from GeoParquet layers (biome, urban/rural, admin).
 
 Layout under data/geo/ (built with scripts/convert_geo.py):
-    biomes.parquet          BIOME_NAME, geometry
-    urban.parquet           geometry
-    countries.parquet       code, name, geometry   (only countries that have a local admin file)
-    admin/{CC}.parquet      state, [subregion], city, country_km2, geometry   (finest admin level, lazy-loaded)
+    biomes.parquet                  BIOME_NAME, geometry
+    urban.parquet                   geometry
+  and, once per resolution ({res} = full / high / medium / low / minimal), under data/geo/{res}/:
+    countries.parquet               code, name, geometry = the country OUTLINE (only countries with admin data)
+    admin/{CC}.parquet              state, [subregion], city, country_km2, geometry (lazy-loaded)
+    borders/{CC}.parquet            one row: the first-level borders as lines (geometry may be empty)
+Everything is already simplified at that resolution: nothing here dissolves or simplifies at runtime.
 """
 
 import threading
@@ -14,6 +17,8 @@ import geopandas as gpd
 import numpy as np
 from shapely.geometry import Point, box
 
+RESOLUTIONS = ("full", "high", "medium", "low", "minimal")
+DEFAULT_RESOLUTION = "high"
 COUNTRY_TOL_DEG = 0.01  # ~1 km: absorbs simplification gaps without stealing neighbours' points
 ADMIN_TOL_DEG = 0.05  # ~5 km: coasts / gaps between admin polygons, already inside the country
 
@@ -57,17 +62,21 @@ def area_types(lats, lons, urban_gdf) -> list[str]:
 
 
 class LocalGeo:
-    def __init__(self, geo_dir: Path) -> None:
-        self.dir = Path(geo_dir)
+    def __init__(self, geo_dir: Path, resolution: str = DEFAULT_RESOLUTION) -> None:
+        self.root = Path(geo_dir)
+        self.resolution = resolution if resolution in RESOLUTIONS else DEFAULT_RESOLUTION
+        self.dir = self.root / self.resolution
         self.biomes = None
         self.urban = None
         self.countries = None
         self._admin: dict[str, gpd.GeoDataFrame | None] = {}
         self._bounds: dict[tuple[str, str], tuple | None] = {}
+        self._borders: dict[str, object | None] = {}
         self._lock = threading.Lock()
 
-    def _read(self, name: str, required: bool = True):
-        path = self.dir / name
+    def _read(self, name: str, required: bool = True, shared: bool = False):
+        """`shared`: the file is the same for every resolution (biomes, urban) and lives in data/geo/."""
+        path = (self.root if shared else self.dir) / name
         if not path.exists():
             if required:
                 msg = f"Missing {path}. Build it with scripts/convert_geo.py."
@@ -79,9 +88,29 @@ class LocalGeo:
 
     def load(self) -> None:
         """Blocking; run in an executor."""
-        self.biomes = self._read("biomes.parquet")
-        self.urban = self._read("urban.parquet")
+        self.biomes = self._read("biomes.parquet", shared=True)
+        self.urban = self._read("urban.parquet", shared=True)
         self.countries = self._read("countries.parquet", required=False)
+
+    def outline(self, code: str):
+        """The country outline at this resolution (one geometry), or None when it isn't stored."""
+        if self.countries is None or self.countries.empty:
+            return None
+        sel = self.countries[self.countries["code"] == code]
+        return sel.geometry.iat[0] if len(sel) else None
+
+    def borders(self, code: str):
+        """First-level division borders as lines at this resolution (cached), or None when there are none."""
+        with self._lock:
+            if code not in self._borders:
+                path = self.dir / "borders" / f"{code}.parquet"
+                geom = None
+                if path.exists():
+                    col = gpd.read_parquet(path).geometry
+                    if len(col) and col.iat[0] is not None and not col.iat[0].is_empty:
+                        geom = col.iat[0]
+                self._borders[code] = geom
+            return self._borders[code]
 
     def _admin_layer(self, code: str):
         with self._lock:

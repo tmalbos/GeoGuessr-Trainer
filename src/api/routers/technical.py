@@ -47,11 +47,9 @@ _COMPUTE = threading.Lock()  # one polygon computation at a time (they are CPU-b
 _VALID: dict[
     int, tuple
 ] = {}  # id(geometry) -> (geometry, repaired copy); only touched inside _COMPUTE
-_COUNTRY: dict[str, object] = {}  # country code -> full repaired outline
 _WIDE: dict[
     str, object
 ] = {}  # country code -> outline widened by COUNTRY_SLACK_DEG (for "is this point inside")
-_BORDERS: dict[str, object] = {}  # country code -> first-level division borders (lines) or None
 
 
 # ── parsing ────────────────────────────────────────────────────────────────
@@ -493,41 +491,13 @@ class BaseBody(PolyBody):
 
 
 def _country_geom(local, code: str):
-    """The whole country as one repaired geometry (cached), or None if there is no local outline."""
-    if code in _COUNTRY:
-        return _COUNTRY[code]
-    geom = None
-    c = local.countries
-    if c is not None and not c.empty:
-        sel = c[c["code"] == code]
-        if len(sel):
-            geom = shapely.union_all([_valid(x) for x in sel.geometry.to_numpy()])
-    if geom is None:
-        layer = local._admin_layer(code)  # noqa: SLF001
-        if layer is not None and len(layer):
-            geom = shapely.union_all(shapely.make_valid(layer.geometry.to_numpy()))
-    if geom is not None:
-        _COUNTRY[code] = geom
-    return geom
+    """The country outline at the chosen resolution (ready-made by scripts/convert_geo.py), or None."""
+    return local.outline(code)
 
 
 def _borders(local, code: str):
-    """First-level division borders of the country as lines (cached), or None when there is no local admin data."""
-    if code in _BORDERS:
-        return _BORDERS[code]
-    out = None
-    layer = local._admin_layer(code)  # noqa: SLF001
-    if layer is not None and len(layer) and "state" in layer.columns:
-        lines = []
-        for state, grp in layer.groupby("state"):
-            if not state:
-                continue
-            g = shapely.union_all(shapely.make_valid(grp.geometry.to_numpy()))
-            lines.append(shapely.simplify(g, 0.01).boundary)
-        if lines:
-            out = shapely.union_all(lines)
-    _BORDERS[code] = out
-    return out
+    """First-level division borders of the country as lines, or None when there is no local admin data."""
+    return local.borders(code)
 
 
 def _countries_hit(local, g) -> list[dict]:

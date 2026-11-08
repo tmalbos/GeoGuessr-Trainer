@@ -11,8 +11,9 @@ from src.db.pool import close_pool, init_pool
 from src.db.repositories.game_repository import GameRepository
 from src.db.repositories.geo_signal_repository import GeoSignalRepository
 from src.geo.enrichment_service import GeoEnrichClient
-from src.geo.local_geo import LocalGeo
+from src.geo.local_geo import DEFAULT_RESOLUTION, LocalGeo
 from src.geoguessr.cookie_store import load_cookie
+from src.shared import prefs
 
 if TYPE_CHECKING:
     import asyncpg
@@ -82,7 +83,9 @@ class AppContext:
         """Load biome/urban/country-index GeoParquet files (background, via executor)."""
         try:
             loop = asyncio.get_running_loop()
-            local = LocalGeo(_GEO_DIR)
+            local = LocalGeo(
+                _GEO_DIR, str(prefs.load().get("geo_resolution") or DEFAULT_RESOLUTION)
+            )
             await loop.run_in_executor(None, local.load)
             self.local_geo = local
             self.geo_client.local_geo = local
