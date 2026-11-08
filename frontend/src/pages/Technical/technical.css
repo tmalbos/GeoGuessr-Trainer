@@ -19,6 +19,7 @@
 .tp-row { display: flex; flex-wrap: nowrap; gap: 8px; align-items: center; justify-self: stretch; }
 .tp-row .btn { padding: 6px 12px; }
 .tp-field { display: grid; gap: 2px; }
+.confirm .tp-field ~ .tp-field { margin-top: 10px; }
 .tp-field label { margin: 0; display: flex; justify-content: space-between; font-size: 13px; }
 .tp-field input[type="range"] { width: 100%; max-width: none; padding: 0; }
 .tp-chk { display: flex; align-items: center; gap: 8px; margin: 0; font-weight: 400; font-size: 13px; cursor: pointer; }
