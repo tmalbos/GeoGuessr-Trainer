@@ -80,6 +80,13 @@ export default function ExportDialog({ ds, levels, selected, onClose, onExport }
       </div>
 
       <div className="tp-field">
+        <label htmlFor="ex-simplify">Simplification <span className="muted">{simplify ? `${simplify}%` : "Off"}</span></label>
+        <input id="ex-simplify" type="range" min="0" max="100" step="1" value={simplify} onChange={(e) => setSimplify(Number(e.target.value))} />
+      </div>
+
+      <hr className="tp-divider" />
+
+      <div className="tp-field">
         <label htmlFor="ex-adm">Admin level <span className="muted">{selected.map((l) => `Level ${l} → ADM${suggested[l] ?? 0}`).join(", ")} (suggested)</span></label>
         <select id="ex-adm" value={adm} onChange={(e) => setAdm(Number(e.target.value))}>
           {Array.from({ length: MAX_ADM + 1 }, (_, k) => <option key={k} value={k}>ADM{k}</option>)}
@@ -100,11 +107,6 @@ export default function ExportDialog({ ds, levels, selected, onClose, onExport }
       </div>)}
       <input ref={input} type="file" accept=".json,.geojson,.topojson" hidden
         onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ""; importFile(target.current, f); }} />
-
-      <div className="tp-field">
-        <label htmlFor="ex-simplify">Simplification <span className="muted">{simplify ? `${simplify}%` : "Off"}</span></label>
-        <input id="ex-simplify" type="range" min="0" max="100" step="1" value={simplify} onChange={(e) => setSimplify(Number(e.target.value))} />
-      </div>
 
       {err && <ErrorBox message={err} />}
       <div className="confirm-actions">
