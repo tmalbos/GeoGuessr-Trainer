@@ -1,10 +1,12 @@
 .idea/*
 .vscode/*
 data/*
+docs/private/*
 Ecoregions2017/*
 frontend/dist/*
 **/node_modules/*
 maps/*
+scripts/*
 src/maps/fabdem/*
 src/maps/srtm_global/*
 tools/*
