@@ -34,12 +34,17 @@ class MapBody(BaseModel):
     google_key: str | None = None  # None = keep the saved one, "" = remove it
 
 
+class ShortcutBody(BaseModel):
+    shortcut: str = Field(min_length=1, max_length=32)
+
+
 @router.get("/settings")
 async def get_settings():
     return {
         "lang": str(prefs.load().get("lang") or "en"),
         "user_id": os.environ.get("GEOGUESSR_USER_ID") or DEFAULT_USER_ID,
         "cookie": bool(load_cookie()),
+        "merge_shortcut": str(prefs.load().get("merge_shortcut") or "Ctrl+G"),
     }
 
 
@@ -69,6 +74,12 @@ async def put_lang(body: LangBody):
 @router.put("/settings/user")
 async def put_user(body: UserBody):
     os.environ["GEOGUESSR_USER_ID"] = body.user_id.strip()
+    return {"ok": True}
+
+
+@router.put("/settings/merge-shortcut")
+async def put_merge_shortcut(body: ShortcutBody):
+    prefs.update(merge_shortcut=body.shortcut.strip())
     return {"ok": True}
 
 

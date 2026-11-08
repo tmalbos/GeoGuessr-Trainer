@@ -13,7 +13,19 @@ const COLORS = ["#4e79a7", "#f28e2b", "#e15759", "#76b7b2", "#59a14f", "#edc948"
 const UNNAMED_COLOR = "#e5484d"; // keep equal to UNNAMED_COLOR in pbf_admin.py
 const colorOf = (level) => COLORS[level % COLORS.length];
 const PREVIEW_PCT = 5; // same floor as the server
+const DEFAULT_MERGE_SHORTCUT = "Ctrl+G";
 const memo = { ds: null, mode: "admin", country: "", levels: [] };
+
+/** True when the keyboard event matches a shortcut like "Ctrl+Shift+G". */
+const sameShortcut = (e, spec) => {
+  const parts = String(spec).split("+").map((p) => p.trim().toLowerCase()).filter(Boolean);
+  const key = parts.pop();
+  const mods = new Set(parts);
+  const wantCtrl = mods.has("ctrl") || mods.has("control");
+  const wantMeta = mods.has("meta") || mods.has("cmd") || mods.has("win");
+  return e.ctrlKey === wantCtrl && e.shiftKey === mods.has("shift") && e.altKey === mods.has("alt")
+    && e.metaKey === wantMeta && !!key && e.key.toLowerCase() === key;
+};
 
 export default function AdminExtractor() {
   const [ds, setDs] = useState(memo.ds);
@@ -26,6 +38,7 @@ export default function AdminExtractor() {
   const [fills, setFills] = useState({}); // level -> level whose polygons fill its gaps (absent = "Unnamed N")
   const [picked, setPicked] = useState(null); // properties of the clicked polygon
   const [marks, setMarks] = useState([]); // polygons picked with click / Shift+click, to merge
+  const [mergeShortcut, setMergeShortcut] = useState(DEFAULT_MERGE_SHORTCUT);
   const [nameDraft, setNameDraft] = useState("");
   const [bump, setBump] = useState(0); // forces a refetch of levels removed from the cache
   const [path, setPath] = useState("");
@@ -46,6 +59,10 @@ export default function AdminExtractor() {
     cache.current.clear();
     setDs(d); setCountry(""); setLevels([]); setInfo(null); setErr(""); setView(null); setPicked(null); setFills({}); setMarks([]);
   };
+
+  useEffect(() => {
+    api("/settings").then((s) => { if (s.merge_shortcut) setMergeShortcut(s.merge_shortcut); }).catch(() => {});
+  }, []);
 
   const upload = async (file) => {
     if (!file) return;
@@ -201,6 +218,19 @@ export default function AdminExtractor() {
       setBump((n) => n + 1);
     } catch (e) { setErr(errorText(e)); }
   };
+
+  useEffect(() => {
+    const onKey = (e) => {
+      const t = e.target;
+      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.isContentEditable)) return;
+      if (mode !== "admin" || marks.length < 2 || !levels.includes(marks[0].admin_level)) return;
+      if (!sameShortcut(e, mergeShortcut)) return;
+      e.preventDefault();
+      mergeMarked();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [mode, marks, levels, mergeShortcut, ds, country, pct]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Called by the export dialog (name, adm, simplify, parents). It throws so the dialog can show the error.
   const exportTopo = async (settings) => {
