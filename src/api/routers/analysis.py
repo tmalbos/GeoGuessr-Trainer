@@ -36,6 +36,24 @@ def _with_codes(rows: list[dict], codes: dict[str, str]) -> list[dict]:
     ]
 
 
+async def _main_combo(db) -> dict | None:
+    """The user's main game mode: daily or duel, whichever has more games, with its most played
+    (move_type, time limit). Challenges are training games and never count here.
+    """
+    rows = await db.fetch_rows(
+        """
+        SELECT g.match_type::text AS match_type, g.move_type::text AS move_type,
+               g.time_limit_sec, COUNT(*) AS n
+        FROM game g
+        WHERE g.match_type::text IN ('daily', 'duel')
+        GROUP BY g.match_type::text, g.move_type::text, g.time_limit_sec
+        ORDER BY SUM(COUNT(*)) OVER (PARTITION BY g.match_type::text) DESC, COUNT(*) DESC
+        LIMIT 1
+        """,
+    )
+    return rows[0] if rows else None
+
+
 @router.get("/analysis/filters")
 async def analysis_filters(request: Request):
     combos = await get_ctx(request).db_adapter.fetch_analysis_filter_options()
@@ -65,25 +83,30 @@ async def levels(
 
 
 @router.get("/analysis/country/{code}")
-async def country_analysis(
-    code: str,
-    request: Request,
-    match_type: str = "daily",
-    move_type: str = "moving",
-    time_limit: str = "180",
-):
-    """One country's stats (for the Explore page). zone is null until it has enough rounds."""
+async def country_analysis(code: str, request: Request):
+    """One country's stats (for the Explore page), always for the user's main game mode
+    (see _main_combo), whatever filters are active in the UI. zone is null until it has enough rounds.
+    """
     if len(code) != 2 or not code.isalpha():
         raise HTTPException(422, "Invalid country code")
     db = get_ctx(request).db_adapter
     row = await db.fetch_one("SELECT name FROM country WHERE code = $1", code.upper())
     if not row:
-        return {"total": 0, "zone": None}
-    rounds = await load_rounds(db, match_type, move_type, _parse_time_limit(time_limit))
+        return {"total": 0, "zone": None, "mode": None}
+    combo = await _main_combo(db)
+    if not combo:
+        return {"total": 0, "zone": None, "mode": None}
+    rounds = await load_rounds(db, combo["match_type"], combo["move_type"], combo["time_limit_sec"])
     name = row["name"]
     total = sum(1 for r in rounds if (r.get("real_geo") or {}).get("country") == name)
     stats = analyze(rounds, "country").zones.get(name)
-    return {"total": total, "zone": asdict(stats) if stats else None}
+    tl = combo["time_limit_sec"]
+    mode = {
+        "match_type": combo["match_type"],
+        "move_type": combo["move_type"],
+        "time_limit": "null" if tl is None else str(tl),
+    }
+    return {"total": total, "zone": asdict(stats) if stats else None, "mode": mode}
 
 
 # Must stay AFTER /analysis/filters and /analysis/levels, or "{level}" swallows them.
