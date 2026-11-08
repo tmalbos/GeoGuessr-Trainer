@@ -51,16 +51,17 @@ import pandas as pd
 import shapely
 import yaml
 from fastapi import APIRouter, HTTPException, Query, Request
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from PIL import Image, ImageOps
 from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 
 from src.api.deps import get_ctx
 from src.api.routers.stain import _borders, _outline  # noqa: PLC2701
-from src.geo.clue_overlay import render_overlay
+from src.geo.clue_overlay import recolour, render_overlay
 from src.geo.region_stats import region_stats
 from src.geo.subcontinents import SUBCONTINENTS
+from src.shared import prefs
 
 logger = logging.getLogger("uvicorn.error")
 
@@ -895,6 +896,15 @@ def clue_file(cc: str, name: str):
     # "no-cache" = the browser may keep it but must revalidate, so a file overwritten in place
     # (same name, new content) shows up right away.
     p = _asset(cc, name)
+    # The overlay is baked in the default colour; paint it with the colour picked in Settings on the way out,
+    # so a change shows up the next time any regional clue is viewed (the file itself is not rewritten).
+    if name.endswith(".overlay.svg"):
+        color = str(prefs.load().get("stain_color") or "#c8283a")
+        return Response(
+            recolour(p.read_text(encoding="utf-8"), color),
+            media_type="image/svg+xml",
+            headers={"Cache-Control": "no-cache"},
+        )
     # An SVG has to be served as such for the card to render it as a picture.
     media = "image/svg+xml" if p.suffix == ".svg" else None
     return FileResponse(p, media_type=media, headers={"Cache-Control": "no-cache"})

@@ -13,6 +13,10 @@ const loadBase = (cc) => {
   return cache.get(k);
 };
 
+// Regional stains are painted in the colour picked in Settings (default: red).
+const loadStainColor = () => api("/settings").then((s) => s.stain_color || "#c8283a").catch(() => "#c8283a");
+const darken = (hex) => `#${[1, 3, 5].map((i) => Math.round(parseInt(hex.slice(i, i + 2), 16) * 0.55).toString(16).padStart(2, "0")).join("")}`;
+
 // A layer may carry `shades` (one number per geometry, 0 = the main tone, higher = rarer = lighter).
 // Returns [[shade, geometry collection]], lightest first so the stronger tones sit on top.
 const tiers = (g) => {
@@ -83,6 +87,12 @@ function Pin({ at: [x, y], className = "cl-poly", style, children, ...rest }) {
  *  align="right": the country is drawn against the right edge of the box (used by the overlay on a clue photo). */
 export default function RegionPreview({ cc, layers, stains, onStain, onArea, selected, style, align, label = "Map of the country with the region painted on it" }) {
   const [base, setBase] = useState(undefined); // undefined = loading, null = not available
+  const [stainColor, setStainColor] = useState(null);
+  useEffect(() => {
+    let off = false;
+    loadStainColor().then((c) => !off && setStainColor(c));
+    return () => { off = true; };
+  }, [cc]);
   useEffect(() => {
     let off = false;
     setBase(undefined);
@@ -116,7 +126,7 @@ export default function RegionPreview({ cc, layers, stains, onStain, onArea, sel
   const smallStains = (stains ?? []).filter((s) => isSmall(s.geometry, total, project));
   const pinned = new Set(smallStains.length <= MAX_PINS ? smallStains.map((s) => s.id) : []);
 
-  return <svg className="cl-svg" style={style} viewBox={`0 0 ${W} ${H}`} role="img" aria-label={label}
+  return <svg className="cl-svg" style={{ ...style, "--stain": stainColor ?? undefined, "--stain-dark": stainColor ? darken(stainColor) : undefined }} viewBox={`0 0 ${W} ${H}`} role="img" aria-label={label}
     preserveAspectRatio={align === "right" ? "xMaxYMid meet" : undefined}>
     {land && <path className="cl-r" d={land} fillRule="evenodd" />}
     {borders && <path d={borders} fill="none" stroke="#8b98a8" strokeWidth=".8" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />}
@@ -158,7 +168,8 @@ export default function RegionPreview({ cc, layers, stains, onStain, onArea, sel
       const toggle = () => onStain?.(s.id);
       const name = s.label ?? s.id;
       const cls = `cl-poly cl-stain ${s.active ? "" : "off"}`;
-      const st = op != null ? { fillOpacity: op, strokeOpacity: op } : undefined;
+      const paint = stainColor && s.active ? { fill: stainColor, stroke: darken(stainColor) } : null;
+      const st = op != null ? { fillOpacity: op, strokeOpacity: op, ...paint } : paint ?? undefined;
       const act = onStain ? {
         role: "button", tabIndex: 0, "aria-pressed": s.active, "aria-label": `${name}: ${s.active ? "included" : "left out"}`,
         onClick: toggle,

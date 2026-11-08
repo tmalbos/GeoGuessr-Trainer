@@ -34,8 +34,19 @@ PIN_HALF_W = 15 * PIN_SCALE  # the pin is 30 units wide and about 45 tall before
 PIN_H = 45 * PIN_SCALE
 
 LAND = 'fill="#f6f4e4" stroke="#8b98a8" stroke-width="1" stroke-linejoin="round"'
-POLY = 'fill="#c8283a" fill-opacity=".85" stroke="#7a1320" stroke-width="1" stroke-linejoin="round"'
+STAIN_FILL = "#c8283a"
+STAIN_STROKE = "#7a1320"
+POLY = f'fill="{STAIN_FILL}" fill-opacity=".85" stroke="{STAIN_STROKE}" stroke-width="1" stroke-linejoin="round"'
 NSS = 'vector-effect="non-scaling-stroke"'
+
+
+def recolour(svg: str, fill: str) -> str:
+    """The overlay with its stains painted in `fill` (the outline and borders keep their colours)."""
+    if fill.lower() == STAIN_FILL:
+        return svg
+    r, g, b = (int(fill[i : i + 2], 16) for i in (1, 3, 5))
+    stroke = "#" + "".join(f"{round(v * 0.55):02x}" for v in (r, g, b))
+    return svg.replace(STAIN_STROKE, stroke).replace(STAIN_FILL, fill)
 
 
 def shade_factor(shade: float, top: float) -> float:

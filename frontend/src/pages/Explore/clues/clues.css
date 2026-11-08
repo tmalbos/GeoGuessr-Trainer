@@ -17,9 +17,9 @@
 .cl-r { fill: #f6f4e4; stroke: #8b98a8; stroke-width: 1px; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
 .cl-r.full { fill: #c8283a; }
 .cl-r.part { fill: #e8908f; }
-.cl-poly { fill: #c8283a; fill-opacity: .85; stroke: #7a1320; stroke-width: 1px; vector-effect: non-scaling-stroke; }
-.cl-line { stroke: #c8283a; stroke-width: 2.5px; stroke-linecap: round; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
-.cl-pt { fill: #c8283a; stroke: #fff; stroke-width: 1px; vector-effect: non-scaling-stroke; }
+.cl-poly { fill: var(--stain, #c8283a); fill-opacity: .85; stroke: var(--stain-dark, #7a1320); stroke-width: 1px; vector-effect: non-scaling-stroke; }
+.cl-line { stroke: var(--stain, #c8283a); stroke-width: 2.5px; stroke-linecap: round; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
+.cl-pt { fill: var(--stain, #c8283a); stroke: #fff; stroke-width: 1px; vector-effect: non-scaling-stroke; }
 
 /* ── Editor ── */
 .modal-back { position: fixed; inset: 0; z-index: 100; background: rgba(0,0,0,.6); display: grid; place-items: center; padding: 16px; }

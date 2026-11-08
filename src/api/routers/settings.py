@@ -38,6 +38,10 @@ class ShortcutBody(BaseModel):
     shortcut: str = Field(min_length=1, max_length=32)
 
 
+class StainColorBody(BaseModel):
+    color: str = Field(pattern=r"^#(c8283a|2f6fd0|e8c020|7b3fa0|1f6b3a|e0559a|7ac142|e07820)$")
+
+
 @router.get("/settings")
 async def get_settings():
     return {
@@ -45,6 +49,7 @@ async def get_settings():
         "user_id": os.environ.get("GEOGUESSR_USER_ID") or DEFAULT_USER_ID,
         "cookie": bool(load_cookie()),
         "merge_shortcut": str(prefs.load().get("merge_shortcut") or "Ctrl+G"),
+        "stain_color": str(prefs.load().get("stain_color") or "#c8283a"),
     }
 
 
@@ -80,6 +85,12 @@ async def put_user(body: UserBody):
 @router.put("/settings/merge-shortcut")
 async def put_merge_shortcut(body: ShortcutBody):
     prefs.update(merge_shortcut=body.shortcut.strip())
+    return {"ok": True}
+
+
+@router.put("/settings/stain-color")
+async def put_stain_color(body: StainColorBody):
+    prefs.update(stain_color=body.color)
     return {"ok": True}
 
 
