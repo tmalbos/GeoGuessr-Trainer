@@ -7,6 +7,7 @@ POST /clues/{cc}/draw/build          -> GeoJSON FeatureCollection, one colored f
                                         (clipped to the country outline). A later item wins over an earlier one.
 """
 
+import colorsys
 import json
 import math
 from typing import Literal
@@ -20,10 +21,46 @@ from starlette.concurrency import run_in_threadpool
 from src.api.deps import get_ctx
 from src.api.routers.clues import _cc  # noqa: PLC2701
 from src.api.routers.stain import _outline  # noqa: PLC2701
-from src.geo.csv_areas import LEVEL_COLUMNS, assign_colors
+from src.geo.csv_areas import LEVEL_COLUMNS, _lab  # noqa: PLC2701
 from src.geo.simplify import _polygonal, simplify_coverage, tolerance  # noqa: PLC2701
 
 router = APIRouter()
+
+# Hand-picked, in the app's palette. After these, each new color is the candidate farthest (Lab distance) from all used ones.
+PALETTE = [
+    "#ff7357",
+    "#4aa3d6",
+    "#e6b84a",
+    "#3fb97a",
+    "#a08fd8",
+    "#e56fa6",
+    "#5ed1c8",
+    "#cdbf93",
+    "#9bd14a",
+]
+
+
+def _rgb(h: str) -> list[float]:
+    return [int(h[i : i + 2], 16) / 255 for i in (1, 3, 5)]
+
+
+def _spread_colors(n: int) -> list[str]:
+    cols = list(PALETTE)
+    labs = [_lab(_rgb(c)) for c in cols]
+    pool = []
+    for hue in range(0, 360, 15):
+        for light in (0.55, 0.65, 0.75):
+            for sat in (0.5, 0.75):
+                rgb = colorsys.hls_to_rgb(hue / 360, light, sat)
+                pool.append(("#" + "".join(f"{round(v * 255):02x}" for v in rgb), _lab(rgb)))
+    while len(cols) < n:
+        hex_, lab = max(pool, key=lambda p: min(float(np.linalg.norm(p[1] - q)) for q in labs))
+        cols.append(hex_)
+        labs.append(lab)
+    return cols
+
+
+COLORS = _spread_colors(40)
 
 _UNITS: dict[tuple[str, int], list[tuple[str, object]]] = {}
 
@@ -138,13 +175,13 @@ def _build(local, cc: str, items: list[Item]) -> dict:
             if k != name:
                 shapes[k] = shapely.difference(shapes[k], geom)
         shapes[name] = shapely.union(shapes[name], geom) if name in shapes else geom
-    names, geoms = [], []
-    for n, g in shapes.items():
+    names, geoms, colors = [], [], []
+    for i, (n, g) in enumerate(shapes.items()):
         g = _polygonal(g)
         if g is not None:
             names.append(n)
             geoms.append(g)
-    colors = assign_colors(geoms) if geoms else []
+            colors.append(COLORS[i % len(COLORS)])
     return {
         "type": "FeatureCollection",
         "features": [

@@ -1,22 +1,26 @@
-/* Draw editor: map on the left, levels + tools in a column on the right. */
-.dm { display: grid; grid-template-columns: minmax(0, 1fr) 150px; gap: 12px; align-items: stretch; }
-.dm-svg { display: block; width: 100%; height: auto; max-height: 560px; background: var(--paper); border: 1px solid var(--line);
+/* Draw editor: the map fills the media slot; levels float on its top-left; the tools sit in the toolbar row below it. */
+.dm { position: relative; }
+.dm-svg { display: block; width: 100%; height: auto; max-height: 640px; background: var(--paper); border: 1px solid var(--line);
   border-radius: 8px; touch-action: none; user-select: none; -webkit-user-select: none; }
-.dm-side { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
-.dm-side .tabs { flex-direction: column; flex-wrap: nowrap; margin: 0; }
-.dm-side .tabs button { text-align: center; }
-.dm-side input[type="text"] { width: 100%; }
-.dm-side input[type="range"] { width: 100%; padding: 0; }
-.dm-tools { display: flex; flex-wrap: wrap; gap: 6px; margin-top: auto; }
-.dm-tool { display: grid; place-items: center; width: 40px; height: 40px; padding: 0; background: none; color: var(--mute);
-  border: 1px solid var(--line); border-radius: 8px; cursor: pointer; font-size: 18px; line-height: 1; }
-.dm-tool:hover:not(:disabled) { color: var(--ink); border-color: var(--mute); }
-.dm-tool[aria-pressed="true"] { background: var(--sea); color: #fff; border-color: var(--sea); }
-.dm-tool:disabled { opacity: .35; cursor: default; }
+.dm-levels { position: absolute; top: 8px; left: 8px; right: 8px; z-index: 3; display: flex; flex-wrap: wrap; gap: 4px; pointer-events: none; }
+.dm-levels button { pointer-events: auto; padding: 2px 10px; font-size: 12px; border: 1px solid var(--line); border-radius: 999px;
+  background: #161b22cc; cursor: pointer; }
+.dm-levels button:hover { border-color: var(--sea-hi); }
+.dm-levels button.on { background: var(--sea); border-color: var(--sea); color: #fff; }
+.dm-pop { position: absolute; z-index: 6; display: flex; gap: 6px; padding: 8px; background: var(--card); border: 1px solid var(--line);
+  border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,.55); }
+.dm-pop input { width: 170px; padding: 6px 10px; }
+.dm-pop .btn { padding: 6px 12px; }
 .dm-unit { fill: transparent; stroke: #8b98a8; stroke-opacity: .6; stroke-width: 1px; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
 .dm-unit.click { cursor: pointer; }
 .dm-unit.click:hover { fill: #ffffff26; }
-.dm-res { stroke: #0d1117; stroke-width: 1px; fill-opacity: .92; vector-effect: non-scaling-stroke; pointer-events: none; }
-.dm-sw { display: inline-block; width: 10px; height: 10px; border-radius: 50%; }
-.dm-note { grid-column: 1 / -1; }
-@media (max-width: 900px) { .dm { grid-template-columns: 1fr; } }
+.dm-res { stroke: #0d1117; stroke-width: 1px; fill-opacity: .92; vector-effect: non-scaling-stroke; }
+.dm-res.click { cursor: pointer; }
+.dm-tools input[type="range"] { width: 110px; padding: 0; border: 0; background: none; margin: 0 4px; }
+.dm-status { margin-left: 8px; font-size: 12px; }
+
+/* Import | Draw switch, at the right end of the media toolbar */
+.ed-mode { margin-left: auto; display: inline-flex; flex-shrink: 0; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+.ed-mode button { height: 28px; padding: 0 10px; background: none; border: 0; color: var(--mute); font-size: 13px; font-weight: 600; cursor: pointer; }
+.ed-mode button:hover { color: var(--ink); }
+.ed-mode button.on { background: var(--sea); color: #fff; }

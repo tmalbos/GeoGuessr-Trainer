@@ -246,7 +246,13 @@ def _shades_of(gdf: gpd.GeoDataFrame) -> np.ndarray:
     return col.astype(int).clip(0, MAX_SHADE).to_numpy()
 
 
-def _to_geojson(geoms, limit: int | None = None, shades: np.ndarray | None = None) -> dict:
+def _to_geojson(
+    geoms,
+    limit: int | None = None,
+    shades: np.ndarray | None = None,
+    names: np.ndarray | None = None,
+    colors: np.ndarray | None = None,
+) -> dict:
     """GeometryCollection for the browser. When `shades` (one per geometry) has anything above 0 it is sent
     along as `shades`, in the same order as `geometries`.
     """
@@ -255,6 +261,8 @@ def _to_geojson(geoms, limit: int | None = None, shades: np.ndarray | None = Non
         geoms = geoms[::step]
         if shades is not None:
             shades = shades[::step]
+        if names is not None:
+            names, colors = names[::step], colors[::step]
     g = shapely.set_precision(geoms, PREVIEW_PRECISION)
     keep = ~shapely.is_empty(g)
     g = g[keep]
@@ -264,6 +272,9 @@ def _to_geojson(geoms, limit: int | None = None, shades: np.ndarray | None = Non
     }
     if shades is not None and shades[keep].any():
         out["shades"] = [int(v) for v in shades[keep]]
+    if names is not None:
+        out["names"] = [str(v) for v in names[keep]]
+        out["colors"] = [str(v) for v in colors[keep]]
     return out
 
 
@@ -284,6 +295,8 @@ def _render_overlay(cc: str, geo_file: Path, local) -> str | None:
         return None
     try:
         gdf = gpd.read_parquet(geo_file)
+        if "color" in gdf.columns:
+            return None
         geoms = shapely.set_precision(gdf.geometry.to_numpy(), PREVIEW_PRECISION)
         shades = _shades_of(gdf)
         keep = ~shapely.is_empty(geoms)
@@ -400,7 +413,9 @@ def _process_geo(data: bytes, suffix: str, token: str) -> tuple[str, dict]:
     arr = gdf.geometry.to_numpy()
     present = ~shapely.is_missing(arr)
     arr = arr[present]
-    shades = _shades_of(gdf)[present]  # one per part from here on, kept in step with `parts`
+    shades = np.column_stack(
+        [_shades_of(gdf)[present], np.flatnonzero(present)]
+    )  # shade, source row
     parts, src = shapely.get_parts(arr, return_index=True)
     shades = shades[src]
     keep = ~shapely.is_empty(parts)
@@ -429,14 +444,16 @@ def _process_geo(data: bytes, suffix: str, token: str) -> tuple[str, dict]:
         parts = shapely.simplify(parts, SIMPLIFY_TOL_DEG, preserve_topology=True)
     keep = ~shapely.is_empty(parts)
     parts, shades = parts[keep], shades[keep]
+    rows, shades = shades[:, 1], shades[:, 0]
 
     out = STAGING / f"{token}.{kind}.parquet"
+    cols = {}
     if kind == "polygons" and shades.any():
-        gpd.GeoDataFrame({"shade": shades}, geometry=parts, crs=4326).to_parquet(
-            out, compression="zstd"
-        )
-    else:
-        gpd.GeoDataFrame(geometry=parts, crs=4326).to_parquet(out, compression="zstd")
+        cols["shade"] = shades
+    if kind == "polygons" and {"name", "color"} <= set(gdf.columns):
+        cols["name"] = gdf["name"].astype(str).to_numpy()[rows]
+        cols["color"] = gdf["color"].astype(str).to_numpy()[rows]
+    gpd.GeoDataFrame(cols, geometry=parts, crs=4326).to_parquet(out, compression="zstd")
     return kind, {
         "kind": kind,
         "features": len(parts),
@@ -445,7 +462,9 @@ def _process_geo(data: bytes, suffix: str, token: str) -> tuple[str, dict]:
         "bytes_in": len(data),
         "bytes_out": out.stat().st_size,
         "bbox": [float(v) for v in shapely.total_bounds(parts)],
-        "geojson": _to_geojson(parts, PREVIEW_MAX_FEATURES, shades),
+        "geojson": _to_geojson(
+            parts, PREVIEW_MAX_FEATURES, shades, cols.get("name"), cols.get("color")
+        ),
         "stats": region_stats(parts, shades, kind),  # pre-fills the ratings of a new clue
     }
 
@@ -884,7 +903,12 @@ def clue_file(cc: str, name: str):
 @router.get("/clues/{cc}/geo/{name}")
 def clue_geo(cc: str, name: str):
     gdf = gpd.read_parquet(_asset(cc, name))
-    return _to_geojson(gdf.geometry.to_numpy(), shades=_shades_of(gdf))
+    named = (
+        {"names": gdf["name"].to_numpy(), "colors": gdf["color"].to_numpy()}
+        if {"name", "color"} <= set(gdf.columns)
+        else {}
+    )
+    return _to_geojson(gdf.geometry.to_numpy(), shades=_shades_of(gdf), **named)
 
 
 @router.post("/clues/{cc}", status_code=201)

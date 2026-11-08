@@ -6,6 +6,7 @@ import { streetViewAvailable } from "../../../lib/mapProviders.js";
 import AreaPicker from "./AreaPicker.jsx";
 import ClueImage from "./ClueImage.jsx";
 import ClueMap from "./ClueMap.jsx";
+import DrawMap from "./DrawMap.jsx";
 import { Preview } from "./FilePicker.jsx";
 import RatingDots from "./RatingDots.jsx";
 import RelatePicker from "./RelatePicker.jsx";
@@ -85,6 +86,7 @@ export default function ClueEditor({ cc, name, clue, prefill, onClose, onSaved, 
   const [locTouched, setLocTouched] = useState(!!clue || !!prefill); // user picked "where it applies" by hand
   const [menu, setMenu] = useState(null); // null | "cat" | "loc"
   const [skipOpen, setSkipOpen] = useState(false); // the "Skip to <section>" dropdown
+  const [tab, setTab] = useState("import"); // regional media slot: import | draw
   const [rating, setRating] = useState(() => Object.fromEntries(RATINGS.map(([k]) => [k, clue?.[k] != null ? String(clue[k]) : ""])));
   // manual[k] = the user set this rating by hand, so the automation leaves it alone. An existing clue is all manual.
   const [manual, setManual] = useState(() => Object.fromEntries(RATINGS.map(([k]) => [k, !!clue])));
@@ -124,6 +126,13 @@ export default function ClueEditor({ cc, name, clue, prefill, onClose, onSaved, 
   const mainKind = media.kind ?? (img.has ? "image" : null); // what the media slot is showing now
   const isImage = mainKind === "image";
   const showArea = scope === "reg" && isImage; // a photo needs a region; an SVG/CSV/geometry is its own
+  const drawing = scope === "reg" && tab === "draw";
+  const modeToggle = scope === "reg" && (tab === "draw" || !isImage)
+    ? <div className="ed-mode" role="group" aria-label="Region source">
+        {[["import", "Import"], ["draw", "Draw"]].map(([k, l]) =>
+          <button key={k} type="button" aria-pressed={tab === k} className={tab === k ? "on" : ""} onClick={() => setTab(k)}>{l}</button>)}
+      </div>
+    : null;
 
   // ── automatic ratings (new clues only) ──
   // The region's numbers come from the geometry the server staged (polygons, shades, separate pieces, spread).
@@ -270,6 +279,12 @@ export default function ClueEditor({ cc, name, clue, prefill, onClose, onSaved, 
     setArea(up ? { kind: uiKind(up.kind), upload: up } : { kind: null, upload: null });
   };
 
+  const takeDrawn = (up) => {
+    discardStaged(media.upload?.token);
+    if (area.upload) { discardStaged(area.upload.token); setArea({ kind: null, upload: null }); }
+    setMedia(up ? { kind: "geometry", upload: up } : { kind: null, upload: null });
+  };
+
   // Imported regional clue: the Street View picture goes into the media slot as soon as the editor opens.
   useEffect(() => { if (prefill?.mediaText) takeMedia({ text: prefill.mediaText }); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -384,12 +399,12 @@ export default function ClueEditor({ cc, name, clue, prefill, onClose, onSaved, 
       {/* Same grid as the clue card: media on the left, body on the right. */}
       <div className="clue ed-clue">
         <div className="ed-left" ref={colRef}>
-          <ClueImage ref={imgApi} current={imageGone ? null : clue?.image ? fileUrl(cc, clue.image, clue.rev) : null} colRef={colRef} overlay={badges}
+          {drawing ? <DrawMap cc={cc} stage={stageInput} onResult={takeDrawn} trailing={modeToggle} /> : <ClueImage ref={imgApi} current={imageGone ? null : clue?.image ? fileUrl(cc, clue.image, clue.rev) : null} colRef={colRef} overlay={badges}
             preview={mediaPreview} incoming={incoming}
             regionSlot={showArea} onOverlay={setOvEl}
             onOtherFile={(f) => takeMedia({ file: f })} onOtherText={(t) => takeMedia({ text: t })} onRemove={removeMedia}
-            blur={blur} onBlur={setBlur} maxH={maxH} onMaxH={setMaxH}
-            onState={(h, sig) => setImg((p) => (p.has === h && p.sig === sig ? p : { has: h, sig }))} />
+            blur={blur} onBlur={setBlur} maxH={maxH} onMaxH={setMaxH} trailing={modeToggle}
+            onState={(h, sig) => setImg((p) => (p.has === h && p.sig === sig ? p : { has: h, sig }))} />}
           {mediaErr && <p className="err">{mediaErr}</p>}
           {/* A photo can't say which region it is: the region is mandatory in that case. It is drawn on the photo above. */}
           {showArea && <AreaPicker cc={cc} value={area.upload} current={areaCurrent} onChange={takeArea} stage={stageInput}
