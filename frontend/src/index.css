@@ -21,9 +21,9 @@ button, input, select { font: inherit; color: inherit; }
 .rail-wrap:hover .rail { box-shadow: 8px 0 32px rgba(0,0,0,.55); }
 .rail-wrap:hover .rail::after, .rail-wrap:has(:focus-visible) .rail::after { opacity: 0; }
 .rail h1 { font-size: 20px; font-weight: 800; margin: 0 8px 24px; letter-spacing: -.02em; white-space: nowrap; }
-.rail button { text-align: left; background: none; border: 0; padding: 10px 12px; border-radius: 6px; cursor: pointer; color: #c9d4e0; }
-.rail button:hover { background: #ffffff14; }
-.rail button.on { background: var(--sand); color: var(--on-sand); font-weight: 600; }
+.rail button, .rail a { display: block; text-decoration: none; text-align: left; background: none; border: 0; padding: 10px 12px; border-radius: 6px; cursor: pointer; color: #c9d4e0; }
+.rail button:hover, .rail a:hover { background: #ffffff14; }
+.rail button.on, .rail a.on { background: var(--sand); color: var(--on-sand); font-weight: 600; }
 @media (prefers-reduced-motion: reduce) { .rail-wrap, .rail::after, .tbl-wrap, .chev { transition: none; } }
 
 main { padding: 32px 40px 48px 56px; width: 100%; }
@@ -37,9 +37,9 @@ h3 { font-size: 18px; font-weight: 600; margin: 28px 0 12px; }
 .btn.ghost:hover:not(:disabled) { background: #6cc0e51a; }
 .btn:disabled { opacity: .5; cursor: default; }
 .tabs { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 16px; }
-.tabs button { border: 1px solid var(--line); background: var(--card); border-radius: 999px; padding: 6px 14px; cursor: pointer; }
-.tabs button:hover { border-color: var(--sea-hi); }
-.tabs button.on { background: var(--sea); color: #fff; border-color: var(--sea); }
+.tabs button, .tabs a { color: inherit; text-decoration: none; border: 1px solid var(--line); background: var(--card); border-radius: 999px; padding: 6px 14px; cursor: pointer; }
+.tabs button:hover, .tabs a:hover { border-color: var(--sea-hi); }
+.tabs button.on, .tabs a.on { background: var(--sea); color: #fff; border-color: var(--sea); }
 .muted { color: var(--mute); font-size: 13px; }
 .score { font-weight: 800; font-size: 28px; letter-spacing: -.02em; }
 .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px; margin: 12px 0; }

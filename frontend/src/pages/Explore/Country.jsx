@@ -13,7 +13,7 @@ const Pencil = () => <svg {...svgProps}><path d="M12 20h9" /><path d="M16.5 3.5a
 const NO_INFO = { domain: "", side: null, currencies: [] };
 const OUTLINE_BOX = [180, 132]; // max size of the outline in the facts row (px)
 
-export default function Country({ id, section, query, onSection, onBack, backLabel = "World map" }) {
+export default function Country({ id, section, query, backHref, backLabel = "World map" }) {
   const [name, setName] = useState("");
   const [editing, setEditing] = useState(false);
   const [info, setInfo] = useState(NO_INFO);
@@ -36,7 +36,7 @@ export default function Country({ id, section, query, onSection, onBack, backLab
 
   return <div className={`cp ${editing ? "editing" : ""}`}>
     <aside className="cp-rail cp-rail-left" aria-label="Navigation">
-      <button type="button" className="btn ghost cp-back" aria-label={`Back to ${backLabel}`} title={`Back to ${backLabel}`} onClick={onBack}>← {backLabel}</button>
+      <a className="btn ghost cp-back" href={backHref} aria-label={`Back to ${backLabel}`} title={`Back to ${backLabel}`}>← {backLabel}</a>
     </aside>
 
     <section className="cp-main" aria-label={`${title} clues`}>
@@ -54,8 +54,8 @@ export default function Country({ id, section, query, onSection, onBack, backLab
       </div>
 
       {sections.length > 1 && <nav className="tabs cp-tabs" aria-label="Sections">
-        {sections.map((s) => <button key={s.id} type="button" className={s === current ? "on" : ""}
-          aria-current={s === current ? "page" : undefined} onClick={() => onSection(s.id)}>{s.label}</button>)}
+        {sections.map((s) => <a key={s.id} href={`#/explore/${id}/${s.id}`} className={s === current ? "on" : ""}
+          aria-current={s === current ? "page" : undefined}>{s.label}</a>)}
       </nav>}
 
       {current

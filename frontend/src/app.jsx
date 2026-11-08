@@ -1,5 +1,5 @@
 import SyncChip from "./components/SyncChip.jsx";
-import { navigate, useHashRoute } from "./lib/router.js";
+import { useHashRoute } from "./lib/router.js";
 import { useSync } from "./lib/sync.jsx";
 import Analysis from "./pages/Analysis/index.jsx";
 import Explore from "./pages/Explore/index.jsx";
@@ -26,7 +26,7 @@ export default function App() {
   return <div className="app">
     <div className="rail-wrap">
       <nav className="rail" aria-label="Main"><h1>GeoGuessr Trainer</h1>
-        {PAGES.map(([k, label]) => <button key={k} className={k === page ? "on" : ""} aria-current={k === page ? "page" : undefined} onClick={() => navigate(`/${k}`)}>{label}</button>)}
+        {PAGES.map(([k, label]) => <a key={k} href={`#/${k}`} className={k === page ? "on" : ""} aria-current={k === page ? "page" : undefined}>{label}</a>)}
         <button type="button" className="rail-sync" onClick={start} disabled={running || !types.length}>
           <span className={`split-icon ${running ? "spin" : ""}`} aria-hidden="true">↻</span>{running ? "Syncing…" : "Sync games"}
         </button>

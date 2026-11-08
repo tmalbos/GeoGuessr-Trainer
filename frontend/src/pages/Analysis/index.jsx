@@ -4,7 +4,6 @@ import FilterBar from "../../components/FilterBar.jsx";
 import { SkeletonCard, SkeletonRows } from "../../components/Skeleton.jsx";
 import { api, errorText } from "../../lib/api.js";
 import { useAppFilters } from "../../lib/filters.js";
-import { navigate } from "../../lib/router.js";
 import { useSync } from "../../lib/sync.jsx";
 import "./analysis.css";
 import Zone from "./Zone.jsx";
@@ -79,9 +78,9 @@ export default function Analysis({ seg, query }) {
      !levels ? <SkeletonRows n={2} h={34} /> :
      !levels.length ? <p className="muted">No games for this combination yet.</p> : <>
        <div className="tabs">{levels.map((l) =>
-         <button key={l.level} className={l.level === level ? "on" : ""} onClick={() => navigate(`/analysis/${l.level}`)}
+         <a key={l.level} href={`#/analysis/${l.level}`} className={l.level === level ? "on" : ""}
            title={l.level === "general" ? undefined : `${l.zones} zone${l.zones === 1 ? "" : "s"} with 10+ rounds`}>
-           {l.label}{l.level !== "general" && <span className="tab-n">{l.zones}</span>}</button>)}</div>
+           {l.label}{l.level !== "general" && <span className="tab-n">{l.zones}</span>}</a>)}</div>
        {!data ? <><SkeletonCard /><SkeletonCard /></> : !data.zones.length ? <p className="muted">No zones with 10+ rounds at this level.</p> : <>
          {data.zones.length > 3 && <div className="zone-tools">
            <input type="search" aria-label="Search zones" placeholder="Search" value={search} onChange={(e) => setSearch(e.target.value)} />

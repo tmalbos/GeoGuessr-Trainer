@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { clearOrigin, getOrigin, navigate } from "../../lib/router.js";
+import { getOrigin, navigate } from "../../lib/router.js";
 import Country from "./Country.jsx";
 import { loadWorld } from "./geo.js";
 import WorldMap from "./WorldMap.jsx";
@@ -30,10 +30,10 @@ export default function Explore({ seg, query }) {
     return { analysis: "Analysis", history: "History", study: "Study", settings: "Settings" }[parts[1]] ?? "Back";
   };
   const back = origin
-    ? { label: originLabel(origin), go: () => { clearOrigin(); navigate(origin); } }
-    : { label: "World map", go: () => navigate("/explore") };
+    ? { label: originLabel(origin), href: `#${origin}` }
+    : { label: "World map", href: "#/explore" };
 
   if (!code) return <WorldMap onSelect={(c) => navigate(`/explore/${c}`)} />;
   if (!canon) return <p className="muted pad">Loading…</p>;
-  return <Country id={canon} section={section} query={query} onSection={(s) => navigate(`/explore/${code}/${s}`)} backLabel={back.label} onBack={back.go} />;
+  return <Country id={canon} section={section} query={query} backLabel={back.label} backHref={back.href} />;
 }

@@ -109,7 +109,7 @@ function Round({ r }) {
   </section>;
 }
 
-export default function ReplayReport({ g, title, onBack }) {
+export default function ReplayReport({ g, title }) {
   const [data, setData] = useState(null);
   const [err, setErr] = useState("");
 
@@ -124,7 +124,7 @@ export default function ReplayReport({ g, title, onBack }) {
   }, [g.challenge_token, g.game_id]);
 
   return <>
-    <button type="button" className="btn ghost" onClick={onBack}>← History</button>
+    <a className="btn ghost" href="#/history">← History</a>
     <h2 style={{ marginTop: 16 }}>Replay report</h2>
     <p className="muted">{title}</p>
     {err && <p className="err">{err}</p>}

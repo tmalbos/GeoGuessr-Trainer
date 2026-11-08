@@ -214,6 +214,7 @@ export default function WorldMap({ onSelect }) {
       apply();
     };
 
+    const openTab = (id) => window.open(`#/explore/${id}`, "_blank", "noopener");
     const end = (e, cancelled) => {
       if (!ptrs.delete(e.pointerId)) return;
       if (ptrs.size < 2) pinch = null;
@@ -221,11 +222,19 @@ export default function WorldMap({ onSelect }) {
         const hit = !drag.moved && !cancelled ? drag.hit : null;
         drag = null;
         el.classList.remove("moving");
-        if (hit) selectRef.current?.(hit);
+        if (hit && (e.ctrlKey || e.metaKey)) openTab(hit);
+        else if (hit) selectRef.current?.(hit);
       }
     };
     const onUp = (e) => end(e, false);
     const onCancel = (e) => end(e, true);
+    // Middle click opens the country in a new tab (mousedown is blocked so the browser doesn't start autoscroll).
+    const onMouseDown = (e) => { if (e.button === 1) e.preventDefault(); };
+    const onAux = (e) => {
+      if (e.button !== 1) return;
+      const id = e.target.closest?.(".wm-c")?.dataset.id;
+      if (id) { e.preventDefault(); openTab(id); }
+    };
 
     const onKey = (e) => {
       const step = 80;
@@ -243,6 +252,8 @@ export default function WorldMap({ onSelect }) {
     el.addEventListener("pointerup", onUp);
     el.addEventListener("pointercancel", onCancel);
     el.addEventListener("keydown", onKey);
+    el.addEventListener("mousedown", onMouseDown);
+    el.addEventListener("auxclick", onAux);
     return () => {
       saved = { ...s.t };
       cancelAnimationFrame(s.raf);
@@ -255,6 +266,8 @@ export default function WorldMap({ onSelect }) {
       el.removeEventListener("pointerup", onUp);
       el.removeEventListener("pointercancel", onCancel);
       el.removeEventListener("keydown", onKey);
+      el.removeEventListener("mousedown", onMouseDown);
+      el.removeEventListener("auxclick", onAux);
     };
   }, [world]);
 

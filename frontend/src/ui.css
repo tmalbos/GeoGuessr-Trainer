@@ -8,6 +8,7 @@ kbd { display: inline-block; min-width: 22px; padding: 1px 7px; font-family: inh
 .pad { padding: 32px 40px 48px 56px; }
 .btn.danger { background: var(--coral); color: #14243a; }
 .btn.danger:hover:not(:disabled) { background: #ff8a72; }
+a.btn { display: inline-block; text-decoration: none; }
 
 /* Sync button in the side rail */
 .rail .rail-sync { margin-top: auto; display: flex; align-items: center; gap: 8px; border: 1px solid var(--line); }

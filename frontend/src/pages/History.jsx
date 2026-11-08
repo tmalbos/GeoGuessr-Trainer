@@ -8,7 +8,6 @@ import SyncButton from "../components/SyncButton.jsx";
 import { api, errorText } from "../lib/api.js";
 import { MAX_TOTAL, resetFilters, setFilters, useAppFilters } from "../lib/filters.js";
 import { MOVE_TYPE_LABELS, areaHue, areaLabel, num, time, tone } from "../lib/format.js";
-import { navigate } from "../lib/router.js";
 import { useSync, useSyncEvents } from "../lib/sync.jsx";
 import ReplayReport from "./ReplayReport/index.jsx";
 import "./history.css";
@@ -19,6 +18,7 @@ const MAX_ROUND_COLS = 5;
 // Games whose report was opened from the list (so the report keeps its title when the page is re-entered by URL).
 const reportGames = new Map();
 const reportKey = (token, id) => `${token}/${id}`;
+const reportHref = (g) => `#/history/report/${encodeURIComponent(g.challenge_token)}/${encodeURIComponent(g.game_id)}`;
 
 // Every level that is available, most specific first: city, subregion, region, country.
 const placeName = (p) => [p.city, p.subregion, p.state, p.country].filter(Boolean).join(", ");
@@ -112,7 +112,7 @@ function PlaceLine({ kind, p }) {
 function Detail({ g, onReport }) {
   return <div className="rounds">
     <div style={{ padding: "12px 0 4px" }}>
-      <button type="button" className="btn ghost" onClick={() => onReport(g)}>Replay report</button>
+      <a className="btn ghost" href={reportHref(g)} onClick={() => onReport(g)}>Replay report</a>
     </div>
     {g.rounds.map((r) => <div className="rd" key={r.round_number}>
       <span className="rd-n">{r.round_number}</span>
@@ -150,7 +150,6 @@ export default function History({ seg = [] }) {
     : null;
   const openReport = (g) => {
     reportGames.set(reportKey(g.challenge_token, g.game_id), g);
-    navigate(`/history/report/${encodeURIComponent(g.challenge_token)}/${encodeURIComponent(g.game_id)}`);
   };
 
   // The page resets to 1 whenever a filter, the sort or the page size changes.
@@ -192,7 +191,7 @@ export default function History({ seg = [] }) {
   // The report does not need the list or the filters, so it shows right away (also when opened straight from a URL).
   if (reportGame) {
     const title = reportGame.match_type ? `${gameName(reportGame)} · ${fmtDate(reportGame.played_at)}` : "";
-    return <ReplayReport key={`${reportGame.challenge_token}/${reportGame.game_id}`} g={reportGame} title={title} onBack={() => navigate("/history")} />;
+    return <ReplayReport key={`${reportGame.challenge_token}/${reportGame.game_id}`} g={reportGame} title={title} />;
   }
 
   const head = <div className="hist-head"><h2>History</h2><SyncButton /></div>;
