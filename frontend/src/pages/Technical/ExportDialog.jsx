@@ -75,8 +75,11 @@ export default function ExportDialog({ ds, levels, selected, onClose, onExport }
       <h3>Export TopoJSON</h3>
 
       <div className="tp-field">
-        <label htmlFor="ex-name">File name <span className="muted">.topojson</span></label>
-        <input id="ex-name" value={name ?? `ADM${adm}`} onChange={(e) => setName(e.target.value)} />
+        <label htmlFor="ex-name">File name</label>
+        <span className="tp-suffix">
+          <input id="ex-name" value={name ?? `ADM${adm}`} onChange={(e) => setName(e.target.value)} />
+          <span className="muted">.topojson</span>
+        </span>
       </div>
 
       <div className="tp-field">

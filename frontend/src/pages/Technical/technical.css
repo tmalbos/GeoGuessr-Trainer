@@ -22,6 +22,9 @@
 .confirm .tp-field ~ .tp-field { margin-top: 10px; }
 .tp-field label { margin: 0; display: flex; justify-content: space-between; font-size: 13px; }
 .tp-field input[type="range"] { width: 100%; max-width: none; padding: 0; }
+.tp-suffix { position: relative; display: block; }
+.tp-suffix input { padding-right: 76px; }
+.tp-suffix > span { position: absolute; right: 12px; top: 50%; transform: translateY(-50%); pointer-events: none; }
 .tp-divider { margin: 14px 0; border: 0; border-top: 1px solid var(--line); }
 .tp-chk { display: flex; align-items: center; gap: 8px; margin: 0; font-weight: 400; font-size: 13px; cursor: pointer; }
 .tp-chk input { width: auto; padding: 0; }
