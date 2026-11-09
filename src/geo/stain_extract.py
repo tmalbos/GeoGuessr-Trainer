@@ -75,6 +75,8 @@ import io
 import json
 import logging
 import math
+import os
+from concurrent.futures import ThreadPoolExecutor
 
 import numpy as np
 import shapely
@@ -107,6 +109,8 @@ except ImportError:  # pragma: no cover
     minimize = None
 
 logger = logging.getLogger("uvicorn.error")
+
+_POOL = ThreadPoolExecutor(max_workers=min(8, os.cpu_count() or 4))  # scipy filters release the GIL
 
 WORK_MAX = 1600  # longest side of the image used to find the map, px (near native for a screenshot)
 FULL_MAX = 2400  # longest side of the image the stains are read from, px
@@ -755,9 +759,12 @@ def _bin_fields(strength: np.ndarray, phi: np.ndarray, sigma: float) -> np.ndarr
     out = np.empty((N_BINS, *strength.shape), np.float32)
     step = np.pi / N_BINS
     norm = sigma * math.sqrt(2 * math.pi)  # a 1 px ridge then peaks at about 1
-    for k in range(N_BINS):
+
+    def one(k: int) -> None:
         compat = np.maximum(0.0, np.cos(2 * (phi - k * step))) ** ALIGN_POWER
         out[k] = gaussian_filter(strength * compat, sigma, mode="constant") * norm
+
+    list(_POOL.map(one, range(N_BINS)))
     return out
 
 
@@ -781,30 +788,30 @@ def _line_parts(g) -> list:
 
 def _samples(geom, spacing: float) -> tuple[np.ndarray, np.ndarray]:
     """Evenly spaced points along the lines of a plane geometry, with the unit tangent at each."""
-    pts: list[np.ndarray] = []
-    tans: list[np.ndarray] = []
-    if geom is not None:
-        for ln in _line_parts(geom):
-            length = ln.length
-            if length < spacing * 3:
-                continue
-            closed = ln.is_closed
-            n = max(8, int(length / spacing))
-            d = np.linspace(0.0, length, n, endpoint=not closed)
-
-            def at(dd, ln=ln, length=length, closed=closed):
-                dd = dd % length if closed else np.clip(dd, 0.0, length)
-                return shapely.get_coordinates(shapely.line_interpolate_point(ln, dd))
-
-            p, a, b = at(d), at(d - spacing), at(d + spacing)
-            t = b - a
-            nrm = np.hypot(t[:, 0], t[:, 1])
-            ok = nrm > 1e-12
-            pts.append(p[ok])
-            tans.append(t[ok] / nrm[ok, None])
-    if not pts:
+    parts = np.array(_line_parts(geom) if geom is not None else [], dtype=object)
+    if len(parts):
+        lens = shapely.length(parts)
+        parts = parts[lens >= spacing * 3]
+    if not len(parts):
         return np.empty((0, 2)), np.empty((0, 2))
-    return np.vstack(pts), np.vstack(tans)
+    lens = shapely.length(parts)
+    closed = shapely.is_closed(parts)
+    n = np.maximum(8, (lens / spacing).astype(int))
+    line = np.repeat(np.arange(len(parts)), n)
+    first = np.cumsum(n) - n
+    step = lens / np.where(closed, n, n - 1)  # linspace: the end point is only kept on open lines
+    d = (np.arange(len(line)) - first[line]) * step[line]
+    length, shut, geoms = lens[line], closed[line], parts[line]
+
+    def at(dd):
+        dd = np.where(shut, dd % length, np.clip(dd, 0.0, length))
+        return shapely.get_coordinates(shapely.line_interpolate_point(geoms, dd))
+
+    p, a, b = at(d), at(d - spacing), at(d + spacing)
+    t = b - a
+    nrm = np.hypot(t[:, 0], t[:, 1])
+    ok = nrm > 1e-12
+    return p[ok], t[ok] / nrm[ok, None]
 
 
 def _compose(p: np.ndarray, ctx: dict) -> tuple[np.ndarray, np.ndarray]:
@@ -833,19 +840,13 @@ def _bilinear(f: np.ndarray, k: np.ndarray, x: np.ndarray, y: np.ndarray) -> np.
     fx, fy = x - 0.5, y - 0.5
     x0, y0 = np.floor(fx).astype(int), np.floor(fy).astype(int)
     ax, ay = fx - x0, fy - y0
-
-    def at(xi, yi):
-        ok = (xi >= 0) & (xi < w) & (yi >= 0) & (yi < h)
-        out = np.zeros(len(xi), np.float32)
-        out[ok] = f[k[ok], yi[ok], xi[ok]]
-        return out
-
-    return (
-        at(x0, y0) * (1 - ax) * (1 - ay)
-        + at(x0 + 1, y0) * ax * (1 - ay)
-        + at(x0, y0 + 1) * (1 - ax) * ay
-        + at(x0 + 1, y0 + 1) * ax * ay
-    )
+    xs = np.stack([x0, x0 + 1, x0, x0 + 1])
+    ys = np.stack([y0, y0, y0 + 1, y0 + 1])
+    ok = (xs >= 0) & (xs < w) & (ys >= 0) & (ys < h)
+    idx = np.where(ok, k * (h * w) + ys * w + xs, 0)
+    v = np.where(ok, f.reshape(-1)[idx], 0.0)
+    wt = np.stack([(1 - ax) * (1 - ay), ax * (1 - ay), (1 - ax) * ay, ax * ay])
+    return (v * wt).sum(0)
 
 
 _PARAM_SCALE = np.array([1.0, 1.0, 0.01, 0.01, 0.005, 0.005])  # optimiser units -> px / log / rad
@@ -872,14 +873,15 @@ def _honest(strength: np.ndarray, phi: np.ndarray, ctx: dict, a: np.ndarray, t: 
     xy -= np.array([ctx["ox"], ctx["oy"]])
     step = np.pi / N_BINS
     strong = strength >= STRONG_W
-    dist: dict[int, np.ndarray] = {}
-    for kk in np.unique(k):
-        m = strong & (np.cos(2 * (phi - int(kk) * step)) >= ALIGN_COS)
-        dist[int(kk)] = (
-            distance_transform_edt(~m).astype(np.float32)
-            if m.any()
-            else np.full((h, w), 99.0, np.float32)
-        )
+
+    def edt(kk: int) -> np.ndarray:
+        m = strong & (np.cos(2 * (phi - kk * step)) >= ALIGN_COS)
+        if not m.any():
+            return np.full((h, w), 99.0, np.float32)
+        return distance_transform_edt(~m).astype(np.float32)
+
+    bins = [int(v) for v in np.unique(k)]
+    dist = dict(zip(bins, _POOL.map(edt, bins), strict=True))
 
     def lookup(pts: np.ndarray) -> np.ndarray:
         ix = np.rint(pts[:, 0] - 0.5).astype(int)
@@ -1515,10 +1517,10 @@ def _raster(poly_geom, size: tuple[int, int]) -> np.ndarray:
     dr = ImageDraw.Draw(im)
     polys = _polys(poly_geom)
     for p in polys:
-        dr.polygon([tuple(c) for c in p.exterior.coords], fill=255)
+        dr.polygon(shapely.get_coordinates(p.exterior).ravel().tolist(), fill=255)
     for p in polys:
         for ring in p.interiors:
-            dr.polygon([tuple(c) for c in ring.coords], fill=0)
+            dr.polygon(shapely.get_coordinates(ring).ravel().tolist(), fill=0)
     return np.asarray(im) > 0
 
 
