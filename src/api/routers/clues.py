@@ -32,6 +32,7 @@ Overlay: a regional clue with a geometry file (polygons / lines / points) also g
 Needs:   Pillow, geopandas, shapely (>= 2.1 for gap-free coverage simplification), pyarrow, pyyaml.
 """
 
+import contextlib
 import csv
 import io
 import json
@@ -571,6 +572,9 @@ class ClueBody(BaseModel):
     ] = []  # the full list of relations of this clue (replaces the stored one)
     relation_notes: dict[str, NoteIn] = {}  # sentence for same_as / similar_to
     badge: Literal["subcontinent", "world"] | None = None  # manual uniqueness badge
+    collapsible: bool = (
+        True  # the card may collapse to its media (only kept with an image or an SVG)
+    )
     files: dict[str, str] = {}  # kind -> staging token
     remove: list[str] = []  # kinds of the clue's own files to delete (e.g. the media changed type)
 
@@ -950,12 +954,15 @@ def add_clue(cc: str, body: ClueBody, request: Request):
                 "relations": rels or None,
                 "relation_notes": notes or None,
                 "badge": body.badge,
+                "collapsible": None if body.collapsible else False,
                 **names,
             }
             entry = {k: v for k, v in entry.items() if v is not None}
             if "image" not in entry:
                 entry.pop("blur", None)
                 entry.pop("max_height", None)
+            if "image" not in entry and "svg" not in entry:
+                entry.pop("collapsible", None)
             geo_kind = next((k for k in GEOM_KINDS if k in names), None)
             if body.scope == "reg" and geo_kind:
                 svg = _render_overlay(cc, folder / names[geo_kind], get_ctx(request).local_geo)
@@ -995,6 +1002,55 @@ def reorder_clues(cc: str, body: OrderBody):
         ordered += [c for c in items if c.get("id") not in placed]
         _save(cc, ordered)
     return {"ok": True}
+
+
+class MedalBody(ClueBody):
+    clue_id: str | None = None  # the clue being edited, when there is one
+
+
+@router.post("/clues/{cc}/medal")
+def preview_medal(cc: str, body: MedalBody, request: Request):
+    """The score and medal this clue would get if it were saved now. Nothing is kept."""
+    cc = _cc(cc)
+    folder = CLUES_DIR / cc
+    old = (
+        next((c for c in _load(cc) if c.get("id") == body.clue_id), None) if body.clue_id else None
+    )
+    replaced = set(body.files) | set(body.remove)
+    if replaced & set(GEOM_KINDS):
+        replaced |= set(GEOM_KINDS)
+    entry = {
+        "id": body.clue_id or "preview",
+        "scope": body.scope,
+        "tags": body.tags,
+        "frequency": body.frequency,
+        "ease": body.ease,
+        "reliability": body.reliability,
+        "relations": [r.model_dump() for r in body.relations] or None,
+        "badge": body.badge,
+        **{k: old[k] for k in KINDS if old and old.get(k) and k not in replaced},
+    }
+    made_folder = not folder.exists()
+    folder.mkdir(parents=True, exist_ok=True)
+    copies: list[Path] = []
+    try:
+        for kind, token in body.files.items():
+            if kind == "image":
+                continue
+            src = _staged_path(token, kind)
+            name = f"preview_{token}{src.suffix}"
+            shutil.copy2(src, folder / name)
+            copies.append(folder / name)
+            entry[kind] = name
+        entry = {k: v for k, v in entry.items() if v is not None}
+        _apply_medal(cc, entry, request, folder)
+    finally:
+        for p in copies:
+            p.unlink(missing_ok=True)
+        if made_folder:
+            with contextlib.suppress(OSError):
+                folder.rmdir()
+    return {"score": entry.get("score"), "medal": entry.get("medal")}
 
 
 @router.put("/clues/{cc}/{clue_id}")
@@ -1084,6 +1140,7 @@ def update_clue(cc: str, clue_id: str, body: ClueBody, request: Request):
                 "relations": rels or None,
                 "relation_notes": notes or None,
                 "badge": body.badge,
+                "collapsible": None if body.collapsible else False,
                 **kept,
                 **names,
             }
@@ -1091,6 +1148,8 @@ def update_clue(cc: str, clue_id: str, body: ClueBody, request: Request):
             if "image" not in entry:
                 entry.pop("blur", None)
                 entry.pop("max_height", None)
+            if "image" not in entry and "svg" not in entry:
+                entry.pop("collapsible", None)
             geo_kind = next((k for k in GEOM_KINDS if entry.get(k)), None)
             if entry["scope"] == "reg" and geo_kind:
                 # A geometry file that is being overwritten is still the staged one at this point.

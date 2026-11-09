@@ -9,6 +9,7 @@ import SECTIONS from "./sections.js";
 
 const svgProps = { width: 18, height: 18, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 2, strokeLinecap: "round", strokeLinejoin: "round", "aria-hidden": true };
 const Pencil = () => <svg {...svgProps}><path d="M12 20h9" /><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" /></svg>;
+const Collapse = () => <svg {...svgProps}><rect x="3" y="3" width="7" height="7" /><rect x="14" y="3" width="7" height="7" /><rect x="3" y="14" width="7" height="7" /><rect x="14" y="14" width="7" height="7" /></svg>;
 
 const NO_INFO = { domain: "", side: null, currencies: [] };
 const OUTLINE_BOX = [180, 132]; // max size of the outline in the facts row (px)
@@ -16,6 +17,7 @@ const OUTLINE_BOX = [180, 132]; // max size of the outline in the facts row (px)
 export default function Country({ id, section, query, backHref, backLabel = "World map" }) {
   const [name, setName] = useState("");
   const [editing, setEditing] = useState(false);
+  const [collapsed, setCollapsed] = useState(false);
   const [info, setInfo] = useState(NO_INFO);
 
   useEffect(() => {
@@ -59,7 +61,7 @@ export default function Country({ id, section, query, backHref, backLabel = "Wor
       </nav>}
 
       {current
-        ? <current.Component id={id} name={title} editing={editing} query={query} />
+        ? <current.Component id={id} name={title} editing={editing} collapsed={collapsed && !editing} query={query} />
         : <div className="cp-empty">
             <h3>Coming soon</h3>
             <p className="muted">There are no clues for {title} yet. Sections will appear here as they are added.</p>
@@ -70,6 +72,9 @@ export default function Country({ id, section, query, backHref, backLabel = "Wor
       <button type="button" className={`cp-tool ${editing ? "on" : ""}`} aria-pressed={editing}
         aria-label={editing ? "Exit edit mode" : `Edit ${title} clues`} title={editing ? "Exit edit mode" : "Edit clues"}
         onClick={() => setEditing((e) => !e)}><Pencil /></button>
+      <button type="button" className={`cp-tool ${collapsed ? "on" : ""}`} aria-pressed={collapsed}
+        aria-label={collapsed ? "Expand clues" : "Collapse clues"} title={collapsed ? "Expand clues" : "Collapse clues"}
+        onClick={() => setCollapsed((c) => !c)}><Collapse /></button>
       {/* The clue list renders its filter / add / import tools here through a portal (see ClueList). */}
       <div id="clue-filter-slot" />
     </aside>

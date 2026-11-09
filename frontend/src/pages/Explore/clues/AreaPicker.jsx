@@ -17,6 +17,24 @@ const MIN_BOX = 0.04;
 const clamp = (v) => Math.min(1, Math.max(0, v));
 const rect = (r) => r && { left: `${r[0] * 100}%`, top: `${r[1] * 100}%`, width: `${(r[2] - r[0]) * 100}%`, height: `${(r[3] - r[1]) * 100}%` };
 
+// A short low buzz for "that isn't allowed".
+function beep() {
+  try {
+    const Ctx = window.AudioContext || window.webkitAudioContext;
+    const ac = new Ctx();
+    const osc = ac.createOscillator();
+    const gain = ac.createGain();
+    osc.type = "square";
+    osc.frequency.value = 160;
+    gain.gain.value = 0.03;
+    osc.connect(gain);
+    gain.connect(ac.destination);
+    osc.onended = () => ac.close();
+    osc.start();
+    osc.stop(ac.currentTime + 0.12);
+  } catch { /* no audio available */ }
+}
+
 // The clue map draws one hue, lighter for rarer tones. Rank the stains by how light they are found in the
 // picture, so two stains of different intensity become the main tone and its lighter equivalent.
 const lum = (hex) => {
@@ -94,6 +112,8 @@ export default function AreaPicker({ cc, value, current, onChange, stage, initia
   const [params, setParams] = useState(SHAPE_DEFAULTS);
   const [mmBusy, setMmBusy] = useState(false);
   const [mmErr, setMmErr] = useState("");
+  const [warn, setWarn] = useState(false);  // tried to leave out the last stain
+  const warnTimer = useRef(null);
 
   const strip = (s) => String(s ?? "").trim().replace(/^"|"$/g, "");
 
@@ -220,10 +240,17 @@ export default function AreaPicker({ cc, value, current, onChange, stage, initia
     return () => { stale = true; clearTimeout(t); };
   }, [res, parts, off]);
 
-  const toggleStain = (id) => setOff((o) => {
-    if (o.includes(id)) return o.filter((x) => x !== id);
-    return parts.length - o.length <= 1 ? o : [...o, id]; // at least one polygon stays on
-  });
+  const toggleStain = (id) => {
+    if (off.includes(id)) { setOff(off.filter((x) => x !== id)); return; }
+    if (parts.length - off.length <= 1) { // at least one polygon stays on
+      beep();
+      setWarn(true);
+      clearTimeout(warnTimer.current);
+      warnTimer.current = setTimeout(() => setWarn(false), 2500);
+      return;
+    }
+    setOff([...off, id]);
+  };
 
   // What goes on the photo (the same thing the card shows there). Stains first (clickable), then a freshly staged file,
   // then the region the clue already has.
@@ -249,11 +276,9 @@ export default function AreaPicker({ cc, value, current, onChange, stage, initia
 
   // The little note in the Region box (the map itself is on the photo).
   const note = value
-    ? <div className="fp-prev"><div className="muted">
-      {stainsLive
-        ? "Shown on the photo. Click an area there to leave it out of the clue (it turns grey and dashed), click it again to include it. At least one stays on."
-        : `${value.name} · shown on the photo`}
-    </div></div>
+    ? stainsLive
+      ? <></>
+      : <div className="fp-prev"><div className="muted">{`${value.name} · shown on the photo`}</div></div>
     : undefined;
 
   // ── drawing the box ──
@@ -282,10 +307,12 @@ export default function AreaPicker({ cc, value, current, onChange, stage, initia
   };
 
   let status;
-  if (busy) status = up ? "Looking for the map…" : "Loading the picture…";
+  if (warn) status = "At least one stain required";
+  else if (busy) status = up ? "Looking for the map…" : "Loading the picture…";
   else if (err) status = err;
-  else if (res) status = `${parts.length - off.length}${off.length ? ` of ${parts.length}` : ""} areas included. Drag a box around the map to search again.`;
+  else if (res) status = "Drag a box on the picture to search again. Click a stain to toggle it.";
   else status = "The map wasn't found: drag a box around it.";
+  const count = res && !busy && !err ? `${parts.length - off.length}${off.length ? ` of ${parts.length}` : ""} areas included` : null;
 
   const inside = <>
     {mm && <div className="ar-stain">
@@ -312,7 +339,7 @@ export default function AreaPicker({ cc, value, current, onChange, stage, initia
         {rect(draft ?? crop) && <div className="ar-box" style={rect(draft ?? crop)} />}
       </div>
       <div className="ar-row">
-        <span className="muted">{status}</span>
+        <span className={warn ? "muted err" : "muted"}>{status}</span>
       </div>
     </div>}
     {loading && !pic && <StatusIcon kind="wait" />}
@@ -320,7 +347,8 @@ export default function AreaPicker({ cc, value, current, onChange, stage, initia
 
   return <div className="ar">
     <FilePicker kind="geometry" label="Region" hint={HINT} accept={ACCEPT} value={value} current={current}
-      onChange={onChange} stage={stageArea} onImage={takePicture} cc={cc} preview={note} inside={inside} />
+      onChange={onChange} stage={stageArea} onImage={takePicture} cc={cc} preview={note} inside={inside}
+      extra={count && <span className="muted" style={{ marginLeft: "auto" }}>{count}</span>} />
     {overlayEl && overlayNode && createPortal(overlayNode, overlayEl)}
   </div>;
 }

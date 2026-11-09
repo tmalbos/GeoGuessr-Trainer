@@ -127,24 +127,35 @@ function RelatedMedia({ cc, ids, name, onClose }) {
  *  dragging / over = visual states. showTags / showSource are off for clues inside a group: the group shows them once.
  *  `data-clue-id` lets the list find where each card is on screen (used to add a new clue near the scroll position). */
 export default function ClueCard({ cc, clue, editing, onDelete, onEdit, dragging, over, onGrab, onOver, onDrop, onRelease,
-  showTags = true, showSource = true }) {
+  showTags = true, showSource = true, collapsed = false }) {
   const { nameOf } = useCountries();
   const [open, setOpen] = useState([]); // countries whose related clue is shown next to this one
   const [pick, setPick] = useState(null); // the area of a colored-areas clue that was clicked
+  const [unfolded, setUnfolded] = useState(false); // a collapsed clue the user clicked open
+  useEffect(() => { setUnfolded(false); }, [collapsed]);
   const toggleOpen = (c) => setOpen((o) => (o.includes(c) ? o.filter((x) => x !== c) : [...o, c]));
   const loc = clue.tags.find((t) => LOCATION_TAGS.includes(t));
   const cat = clue.tags.find((t) => GENERAL_TAGS.includes(t));
   const idsOf = (c) => (clue.relations ?? []).filter((r) => r.type !== "group" && r.cc === c).map((r) => r.id);
   const shown = open.filter((c) => idsOf(c).length); // a relation removed while open just disappears
+  const folded = collapsed && clue.collapsible !== false && !!(clue.image || clue.svg) && !unfolded;
+  if (folded) return <article data-clue-id={clue.id} className="clue collapsed" role="button" tabIndex={0}
+    onClick={() => setUnfolded(true)} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setUnfolded(true); } }}>
+    <Media cc={cc} clue={clue}><Badges clue={clue} /></Media>
+  </article>;
+  const refold = (e) => {
+    if (e.target.closest(".clue-media") && !e.target.closest(".clue-rel-media, button, a, .cl-area")) setUnfolded(false);
+  };
   return <article data-clue-id={clue.id} className={`clue ${shown.length ? "expanded" : ""} ${dragging ? "dragging" : ""} ${over ? "over" : ""}`}
     style={shown.length ? { "--n": shown.length + 1 } : undefined}
-    onDragOver={editing ? onOver : undefined} onDrop={editing ? onDrop : undefined}>
+    onDragOver={editing ? onOver : undefined} onDrop={editing ? onDrop : undefined}
+    onClick={unfolded ? refold : undefined}>
     {editing && <div className="clue-tools">
+      <span className="clue-grip" draggable title="Drag to reorder" aria-label="Drag to reorder"
+        onDragStart={onGrab} onDragEnd={onRelease}><Grip /></span>
       <button type="button" className="clue-edit" aria-label="Edit clue" title="Edit clue" onClick={() => onEdit(clue)}><Pencil /></button>
       <button type="button" className="clue-del" aria-label="Delete clue" title="Delete clue" onClick={() => onDelete(clue)}><Trash /></button>
     </div>}
-    {editing && <span className="clue-grip" draggable title="Drag to reorder" aria-label="Drag to reorder"
-      onDragStart={onGrab} onDragEnd={onRelease}><Grip /></span>}
     <Media cc={cc} clue={clue} onArea={setPick} selected={pick?.name}><Badges clue={clue} /></Media>
     {shown.map((c) => <RelatedMedia key={c} cc={c} ids={idsOf(c)} name={nameOf(c)} onClose={() => toggleOpen(c)} />)}
     <div className={`clue-body ${editing ? "has-tools" : ""}`}>

@@ -40,16 +40,27 @@
 .problems { margin: 8px 0 0; text-align: right; font-size: 12px; }
 
 /* ── Clue card tools (edit / delete / drag grip) ── */
-.clue-tools { position: absolute; top: 12px; right: 0; display: flex; align-items: center; gap: 6px; z-index: 1; }
+.clue-tools { grid-column: 1 / -1; justify-self: end; display: flex; align-items: center; gap: 6px; }
 .clue-tools .clue-del, .clue-edit { position: static; display: grid; place-items: center; padding: 7px; background: none; border-radius: 6px; cursor: pointer; }
 .clue-edit { color: var(--sea-hi); border: 1px solid var(--sea-hi); }
 .clue-edit:hover { background: #6cc0e51a; }
-.clue-body.has-tools { padding-right: 96px; }
-.clue-grip { position: absolute; right: 0; top: 50%; transform: translateY(-50%); display: grid; place-items: center; padding: 8px 6px; color: var(--mute); cursor: grab; user-select: none; }
+.clue-grip { display: grid; place-items: center; padding: 8px 6px; color: var(--mute); cursor: grab; user-select: none; }
 .clue-grip:hover { color: var(--ink); }
 .clue-grip:active { cursor: grabbing; }
 .clue.dragging { opacity: .4; }
 .clue.over { background: #ffffff0d; outline: 2px dashed var(--sea-hi); outline-offset: -2px; }
+
+/* ── Collapsed mode: only the media, several clues per row ── */
+.clue-flow { display: flex; flex-wrap: wrap; justify-content: center; gap: 16px; align-items: flex-start; padding: 20px 0; }
+.clue-flow > .clue:not(.collapsed), .clue-flow > .clue-box { flex: 0 0 100%; }
+/* Same width the image has next to its text: half the row (minus the card gap), at most 560px. */
+.clue.collapsed { display: block; flex: 0 0 min(560px, calc((100% - 24px) / 2)); padding: 0; border-bottom: 0; cursor: pointer; }
+@media (max-width: 900px) { .clue.collapsed { flex-basis: 100%; } }
+/* A group box lays its collapsed clues out the same way. */
+.clue-flow .clue-box { display: flex; flex-wrap: wrap; justify-content: center; gap: 16px; align-items: flex-start; }
+.clue-flow .clue-box > .clue:not(.collapsed) { flex: 0 0 100%; }
+.clue-flow .clue-box .clue.collapsed { padding: 0; }
+.clue-flow .clue-box-src { display: none; }
 
 /* ── Source link: the site's icon, bottom right of the card ── */
 .chip.src { position: absolute; right: 0; bottom: 16px; display: grid; place-items: center; padding: 6px 16px; text-decoration: none; }

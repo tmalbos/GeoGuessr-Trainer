@@ -110,7 +110,7 @@ const idsOf = (q) => (q ? new Set(q.split(",")) : null);
 const scopeOf = (q) => (q === "nat" || q === "reg" ? q : "");
 const locOfQuery = (q, ids) => (!ids && LOCATION_TAGS.includes(q) ? q : "");
 
-export default function ClueList({ id, name, editing, query }) {
+export default function ClueList({ id, name, editing, collapsed, query }) {
   const toast = useToast();
   const [items, setItems] = useState(null);
   const [err, setErr] = useState("");
@@ -345,11 +345,13 @@ export default function ClueList({ id, name, editing, query }) {
     && (!scope || c.scope === scope) && (!ids || ids.has(c.id)));
   // `key` = the block the card is shown in (clues can only be dragged inside their own block).
   const card = (c, key, opts = {}) => <ClueCard key={c.id} cc={id} clue={c} editing={editing} onDelete={remove} onEdit={setForm}
-    dragging={drag?.id === c.id} over={over === c.id} showTags={opts.showTags !== false} showSource={opts.showSource !== false}
+    dragging={drag?.id === c.id} over={over === c.id} showTags={opts.showTags !== false} showSource={opts.showSource !== false} collapsed={collapsed}
     onGrab={(e) => grab(e, c, key)} onOver={(e) => hover(e, c, key)} onDrop={(e) => drop(e, c, key)} onRelease={release} />;
   // Clues joined by a "group" relation are drawn together inside one box. The tags of the first clue and
   // the source(s) of the whole group are shown once, for the box, instead of repeating on every clue.
-  const blocks = (arr, key) => groupBlocks(arr).map((b) => {
+  const flow = (nodes) => (collapsed ? <div className="clue-flow">{nodes}</div> : nodes);
+  const blocks = (arr, key) => flow(rawBlocks(arr, key));
+  const rawBlocks = (arr, key) => groupBlocks(arr).map((b) => {
     if (b.length === 1) return card(b[0], key);
     const sources = [...new Set(b.map((c) => c.source).filter(Boolean))];
     return <div className="clue-box" key={`box-${b[0].id}`}>

@@ -107,6 +107,8 @@ export default function ClueEditor({ cc, name, clue, prefill, onClose, onSaved, 
   const [relations, setRelations] = useState(clue?.relations ?? []);
   const [notes, setNotes] = useState(clue?.relation_notes ?? {});
   const [badge, setBadge] = useState(clue?.badge ?? "");
+  const [collapsible, setCollapsible] = useState(clue?.collapsible !== false);
+  const [medal, setMedal] = useState(clue?.medal ? { medal: clue.medal, score: clue.score } : null); // what the card would show
   const [srcOpen, setSrcOpen] = useState(false);
   const [picking, setPicking] = useState(false);
   const [others, setOthers] = useState({}); // cc -> that country's clues, only to describe the relation chips
@@ -157,7 +159,7 @@ export default function ClueEditor({ cc, name, clue, prefill, onClose, onSaved, 
 
   // Only ratings set by hand count as "changes": the automatic ones alone shouldn't make a fresh form look dirty.
   const snapshot = () => JSON.stringify([scope, info, general, location, RATINGS.map(([k]) => (manual[k] ? rating[k] : null)), blur, maxH,
-    img.sig, source, relations, notes, badge, mainKind, media.upload?.token ?? "", area.kind, area.upload?.token ?? ""]);
+    img.sig, source, relations, notes, badge, collapsible, mainKind, media.upload?.token ?? "", area.kind, area.upload?.token ?? ""]);
   const initial = useRef(snapshot());
   const dirty = snapshot() !== initial.current;
   const requestClose = () => (dirty ? setConfirm(true) : onClose());
@@ -313,38 +315,55 @@ export default function ClueEditor({ cc, name, clue, prefill, onClose, onSaved, 
   if (source.trim() && !URL_OK.test(source.trim())) problems.push("The source must be a link starting with http:// or https://.");
   for (const t of NOTE_TYPES) if (present(t) && !note(t).text.trim()) problems.push(`Finish the "${REL_LABEL[t]}" sentence.`);
 
+  const payload = (imageToken) => {
+    const num = (v) => (v === "" ? null : Number(v));
+    const upload = {};
+    if (imageToken) upload.image = imageToken;
+    const put = (u) => { if (u?.token) upload[u.kind] = u.token; };
+    put(showArea ? area.upload : media.upload);
+    // Files of a kind the clue no longer uses are deleted with it.
+    const used = new Set(Object.keys(upload));
+    if (isImage) used.add("image");
+    if (!isImage && mainKind === "svg") used.add("svg");
+    if (showArea && area.kind === "svg") used.add("svg");
+    if (!isImage && mainKind === "csv") used.add("csv");
+    if (showArea && area.kind === "csv") used.add("csv");
+    if (!isImage && mainKind === "geometry") used.add(media.upload?.kind ?? geoKindOf(clue) ?? "");
+    if (showArea && area.kind === "geometry") used.add(area.upload?.kind ?? geoKindOf(clue) ?? "");
+    const remove = clue && (mediaChanged || areaChanged)
+      ? ["image", ...GEOM_FIELDS, "svg", "csv"].filter((k) => clue[k] && !used.has(k)) : [];
+    return {
+      scope, info, tags: [location, general], visibility, blur: isImage && blur,
+      max_height: isImage ? maxH : null,
+      frequency: num(rating.frequency), ease: num(rating.ease), reliability: num(rating.reliability),
+      source: source.trim(),
+      relations,
+      relation_notes: Object.fromEntries(NOTE_TYPES.filter(present).map((t) => [t, note(t)])),
+      badge: badge || null,
+      collapsible,
+      files: upload,
+      remove,
+    };
+  };
+
+  // The score and medal the clue would get if it were saved now; the editor follows every change.
+  const medalKey = JSON.stringify([scope, info, general, location, rating, relations, badge, mainKind, media.upload?.token ?? "", area.kind, area.upload?.token ?? ""]);
+  useEffect(() => {
+    if (!general || !location) { setMedal(null); return undefined; }
+    let off = false;
+    const t = setTimeout(() => {
+      api(`/clues/${cc}/medal`, { method: "POST", body: { ...payload(null), clue_id: clue?.id ?? null } })
+        .then((r) => !off && setMedal(r.medal ? r : null)).catch(() => {});
+    }, 400);
+    return () => { off = true; clearTimeout(t); };
+  }, [medalKey]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const save = async () => {
     setSaving(true); setErr("");
-    const num = (v) => (v === "" ? null : Number(v));
     try {
       // Edits to the image stay in memory until now; this uploads the final pixels (or reuses the staged file).
       const imageToken = isImage ? await imgApi.current?.resolve() : null;
-      const upload = {};
-      if (imageToken) upload.image = imageToken;
-      const put = (u) => { if (u?.token) upload[u.kind] = u.token; };
-      put(showArea ? area.upload : media.upload);
-      // Files of a kind the clue no longer uses are deleted with it.
-      const used = new Set(Object.keys(upload));
-      if (isImage) used.add("image");
-      if (!isImage && mainKind === "svg") used.add("svg");
-      if (showArea && area.kind === "svg") used.add("svg");
-      if (!isImage && mainKind === "csv") used.add("csv");
-      if (showArea && area.kind === "csv") used.add("csv");
-      if (!isImage && mainKind === "geometry") used.add(media.upload?.kind ?? geoKindOf(clue) ?? "");
-      if (showArea && area.kind === "geometry") used.add(area.upload?.kind ?? geoKindOf(clue) ?? "");
-      const remove = clue && (mediaChanged || areaChanged)
-        ? ["image", ...GEOM_FIELDS, "svg", "csv"].filter((k) => clue[k] && !used.has(k)) : [];
-      await api(clue ? `/clues/${cc}/${clue.id}` : `/clues/${cc}`, { method: clue ? "PUT" : "POST", body: {
-        scope, info, tags: [location, general], blur: isImage && blur,
-        max_height: isImage ? maxH : null,
-        frequency: num(rating.frequency), ease: num(rating.ease), reliability: num(rating.reliability),
-        source: source.trim(),
-        relations,
-        relation_notes: Object.fromEntries(NOTE_TYPES.filter(present).map((t) => [t, note(t)])),
-        badge: badge || null,
-        files: upload,
-        remove,
-      } });
+      await api(clue ? `/clues/${cc}/${clue.id}` : `/clues/${cc}`, { method: clue ? "PUT" : "POST", body: payload(imageToken) });
       onSaved();
     } catch (e) { setErr(errorText(e)); setSaving(false); }
   };
@@ -354,6 +373,8 @@ export default function ClueEditor({ cc, name, clue, prefill, onClose, onSaved, 
     <img className="cb-img" src={src} alt="" /></button>;
   // Same badges as the card. The warning / info ones follow the relations by themselves; the two chess icons are toggles.
   const badges = <div className="clue-badges ed-badges">
+    {medal && <img className="cb-img medal" src={`/medals/${medal.medal}.png`} alt={`${medal.medal} medal`}
+      title={`${medal.medal[0].toUpperCase()}${medal.medal.slice(1)} medal · ${medal.score}/10`} />}
     {present("same_as") && <span className="cb" role="img" aria-label="Same clue in other countries" title="Same clue in other countries (from relations)">⚠️</span>}
     {present("similar_to") && <span className="cb" role="img" aria-label="Similar clue in other countries" title="Similar clue in other countries (from relations)">ℹ️</span>}
     {badgeBtn("subcontinent", "/grades/great.png", sub ? `Unique to ${sub}` : "Subcontinent unique")}
@@ -496,6 +517,8 @@ export default function ClueEditor({ cc, name, clue, prefill, onClose, onSaved, 
           {RATINGS.map(([k, label, lo, hi]) => <RatingDots key={k} label={label} lo={lo} hi={hi} value={rating[k]}
             onChange={(v) => setRatingByHand(k, v)} />)}
           {!clue && <p className="muted">Ratings fill in by themselves until you set one. × gives it back to the automation.</p>}
+          {(isImage || mainKind === "svg") && <label className="chk-row"><input type="checkbox" checked={collapsible}
+            onChange={(e) => setCollapsible(e.target.checked)} />Collapsible</label>}
         </div>
       </div>
 
