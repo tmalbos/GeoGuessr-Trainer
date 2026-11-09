@@ -23,7 +23,6 @@ const locOf = (c) => c.tags.find((t) => LOCATION_TAGS.includes(t));
 const locMatches = (c, loc) => !loc || locOf(c) === loc || (loc !== "Anywhere" && locOf(c) === "Anywhere");
 const UNDO_MS = 5000;
 const MIN_GROUP = 10; // a regional category gets its own group only with MORE clues than this
-const SHOWN = ["visible", "guide-only"]; // what counts as "has clues" on the world map
 const Funnel = () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
   strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M3 4h18l-7 8v6l-4 2v-8z" /></svg>;
 const ImportIcon = () => <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
@@ -106,7 +105,7 @@ function SideTools({ slotEl, showFilter, editing, onAdd, onImport, cat, loc, sco
 /** `query` (from the URL) sets the filters, e.g. from a replay report action:
  *    scope=nat|reg   National / Regional filter
  *    loc=Urban|Rural location filter (ignored when ids is given)
- *    ids=a,b,c       "From report" filter: only those clues (analysis-only ones included) */
+ *    ids=a,b,c       "From report" filter: only those clues */
 const idsOf = (q) => (q ? new Set(q.split(",")) : null);
 const scopeOf = (q) => (q === "nat" || q === "reg" ? q : "");
 const locOfQuery = (q, ids) => (!ids && LOCATION_TAGS.includes(q) ? q : "");
@@ -136,23 +135,21 @@ export default function ClueList({ id, name, editing, query }) {
   impRef.current = imp;
   const addAt = useRef(null); // where the list was on screen when "Add clue" was pressed
 
-  const wantAll = editing || !!ids; // analysis-only clues are needed to show the ones a report picked
-
   useEffect(() => { setFslot(document.getElementById("clue-filter-slot")); }, []);
 
   useEffect(() => {
     let off = false;
     // The old list stays on screen while this runs: blanking it first shrank the column and yanked
     // the scroll position back to the top every time a clue was saved or deleted.
-    api(`/clues/${id}${wantAll ? "?all=true" : ""}`).then((d) => {
+    api(`/clues/${id}`).then((d) => {
         if (off) return;
         setItems(d);
         setErr("");
         // This list is the truth about whether the country has clues: tell the world map without refetching.
-        setHasClues(id, d.some((c) => SHOWN.includes(c.visibility ?? "visible")));
+        setHasClues(id, d.length > 0);
       }).catch((e) => { if (!off) { setErr(errorText(e)); setItems(null); } });
     return () => { off = true; };
-  }, [id, wantAll, version]);
+  }, [id, version]);
 
   const stopImport = useCallback(() => {
     const p = impRef.current;
@@ -276,7 +273,7 @@ export default function ClueList({ id, name, editing, query }) {
     addAt.current = null;
     if (!at) return;
     try {
-      const fresh = await api(`/clues/${id}?all=true`);
+      const fresh = await api(`/clues/${id}`);
       const known = new Set(before.map((c) => c.id));
       const entry = fresh.find((c) => !known.has(c.id));
       if (!entry) return;
@@ -340,9 +337,8 @@ export default function ClueList({ id, name, editing, query }) {
     release();
   };
 
-  // Analysis-only clues are fetched when a report link needs them, but only shown if that link picked them.
-  const visible = (items ?? []).filter((c) => !hidden.has(`${id}/${c.id}`)
-    && (editing || (c.visibility ?? "visible") !== "analysis-only" || !!ids?.has(c.id)));
+  // Clues are shown unless deleted (still undoable) or filtered out by the report link.
+  const visible = (items ?? []).filter((c) => !hidden.has(`${id}/${c.id}`));
   const cats = GENERAL_TAGS.filter((t) => visible.some((c) => catOf(c) === t));
   const count = (t) => visible.filter((c) => catOf(c) === t).length;
   const filtered = visible.filter((c) => (!cat || catOf(c) === cat) && locMatches(c, loc)

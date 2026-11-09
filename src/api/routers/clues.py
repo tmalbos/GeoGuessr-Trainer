@@ -42,7 +42,7 @@ import threading
 import time
 import uuid
 from pathlib import Path
-from typing import Annotated, Literal
+from typing import Literal
 from xml.etree import ElementTree as ET
 
 import geopandas as gpd
@@ -50,7 +50,7 @@ import numpy as np
 import pandas as pd
 import shapely
 import yaml
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse, Response
 from PIL import Image, ImageOps
 from pydantic import BaseModel, Field
@@ -103,15 +103,10 @@ TOKEN_RE = re.compile(r"[0-9a-f]{32}")
 _SUB_OF = {code: label for _, label, codes in SUBCONTINENTS for code in codes.split()}
 _LOCK = threading.Lock()
 
-# Countries that have at least one clue shown in the normal view. Built from disk on first request,
+# Countries that have at least one clue. Built from disk on first request,
 # then kept in memory for the life of the server (never written to disk) and updated by each change.
 _SUM_LOCK = threading.Lock()
 _HAS: set[str] | None = None
-_SHOWN = {"visible", "guide-only"}
-
-
-def _has_shown(items: list[dict]) -> bool:
-    return any(c.get("visibility", "visible") in _SHOWN for c in items)
 
 
 def _summary() -> set[str]:
@@ -121,7 +116,7 @@ def _summary() -> set[str]:
             _HAS = {
                 d.name.upper()
                 for d in sorted(CLUES_DIR.glob("??"))
-                if d.is_dir() and re.fullmatch(r"[A-Za-z]{2}", d.name) and _has_shown(_load(d.name))
+                if d.is_dir() and re.fullmatch(r"[A-Za-z]{2}", d.name) and _load(d.name)
             }
         return set(_HAS)
 
@@ -131,7 +126,7 @@ def _set_has(cc: str, items: list[dict]) -> None:
     with _SUM_LOCK:
         if _HAS is None:  # not built yet; the first request will read the final state from disk
             return
-        (_HAS.add if _has_shown(items) else _HAS.discard)(cc)
+        (_HAS.add if items else _HAS.discard)(cc)
 
 
 def _apply_medal(cc: str, entry: dict, request: Request, folder: Path, override=None) -> None:
@@ -566,7 +561,6 @@ class ClueBody(BaseModel):
     frequency: int | None = Field(None, ge=1, le=10)
     ease: int | None = Field(None, ge=1, le=10)
     reliability: int | None = Field(None, ge=1, le=10)
-    visibility: Literal["visible", "guide-only", "analysis-only"] = "visible"
     blur: bool = False  # blur the clue image until hovered (only kept when the clue has an image)
     max_height: int | None = Field(
         None, ge=100, le=2000
@@ -869,11 +863,9 @@ def clues_subcontinents():
 
 
 @router.get("/clues/{cc}")
-def list_clues(cc: str, show_all: Annotated[bool, Query(alias="all")] = False):
+def list_clues(cc: str):
     cc = _cc(cc)
     items = _load(cc)
-    if not show_all:
-        items = [c for c in items if c.get("visibility", "visible") in {"visible", "guide-only"}]
     sub = _SUB_OF.get(cc)
     for c in items:
         if c.get("csv"):
@@ -952,7 +944,6 @@ def add_clue(cc: str, body: ClueBody, request: Request):
                 "frequency": body.frequency,
                 "ease": body.ease,
                 "reliability": body.reliability,
-                "visibility": body.visibility,
                 "blur": True if body.blur else None,
                 "max_height": body.max_height,
                 "source": source,
@@ -1008,7 +999,7 @@ def reorder_clues(cc: str, body: OrderBody):
 
 @router.put("/clues/{cc}/{clue_id}")
 def update_clue(cc: str, clue_id: str, body: ClueBody, request: Request):
-    """Edit a clue. Text, tags, ratings, visibility, source, relations and badge are replaced; files only when new ones are sent.
+    """Edit a clue. Text, tags, ratings, source, relations and badge are replaced; files only when new ones are sent.
 
     A new file of a kind the clue already has (same extension) overwrites the old file in place, so
     nothing is left behind. A new geometry file replaces whichever geometry the clue had: if it is the
@@ -1087,7 +1078,6 @@ def update_clue(cc: str, clue_id: str, body: ClueBody, request: Request):
                 "frequency": body.frequency,
                 "ease": body.ease,
                 "reliability": body.reliability,
-                "visibility": body.visibility,
                 "blur": True if body.blur else None,
                 "max_height": body.max_height,
                 "source": source,

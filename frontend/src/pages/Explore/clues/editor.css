@@ -86,7 +86,6 @@
 .ed-body { padding-bottom: 44px; }
 .ed-tagrow { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
 .ed-tagrow .clue-tags { margin-bottom: 0; }
-.ed-vis { width: auto; min-width: 0; max-width: none; padding: 4px 10px; font-size: 13px; }
 .tag.loc-only { padding: 3px 10px; display: inline-flex; align-items: center; gap: 4px; }
 
 /* Badges inside the image: inactive ones are dimmed */

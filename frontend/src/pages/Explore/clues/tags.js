@@ -9,7 +9,6 @@ export const GENERAL_TAGS = [
   "Electricity Pole", "Bollard", "National Parks", "Biome", "Religion",
   "Animals", "Car Meta", "Copyright", "Generation Meta", "Camera Meta",
 ];
-export const VISIBILITIES = [["visible", "Visible"], ["guide-only", "Guide only"], ["analysis-only", "Analysis only"]];
 
 // [field, label, what 1 means, what 10 means]
 export const RATINGS = [

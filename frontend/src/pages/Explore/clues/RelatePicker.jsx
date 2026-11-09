@@ -43,7 +43,7 @@ export default function RelatePicker({ cc, clueId, tags, taken, onPick, onClose 
     setClues(null); setAll(false);
     if (!target) return undefined;
     let off = false;
-    api(`/clues/${target}?all=true`).then((d) => !off && setClues(d)).catch((e) => !off && setErr(errorText(e)));
+    api(`/clues/${target}`).then((d) => !off && setClues(d)).catch((e) => !off && setErr(errorText(e)));
     return () => { off = true; };
   }, [target]);
 

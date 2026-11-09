@@ -108,7 +108,7 @@ function RelatedMedia({ cc, ids, name, onClose }) {
   const [err, setErr] = useState("");
   useEffect(() => {
     let off = false;
-    api(`/clues/${cc}?all=true`).then((d) => !off && setList(d.filter((c) => ids.includes(c.id)))).catch((e) => !off && setErr(errorText(e)));
+    api(`/clues/${cc}`).then((d) => !off && setList(d.filter((c) => ids.includes(c.id)))).catch((e) => !off && setErr(errorText(e)));
     return () => { off = true; };
   }, [cc, ids.join()]); // eslint-disable-line react-hooks/exhaustive-deps
   return <div className="clue-rel-media">
@@ -152,8 +152,6 @@ export default function ClueCard({ cc, clue, editing, onDelete, onEdit, dragging
       <div className="clue-tags">
         {showTags && loc && <LocationChip t={loc} />}
         {showTags && cat && <CategoryChip t={cat} />}
-        {clue.visibility === "guide-only" && <span className="chip" style={{ "--h": 260 }}>Guide only</span>}
-        {clue.visibility === "analysis-only" && <span className="chip" style={{ "--h": 0 }}>Analysis only (hidden)</span>}
       </div>
       <p className="clue-info"><RichText text={clue.info} /></p>
       <RelationLine type="same_as" clue={clue} open={shown} nameOf={nameOf} onToggle={toggleOpen} />

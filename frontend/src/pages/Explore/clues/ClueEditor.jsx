@@ -18,7 +18,7 @@ import { discardStaged, stageFile, stagePath } from "./imageTools.js";
 import { kindOfFile, kindOfName, resolveStreetView, streetViewShot } from "./mediaKinds.js";
 import { NOTE_TYPES, REL_LABEL, VERBS, joinNames, sameRel, uniq, verbFor } from "./relations.js";
 import { LocationIcon } from "./tagUi.jsx";
-import { CATEGORY_ICONS, DEFAULT_LOCATION, GENERAL_TAGS, LOCATION_TAGS, RATINGS, VISIBILITIES, tagHue } from "./tags.js";
+import { CATEGORY_ICONS, DEFAULT_LOCATION, GENERAL_TAGS, LOCATION_TAGS, RATINGS, tagHue } from "./tags.js";
 import "./blur.css";
 import "./clues.css";
 import "./editor.css";
@@ -90,7 +90,6 @@ export default function ClueEditor({ cc, name, clue, prefill, onClose, onSaved, 
   const [rating, setRating] = useState(() => Object.fromEntries(RATINGS.map(([k]) => [k, clue?.[k] != null ? String(clue[k]) : ""])));
   // manual[k] = the user set this rating by hand, so the automation leaves it alone. An existing clue is all manual.
   const [manual, setManual] = useState(() => Object.fromEntries(RATINGS.map(([k]) => [k, !!clue])));
-  const [visibility, setVisibility] = useState(clue?.visibility ?? "visible");
   const [blur, setBlur] = useState(!!clue?.blur || prefill?.general === "License Plate");
   const [maxH, setMaxH] = useState(clue?.max_height ?? null); // px cap for the image on the card
   const [img, setImg] = useState({ has: !!clue?.image, sig: ":0" }); // reported by ClueImage
@@ -157,7 +156,7 @@ export default function ClueEditor({ cc, name, clue, prefill, onClose, onSaved, 
   };
 
   // Only ratings set by hand count as "changes": the automatic ones alone shouldn't make a fresh form look dirty.
-  const snapshot = () => JSON.stringify([scope, info, general, location, RATINGS.map(([k]) => (manual[k] ? rating[k] : null)), visibility, blur, maxH,
+  const snapshot = () => JSON.stringify([scope, info, general, location, RATINGS.map(([k]) => (manual[k] ? rating[k] : null)), blur, maxH,
     img.sig, source, relations, notes, badge, mainKind, media.upload?.token ?? "", area.kind, area.upload?.token ?? ""]);
   const initial = useRef(snapshot());
   const dirty = snapshot() !== initial.current;
@@ -206,7 +205,7 @@ export default function ClueEditor({ cc, name, clue, prefill, onClose, onSaved, 
     for (const code of new Set(relations.map((r) => r.cc))) {
       if (asked.current.has(code)) continue;
       asked.current.add(code);
-      api(`/clues/${code}?all=true`).then((d) => setOthers((o) => ({ ...o, [code]: d }))).catch(() => {});
+      api(`/clues/${code}`).then((d) => setOthers((o) => ({ ...o, [code]: d }))).catch(() => {});
     }
   }, [relations]);
 
@@ -336,7 +335,7 @@ export default function ClueEditor({ cc, name, clue, prefill, onClose, onSaved, 
       const remove = clue && (mediaChanged || areaChanged)
         ? ["image", ...GEOM_FIELDS, "svg", "csv"].filter((k) => clue[k] && !used.has(k)) : [];
       await api(clue ? `/clues/${cc}/${clue.id}` : `/clues/${cc}`, { method: clue ? "PUT" : "POST", body: {
-        scope, info, tags: [location, general], visibility, blur: isImage && blur,
+        scope, info, tags: [location, general], blur: isImage && blur,
         max_height: isImage ? maxH : null,
         frequency: num(rating.frequency), ease: num(rating.ease), reliability: num(rating.reliability),
         source: source.trim(),
@@ -450,8 +449,6 @@ export default function ClueEditor({ cc, name, clue, prefill, onClose, onSaved, 
                 {LOCATION_TAGS.map((t) => <Tag key={t} t={t} kind="loc" on={location === t} onClick={() => pickLocation(t)} />)}
               </div>}
             </div>
-            <select className="ed-vis" aria-label="Visibility" title="Visibility" value={visibility} onChange={(e) => setVisibility(e.target.value)}>
-              {VISIBILITIES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select>
           </div>
 
           {/* Bold / italic / underline show formatted as you type; only links stay as [text](url). */}
