@@ -40,11 +40,12 @@
 .problems { margin: 8px 0 0; text-align: right; font-size: 12px; }
 
 /* ── Clue card tools (edit / delete / drag grip) ── */
-.clue-tools { grid-column: 1 / -1; justify-self: end; display: flex; align-items: center; gap: 6px; }
+.clue-tools { margin-left: auto; margin-block: -4px; display: flex; align-items: center; gap: 6px; }
+.clue-body.has-tools .clue-info, .clue-body.has-tools .clue-rel { padding-right: 26px; }
 .clue-tools .clue-del, .clue-edit { position: static; display: grid; place-items: center; padding: 7px; background: none; border-radius: 6px; cursor: pointer; }
 .clue-edit { color: var(--sea-hi); border: 1px solid var(--sea-hi); }
 .clue-edit:hover { background: #6cc0e51a; }
-.clue-grip { display: grid; place-items: center; padding: 8px 6px; color: var(--mute); cursor: grab; user-select: none; }
+.clue-grip { position: absolute; top: 50%; right: 0; transform: translateY(-50%); z-index: 2; display: grid; place-items: center; padding: 8px 6px; color: var(--mute); cursor: grab; user-select: none; }
 .clue-grip:hover { color: var(--ink); }
 .clue-grip:active { cursor: grabbing; }
 .clue.dragging { opacity: .4; }

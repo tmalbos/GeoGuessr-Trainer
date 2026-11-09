@@ -150,12 +150,8 @@ export default function ClueCard({ cc, clue, editing, onDelete, onEdit, dragging
     style={shown.length ? { "--n": shown.length + 1 } : undefined}
     onDragOver={editing ? onOver : undefined} onDrop={editing ? onDrop : undefined}
     onClick={unfolded ? refold : undefined}>
-    {editing && <div className="clue-tools">
-      <span className="clue-grip" draggable title="Drag to reorder" aria-label="Drag to reorder"
-        onDragStart={onGrab} onDragEnd={onRelease}><Grip /></span>
-      <button type="button" className="clue-edit" aria-label="Edit clue" title="Edit clue" onClick={() => onEdit(clue)}><Pencil /></button>
-      <button type="button" className="clue-del" aria-label="Delete clue" title="Delete clue" onClick={() => onDelete(clue)}><Trash /></button>
-    </div>}
+    {editing && <span className="clue-grip" draggable title="Drag to reorder" aria-label="Drag to reorder"
+      onDragStart={onGrab} onDragEnd={onRelease}><Grip /></span>}
     <Media cc={cc} clue={clue} onArea={setPick} selected={pick?.name}><Badges clue={clue} /></Media>
     {shown.map((c) => <RelatedMedia key={c} cc={c} ids={idsOf(c)} name={nameOf(c)} onClose={() => toggleOpen(c)} />)}
     <div className={`clue-body ${editing ? "has-tools" : ""}`}>
@@ -163,6 +159,10 @@ export default function ClueCard({ cc, clue, editing, onDelete, onEdit, dragging
       <div className="clue-tags">
         {showTags && loc && <LocationChip t={loc} />}
         {showTags && cat && <CategoryChip t={cat} />}
+        {editing && <div className="clue-tools">
+          <button type="button" className="clue-edit" aria-label="Edit clue" title="Edit clue" onClick={() => onEdit(clue)}><Pencil /></button>
+          <button type="button" className="clue-del" aria-label="Delete clue" title="Delete clue" onClick={() => onDelete(clue)}><Trash /></button>
+        </div>}
       </div>
       <p className="clue-info"><RichText text={clue.info} /></p>
       <RelationLine type="same_as" clue={clue} open={shown} nameOf={nameOf} onToggle={toggleOpen} />

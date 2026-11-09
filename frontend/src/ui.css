@@ -15,10 +15,11 @@ a.btn { display: inline-block; text-decoration: none; }
 .rail .rail-sync:disabled { opacity: .6; cursor: default; }
 
 /* Toasts */
-.toasts { position: fixed; left: 0; right: 0; bottom: 20px; margin-inline: auto; z-index: 200; display: grid; gap: 8px;
-  justify-items: center; pointer-events: none; width: fit-content; max-width: calc(100vw - 32px); }
+.toasts { position: fixed; left: 0; right: 0; bottom: 20px; z-index: 200; display: flex; flex-direction: column; align-items: center; gap: 8px;
+  padding: 0 16px; pointer-events: none; }
 .toast { pointer-events: auto; display: flex; align-items: center; gap: 12px; padding: 10px 14px; background: var(--raise);
-  border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,.55); }
+  border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,.55); width: max-content; max-width: 100%; }
+.toast > span:first-child { flex: 0 1 max-content; min-width: 0; }
 .toast.ok { border-color: var(--ok); }
 .toast.err { border-color: var(--coral); }
 .toast-act { background: none; border: 0; color: var(--sea-hi); font-weight: 700; cursor: pointer; padding: 2px 6px; }

@@ -382,7 +382,24 @@ export default function ClueList({ id, name, editing, collapsed, query }) {
     : sections.length === 1 ? blocks(sections[0].items, sections[0].key)
       : sections.map((s) => <section key={s.key}>{heading(s)}{blocks(s.items, s.key)}</section>);
   // Scrolls the page so the group's title is at the top of the view.
-  const jump = (key) => document.querySelector(`[data-group="${CSS.escape(key)}"]`)?.scrollIntoView({ behavior: "smooth", block: "start" });
+  const jump = (key) => {
+    const el = document.querySelector(`[data-group="${CSS.escape(key)}"]`);
+    const box = el?.closest(".cp");
+    if (!box) return;
+    const gap = () => el.getBoundingClientRect().top - box.getBoundingClientRect().top;
+    box.querySelectorAll('img[loading="lazy"]').forEach((i) => { i.loading = "eager"; });
+    let stop = false;
+    box.addEventListener("wheel", () => { stop = true; }, { once: true, passive: true });
+    const t0 = performance.now();
+    const step = (now) => {
+      if (stop) return;
+      const g = gap();
+      if (Math.abs(g) < 1 || now - t0 > 2500) { box.scrollTop += g; return; }
+      box.scrollTop += Math.sign(g) * Math.max(1, Math.abs(g) * 0.15);
+      requestAnimationFrame(step);
+    };
+    requestAnimationFrame(step);
+  };
 
   const showFilter = !!items && (visible.length >= 4 || !!(cat || loc || scope || ids || qScope || qLoc || qIds));
   const ic = imp?.clue;
