@@ -26,12 +26,11 @@ import shapely
 
 WIDTH = 1000  # map units across the country's width (same as the live preview)
 PAD = 6  # margin around the drawing, map units
-MAX_PIN_SHARE = 0.0009
+MAX_PIN_SHARE = 50.0
 MAX_PINS = 12
 PIN_D = "M0 0C-3 -9 -15 -18 -15 -30A15 15 0 1 1 15 -30C15 -18 3 -9 0 0Z"
-PIN_SCALE = 1.5
-PIN_HALF_W = 15 * PIN_SCALE  # the pin is 30 units wide and about 45 tall before scaling
-PIN_H = 45 * PIN_SCALE
+PIN_HALF_W = 30
+PIN_H = 50
 
 LAND = 'fill="#f6f4e4" stroke="#8b98a8" stroke-width="1" stroke-linejoin="round"'
 STAIN_FILL = "#c8283a"
@@ -205,7 +204,7 @@ def render_overlay(
         for (x, y), v in pins:
             op = 0.85 * shade_factor(v, pin_top) if v else None
             parts.append(
-                f'<g transform="translate({x:.1f} {y:.1f}) scale({PIN_SCALE})" fill="#c8283a" '
+                f'<g transform="translate({x:.1f} {y:.1f})" fill="#c8283a" '
                 f'stroke="#7a1320" stroke-width="1"{_opacity(op) or ' fill-opacity=".85"'}>'
                 f'<path d="{PIN_D}" {NSS}/><circle cy="-30" r="5.5" fill="#fff" stroke="none"/></g>'
             )

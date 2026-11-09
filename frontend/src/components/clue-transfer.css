@@ -1,0 +1,5 @@
+.ct { position: fixed; top: 16px; right: 20px; z-index: 20; display: flex; gap: 8px; }
+.ct .btn { padding: 7px 14px; background: #0d1117cc; }
+.ct-opt { display: flex; align-items: center; gap: 10px; margin: 8px 0 0; font-weight: 400; cursor: pointer; }
+.ct-opt input { width: auto; max-width: none; padding: 0; }
+.ct-opt .muted { margin-left: auto; }

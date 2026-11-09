@@ -114,7 +114,7 @@ _POOL = ThreadPoolExecutor(max_workers=min(8, os.cpu_count() or 4))  # scipy fil
 
 WORK_MAX = 1600  # longest side of the image used to find the map, px (near native for a screenshot)
 FULL_MAX = 2400  # longest side of the image the stains are read from, px
-MIN_CROP = 32  # smallest crop side (in work px)
+MIN_CROP = 100  # smallest crop side (in work px)
 EDGE_T = (
     250.0  # gradient magnitude (sum over channels) that counts as an edge (coarse search / ICP)
 )
@@ -162,9 +162,9 @@ CHANCE_SHIFT_FRAC = 0.04  # chance level = line shifted by this share of the map
 CHANCE_SHIFT_MIN, CHANCE_SHIFT_MAX = 4.0, 12.0  # ...limited to this range (px)
 
 # Colours / labels
-DELTA_E = 7.0  # CIEDE2000 distance under which two colours are the same stain (UI slider)
+DELTA_E = 6.67  # CIEDE2000 distance under which two colours are the same stain (UI slider)
 MAX_CLASSES = 4  # stains kept besides the base map (UI slider)
-EXPAND_PX = 2  # pixel layers the stains grow into undefined pixels (UI slider)
+EXPAND_PX = 3  # pixel layers the stains grow into undefined pixels (UI slider)
 SCOPE_PX = 0  # px beyond the fitted outline whose pixels are read (constant, not in the UI)
 BASE_L_MIN = 85.0  # the base map is at least this light (Lab L)...
 BASE_CHROMA_MAX = 30.0  # ...and at most this saturated (Lab chroma)
@@ -182,9 +182,9 @@ FRAGMENT_SHARE = 0.5  # a stain with more than this share of its pixels in small
 SPECK_REASSIGN_PX = (
     2  # a small piece of a lighter stain joins a darker stain at most this far away (px)
 )
-CLIP_PX = 4  # the stains may reach this many px past the app's own country outline
+CLIP_PX = 3  # the stains may reach this many px past the app's own country outline
 EXPAND_MIN_FRONT_PX = (
-    4  # a piece of one expansion layer shorter than this is a bump and is not added
+    0  # a piece of one expansion layer shorter than this is a bump and is not added
 )
 
 

@@ -27,10 +27,10 @@ const tiers = (g) => {
 };
 
 // ── Pins ──
-// A polygon smaller than 0.09% of the country is too small to see, so it is DRAWN as a pin whose tip sits at the
+// A polygon smaller than 0.05% of the country is too small to see, so it is DRAWN as a pin whose tip sits at the
 // polygon's centre. Only the drawing changes: the stored geometry is untouched. If more than MAX_PINS polygons would qualify, it is a
 // scattered region (many small stains), not a handful of pinpoints, so they are all drawn as shapes.
-const MAX_PIN_SHARE = 0.0009;
+const MAX_PIN_SHARE = 0.0005;
 const MAX_PINS = 12;
 
 const ringArea = (ring, project) => {

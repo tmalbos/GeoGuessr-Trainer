@@ -90,6 +90,18 @@ export default function ClueEditor({ cc, name, clue, prefill, onClose, onSaved, 
   const [rating, setRating] = useState(() => Object.fromEntries(RATINGS.map(([k]) => [k, clue?.[k] != null ? String(clue[k]) : ""])));
   // manual[k] = the user set this rating by hand, so the automation leaves it alone. An existing clue is all manual.
   const [manual, setManual] = useState(() => Object.fromEntries(RATINGS.map(([k]) => [k, !!clue])));
+  const [deck, setDeck] = useState(clue?.deck ?? "");
+  const [decks, setDecks] = useState([]);
+  // New clues start in the deck used last (the server also falls back to it when this is empty).
+  useEffect(() => {
+    let off = false;
+    api("/settings").then((s) => {
+      if (off) return;
+      setDecks(s.decks ?? []);
+      setDeck((d) => d || s.last_deck || s.decks?.[0] || "");
+    }).catch(() => {});
+    return () => { off = true; };
+  }, []);
   const [blur, setBlur] = useState(!!clue?.blur || prefill?.general === "License Plate");
   const [maxH, setMaxH] = useState(clue?.max_height ?? null); // px cap for the image on the card
   const [img, setImg] = useState({ has: !!clue?.image, sig: ":0" }); // reported by ClueImage
@@ -333,7 +345,7 @@ export default function ClueEditor({ cc, name, clue, prefill, onClose, onSaved, 
     const remove = clue && (mediaChanged || areaChanged)
       ? ["image", ...GEOM_FIELDS, "svg", "csv"].filter((k) => clue[k] && !used.has(k)) : [];
     return {
-      scope, info, tags: [location, general], visibility, blur: isImage && blur,
+        scope, info, tags: [location, general], deck, blur: isImage && blur,
       max_height: isImage ? maxH : null,
       frequency: num(rating.frequency), ease: num(rating.ease), reliability: num(rating.reliability),
       source: source.trim(),

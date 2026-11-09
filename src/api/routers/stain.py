@@ -17,12 +17,8 @@ writes them, already simplified together, at the resolution chosen in Settings).
 simplified here. `_outline_full`, `_outline` and `_borders` stay as thin wrappers because clues.py imports them.
 """
 
-import contextlib
 import json
-import os
 import re
-import subprocess
-import sys
 import threading
 from collections import OrderedDict
 from pathlib import Path
@@ -30,22 +26,18 @@ from typing import Literal
 from uuid import uuid4
 
 import shapely
-from fastapi import APIRouter, HTTPException, Request, Response
-from PIL import Image
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 
 from src.api.deps import get_ctx
-from src.geo.local_geo import CountryAreaMissingError
 from src.geo.map_detect import detect_map
 from src.geo.pinpoint import convert_pins
 from src.geo.stain_extract import (
     StainError,
     analyze,
-    evaluate_warp,
     load_image,
 )
-from src.geo.stain_scan import write_last_report
 
 router = APIRouter()
 
@@ -75,23 +67,6 @@ def _borders(local, code: str):
     return local.borders(code)
 
 
-def _country_km2(local, code: str) -> float:
-    """Country area (km²) stored in the national parquet by scripts/convert_geo.py.
-
-    Raises CountryAreaMissingError when the file predates that column or has no positive value.
-    """
-    layer = local._admin_layer(code)  # noqa: SLF001
-    if layer is None or not len(layer) or "country_km2" not in layer.columns:
-        raise CountryAreaMissingError(code)
-    try:
-        value = float(layer["country_km2"].iloc[0])
-    except (TypeError, ValueError):
-        raise CountryAreaMissingError(code) from None
-    if value <= 0:
-        raise CountryAreaMissingError(code)
-    return value
-
-
 def _use_shared_base(res: dict, local, code: str) -> dict:
     """The base map sent to the UI is the outline simplified together with the borders."""
     outline = _outline(local, code)
@@ -111,9 +86,9 @@ class StainParams(BaseModel):
     """Live settings of the stain step (the map registration is reused)."""
 
     delta_e: float = Field(
-        7.0, ge=1.0, le=60.0
+        6.67, ge=1.0, le=60.0
     )  # CIEDE2000 distance under which colours are one stain
-    expansion_px: int = Field(2, ge=0, le=20)  # pixel layers the stains grow into undefined pixels
+    expansion_px: int = Field(3, ge=0, le=20)  # pixel layers the stains grow into undefined pixels
     max_classes: int = Field(4, ge=1, le=14)  # stains kept besides the base map
 
 
@@ -184,32 +159,6 @@ def _mark_pins(res: dict) -> dict:
     return res
 
 
-def _drop_small(res: dict, min_pct: float) -> dict:
-    """Remove final stains (all polygons of a colour together) smaller than min_pct % of the country area.
-    Pins are never dropped: their circle is small on purpose.
-    """
-    if min_pct <= 0:
-        return res
-    total = shapely.from_geojson(json.dumps(res["base"]["outline"])).area
-    if total <= 0:
-        return res
-    keep = [
-        (c, f)
-        for c, f in zip(res["classes"], res["geojson"]["features"], strict=True)
-        if c["base"]
-        or c.get("pin")
-        or shapely.from_geojson(json.dumps(f["geometry"])).area / total * 100 >= min_pct
-    ]
-    n = 0
-    for c, f in keep:
-        if not c["base"] and not c.get("pin"):
-            n += 1
-            c["tag"] = f["properties"]["tag"] = f"Stain {n}"
-    res["classes"] = [c for c, _ in keep]
-    res["geojson"]["features"] = [f for _, f in keep]
-    return res
-
-
 class StainBody(BaseModel):
     token: str
     country: str
@@ -260,161 +209,6 @@ async def stain_analyze(body: StainBody, request: Request):
             {**params, **FIXED_PARAMS},
         )
         res = await run_in_threadpool(_use_shared_base, res, local, code)
-        return _drop_small(_mark_pins(res), MIN_STAIN_PCT)
+        return _mark_pins(res)
     except StainError as e:
         raise HTTPException(422, str(e)) from e
-
-
-class WarpBody(BaseModel):
-    token: str
-    country: str
-    crop: list[float] | None = Field(None, min_length=4, max_length=4)
-    projection: Literal["auto", "equirect", "plate", "mercator", "lcc", "albers"] = "auto"
-    sx: float = Field(1.0, gt=0.05, le=20.0)  # independent X / Y scale, same as the fit
-    sy: float = Field(1.0, gt=0.05, le=20.0)
-    dx: float = Field(0.0, ge=-10_000.0, le=10_000.0)  # work-image px
-    dy: float = Field(0.0, ge=-10_000.0, le=10_000.0)
-    pivot: list[float] = Field(..., min_length=2, max_length=2)
-
-
-@router.post("/technical/stain/warp")
-async def stain_warp(body: WarpBody, request: Request):
-    """Rescore a manual warp (no stains): the same scale/translation family the fit uses."""
-    up = _UPLOADS.get(body.token)
-    if up is None:
-        raise HTTPException(410, "That upload expired. Add the image again.")
-    if not re.fullmatch(r"[A-Za-z]{2}", body.country):
-        raise HTTPException(422, "Invalid country code")
-    local = get_ctx(request).local_geo
-    if local is None:
-        raise HTTPException(503, "Geo layers are not loaded yet. Check the Dashboard.")
-    code = body.country.upper()
-    outline = await run_in_threadpool(_outline_full, local, code)
-    if outline is None:
-        raise HTTPException(422, f"No local outline for {code} (see scripts/convert_geo.py)")
-    borders = await run_in_threadpool(_borders, local, code)
-    try:
-        return await run_in_threadpool(
-            evaluate_warp,
-            up["arr"],
-            outline,
-            borders,
-            body.crop,
-            body.projection,
-            up["reg"].setdefault(code, {}),
-            body.sx,
-            body.sy,
-            body.dx,
-            body.dy,
-            body.pivot,
-        )
-    except StainError as e:
-        raise HTTPException(422, str(e)) from e
-
-
-class ScanBody(WarpBody):
-    span_pct: float = Field(2.0, gt=0.0, le=10.0)  # +/- percentage points
-    span_px: float = Field(2.0, gt=0.0, le=100.0)  # +/- work px
-    step_pct: float = Field(0.1, gt=0.0, le=5.0)
-    step_px: float = Field(0.1, gt=0.0, le=5.0)
-
-
-def _run_scan(cmd: list[str], root: Path):
-    env = {**os.environ, "PYTHONIOENCODING": "utf-8"}
-    return subprocess.run(
-        cmd,
-        cwd=str(root),
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        env=env,
-        timeout=1800,
-    )
-
-
-@router.post("/technical/stain/scan")
-async def stain_scan(body: ScanBody, request: Request):
-    """Scan a +/- range around a warp and return a ZIP with summary + top rows + Parquet.
-
-    The grid is run in a separate process so the API worker stays responsive and
-    the scan can use all cores. The full 0.1% / 0.1 px ±2% grid takes about 13 minutes
-    on the 6-core reference machine.
-    """
-    up = _UPLOADS.get(body.token)
-    if up is None:
-        raise HTTPException(410, "That upload expired. Add the image again.")
-    if not re.fullmatch(r"[A-Za-z]{2}", body.country):
-        raise HTTPException(422, "Invalid country code")
-    nx = int(body.span_pct / body.step_pct) * 2 + 1
-    nsx = int(body.span_px / body.step_px) * 2 + 1
-    if nx * nx * nsx * nsx > 3_000_000:
-        raise HTTPException(422, "That grid is too large. Use a bigger step.")
-    local = get_ctx(request).local_geo
-    if local is None:
-        raise HTTPException(503, "Geo layers are not loaded yet. Check the Dashboard.")
-    code = body.country.upper()
-    if await run_in_threadpool(_outline_full, local, code) is None:
-        raise HTTPException(422, f"No local outline for {code} (see scripts/convert_geo.py)")
-
-    root = Path(__file__).resolve().parents[3]
-    tmp = Path("D:/AppData/Local/Temp/opencode")
-    tmp.mkdir(parents=True, exist_ok=True)
-    stem = f"stain_scan_{uuid4().hex}"
-    image_path = tmp / f"{stem}.png"
-    out_base = tmp / stem
-    try:
-        Image.fromarray(up["full"]).save(image_path)
-        cmd = [
-            sys.executable,
-            str(root / "scripts" / "stain_scan_report.py"),
-            "--image",
-            str(image_path),
-            "--country",
-            code,
-            "--projection",
-            body.projection,
-            "--center",
-            f"{body.sx * 100:.4f}",
-            f"{body.sy * 100:.4f}",
-            f"{body.dx:.4f}",
-            f"{body.dy:.4f}",
-            "--span-pct",
-            f"{body.span_pct:g}",
-            "--span-px",
-            f"{body.span_px:g}",
-            "--step-pct",
-            f"{body.step_pct:g}",
-            "--step-px",
-            f"{body.step_px:g}",
-            "--workers",
-            str(max(1, min(8, os.cpu_count() or 4))),
-            "--out",
-            str(out_base),
-            "--zip",
-            "--no-csv",
-        ]
-        if body.crop:
-            cmd += ["--crop", *(f"{v:g}" for v in body.crop)]
-        try:
-            proc = await run_in_threadpool(_run_scan, cmd, root)
-        except subprocess.TimeoutExpired as e:
-            raise HTTPException(504, "The scan took longer than 30 minutes.") from e
-        if proc.returncode != 0:
-            tail = (proc.stderr or proc.stdout or "").strip().splitlines()[-12:]
-            raise HTTPException(500, "Scan failed:\n" + "\n".join(tail))
-        zip_path = out_base.with_suffix(".zip")
-        if not zip_path.exists():
-            raise HTTPException(500, "Scan finished without a report.")
-        data = zip_path.read_bytes()
-        write_last_report(data)
-        filename = f"{code}-stain-scan.zip"
-        return Response(
-            content=data,
-            media_type="application/zip",
-            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
-        )
-    finally:
-        for p in tmp.glob(stem + "*"):
-            with contextlib.suppress(OSError):
-                p.unlink()

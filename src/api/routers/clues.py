@@ -59,10 +59,12 @@ from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 
 from src.api.deps import get_ctx
-from src.api.routers.stain import _borders, _country_km2, _outline  # noqa: PLC2701
+from src.api.routers.stain import _borders, _outline  # noqa: PLC2701
 from src.geo.clue_overlay import recolour, render_overlay
+from src.geo.local_geo import CountryAreaMissingError
 from src.geo.region_stats import region_stats
 from src.geo.subcontinents import SUBCONTINENTS
+from src.shared import decks as deck_store
 from src.shared import prefs
 
 logger = logging.getLogger("uvicorn.error")
@@ -129,6 +131,23 @@ def _set_has(cc: str, items: list[dict]) -> None:
         if _HAS is None:  # not built yet; the first request will read the final state from disk
             return
         (_HAS.add if items else _HAS.discard)(cc)
+
+
+def _country_km2(local, code: str) -> float:
+    """Country area (km²) stored in the national parquet by scripts/convert_geo.py.
+
+    Raises CountryAreaMissingError when the file predates that column or has no positive value.
+    """
+    layer = local._admin_layer(code)  # noqa: SLF001
+    if layer is None or not len(layer) or "country_km2" not in layer.columns:
+        raise CountryAreaMissingError(code)
+    try:
+        value = float(layer["country_km2"].iloc[0])
+    except (TypeError, ValueError):
+        raise CountryAreaMissingError(code) from None
+    if value <= 0:
+        raise CountryAreaMissingError(code)
+    return value
 
 
 def _apply_medal(cc: str, entry: dict, request: Request, folder: Path, override=None) -> None:
@@ -578,6 +597,7 @@ class ClueBody(BaseModel):
     )
     files: dict[str, str] = {}  # kind -> staging token
     remove: list[str] = []  # kinds of the clue's own files to delete (e.g. the media changed type)
+    deck: str = ""  # deck (group) the clue belongs to; empty = the last one used
 
 
 def _validate(b: ClueBody, have: set[str] | frozenset[str] = frozenset()) -> tuple[str, str]:
@@ -930,6 +950,7 @@ def add_clue(cc: str, body: ClueBody, request: Request):
     source = _clean_source(body)
     rels, notes = _relations_of(body, cc)
     folder = CLUES_DIR / cc
+    deck = deck_store.use(body.deck)
     with _LOCK:
         staged = {k: _staged_path(t, k) for k, t in body.files.items()}
         folder.mkdir(parents=True, exist_ok=True)
@@ -943,7 +964,7 @@ def add_clue(cc: str, body: ClueBody, request: Request):
                     shutil.move(staged[kind], folder / name)
                     names[kind] = name
             entry = {
-                "id": uuid.uuid4().hex[:8],
+                "id": deck_store.new_clue_id(deck),
                 "scope": body.scope,
                 "info": body.info.strip(),
                 "tags": [location, general],
@@ -956,6 +977,7 @@ def add_clue(cc: str, body: ClueBody, request: Request):
                 "relations": rels or None,
                 "relation_notes": notes or None,
                 "badge": body.badge,
+                "deck": deck,
                 "collapsible": None if body.collapsible else False,
                 **names,
             }
@@ -1142,6 +1164,7 @@ def update_clue(cc: str, clue_id: str, body: ClueBody, request: Request):
                 "relations": rels or None,
                 "relation_notes": notes or None,
                 "badge": body.badge,
+                "deck": deck_store.use(body.deck) if body.deck.strip() else old.get("deck"),
                 "collapsible": None if body.collapsible else False,
                 **kept,
                 **names,
