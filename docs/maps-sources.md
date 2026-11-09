@@ -5,6 +5,7 @@
 **Anguilla**: OSM extract for ADM0 (28-10-2026)
 **Antartica**: https://www.geoboundaries.org/countryDownloads.html for ADM0 (08-11-2026)
 **Antigua and Barbuda**: OSM extract for ADM0 and ADM1 (28-10-2026). Missing ADM2 and ADM3
+**Argentina**: https://www.ign.gob.ar/NuestrasActividades/InformacionGeoespacial/CapasSIG extract for ADM0 through ADM2 (08-11-2026). Missing ADM3
 **Armenia**: OSM extract for ADM0 through ADM2 (28-10-2026)
 **Ascension**: OSM extract for ADM0 (06-11-2026)
 **United Arab Emirates**: https://data.humdata.org/dataset/cod-em-are for ADM0 and ADM1 (06-11-2026). Missing ADM2 and ADM3
