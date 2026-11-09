@@ -869,21 +869,32 @@ def _drop_preview(data: dict, level: int) -> None:
         del data["cache"][key]
 
 
-def _rename(data: dict, level: int, gap: int, name: str) -> None:
-    """Give a filled-in polygon a custom name (empty = back to "Unnamed N")."""
+def _rename(data: dict, level: int, gap: int | None, idx: int | None, name: str) -> None:
+    """Give a polygon a custom name (empty = back to its default name)."""
     name = name.strip()
     with _LAND:
-        names = data["renames"].setdefault(level, {})
-        if name:
-            names[gap] = name
+        if gap is None:
+            if idx is None:
+                raise HTTPException(422, "Pick a polygon to rename.")
+            hit = _current(data, level)
+            if idx >= len(hit["props"]):
+                raise HTTPException(422, "That polygon is not in this level any more.")
+            p = hit["props"][idx]
+            p.setdefault("orig_name", p["name"])
+            p["name"] = name or p["orig_name"]
+            p["renamed"] = bool(name)
         else:
-            names.pop(gap, None)
-        hit = data["land"].get(level)
-        if hit is not None:
-            for p in hit["props"]:
-                if p.get("gap") == gap:
-                    p["name"] = name or f"Unnamed {gap}"
-                    p["unnamed"] = not name
+            names = data["renames"].setdefault(level, {})
+            if name:
+                names[gap] = name
+            else:
+                names.pop(gap, None)
+            hit = data["land"].get(level)
+            if hit is not None:
+                for p in hit["props"]:
+                    if p.get("gap") == gap:
+                        p["name"] = name or f"Unnamed {gap}"
+                        p["unnamed"] = not name
         _drop_preview(data, level)
 
 
@@ -1058,7 +1069,7 @@ def _clean_names(names: list[str]) -> list[str]:
 
 def _export_names(props: list[dict]) -> list[str]:
     """Export name of every polygon of one level. Filled-in gaps ("Unnamed N" or renamed) are left as they are."""
-    idx = [i for i, p in enumerate(props) if p.get("gap") is None]
+    idx = [i for i, p in enumerate(props) if p.get("gap") is None and not p.get("renamed")]
     names = [p["name"] for p in props]
     for i, clean in zip(idx, _clean_names([names[i] for i in idx]), strict=True):
         names[i] = clean
@@ -1247,7 +1258,8 @@ class ExtractBody(CountryBody):
 
 class RenameBody(CountryBody):
     level: int
-    gap: int = Field(ge=1)
+    gap: int | None = Field(None, ge=1)
+    idx: int | None = Field(None, ge=0)
     name: str = Field("", max_length=120)
 
 
@@ -1327,7 +1339,7 @@ async def rename_pbf(body: RenameBody):
     data = await run_in_threadpool(_load, _dataset(body.token), body.country)
     if body.level not in data["by_level"]:
         raise HTTPException(422, "That admin level is not in this country.")
-    await run_in_threadpool(_rename, data, body.level, body.gap, body.name)
+    await run_in_threadpool(_rename, data, body.level, body.gap, body.idx, body.name)
     return {"ok": True}
 
 

@@ -129,19 +129,22 @@ export default function AdminExtractor() {
     return last.current.fc;
   }, [ds, country, levels, pct, ver]);
 
-  // The clicked polygon, only while it is a filled-in gap of a level that is still shown.
-  const sel = picked && picked.gap != null && levels.includes(picked.admin_level) ? picked : null;
+  // The clicked polygon, while its level is still shown.
+  const sel = picked && levels.includes(picked.admin_level) ? picked : null;
   useEffect(() => { setNameDraft(sel && !sel.unnamed ? sel.name : ""); }, [sel?.tag]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const renameGap = async () => {
     if (!sel) return;
-    const { admin_level: level, gap } = sel;
+    const { admin_level: level, gap, idx } = sel;
     const name = nameDraft.trim();
     setErr("");
     try {
-      await api("/technical/pbf/rename", { method: "POST", body: { token: ds.token, country, level, gap, name } });
-      const nm = name || `Unnamed ${gap}`;
-      const patch = (p) => (p.gap === gap ? { ...p, name: nm, unnamed: !name, tag: `ADM${level} · ${nm}`, color: name ? colorOf(level) : UNNAMED_COLOR } : p);
+      await api("/technical/pbf/rename", { method: "POST", body: { token: ds.token, country, level, gap, idx, name } });
+      const patch = (p) => {
+        if (gap != null ? p.gap !== gap : p.idx !== idx) return p;
+        const nm = name || (gap != null ? `Unnamed ${gap}` : p.orig_name || p.name);
+        return { ...p, name: nm, orig_name: p.orig_name || p.name, unnamed: gap != null && !name, tag: `ADM${level} · ${nm}`, color: gap == null || name ? colorOf(level) : UNNAMED_COLOR };
+      };
       const key = `${ds.token}|${country}|${level}|${pct}`;
       const feats = cache.current.get(key);
       if (feats) cache.current.set(key, feats.map((f) => ({ ...f, properties: patch(f.properties) })));
@@ -320,9 +323,9 @@ export default function AdminExtractor() {
           </>}
 
           {sel && <div className="tp-field">
-            <label htmlFor="gap-name">Selected: Level {sel.admin_level} · {sel.unnamed ? sel.name : `${sel.name} (renamed)`}</label>
+            <label htmlFor="gap-name">Selected: Level {sel.admin_level} · {sel.name}</label>
             <div className="tp-row">
-              <input id="gap-name" value={nameDraft} placeholder={`Unnamed ${sel.gap}`} onChange={(e) => setNameDraft(e.target.value)}
+              <input id="gap-name" value={nameDraft} placeholder={sel.gap != null ? `Unnamed ${sel.gap}` : sel.name} onChange={(e) => setNameDraft(e.target.value)}
                 onKeyDown={(e) => { if (e.key === "Enter") renameGap(); }} />
               <button type="button" className="btn ghost" disabled={nameDraft.trim() === (sel.unnamed ? "" : sel.name)} onClick={renameGap}>Rename</button>
             </div>
