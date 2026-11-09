@@ -6,10 +6,33 @@ import StatusGrid from "../components/StatusGrid.jsx";
 import { useToast } from "../components/Toast.jsx";
 import { api, errorText } from "../lib/api.js";
 
+const MODS = ["Control", "Shift", "Alt", "Meta"];
+function ShortcutBind({ value, onChange }) {
+  const [binding, setBinding] = useState(false);
+  useEffect(() => {
+    if (!binding) return undefined;
+    const onKey = (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (e.key === "Escape") { setBinding(false); return; }
+      if (MODS.includes(e.key)) return;
+      const key = e.key.length === 1 ? e.key.toUpperCase() : e.key;
+      const parts = [e.ctrlKey && "Ctrl", e.shiftKey && "Shift", e.altKey && "Alt", e.metaKey && "Meta", key].filter(Boolean);
+      onChange(parts.join("+"));
+      setBinding(false);
+    };
+    document.addEventListener("keydown", onKey, true);
+    return () => document.removeEventListener("keydown", onKey, true);
+  }, [binding, onChange]);
+  return <p style={{ margin: 0 }}>
+    <button type="button" className="btn ghost" onClick={() => setBinding((b) => !b)}>{binding ? "Press the keys… (Esc to cancel)" : value || "Not set"}</button>
+  </p>;
+}
+
 export default function Settings() {
   const toast = useToast();
   const [saved, setSaved] = useState(null);
-  const [draft, setDraft] = useState({ cookie: "", userId: "", lang: "en", mergeShortcut: "Ctrl+G", stainColor: "#c8283a" });
+  const [draft, setDraft] = useState({ cookie: "", userId: "", lang: "en", mergeShortcut: "Shift+G", stainColor: "#c8283a" });
   const [loadErr, setLoadErr] = useState("");
   const [saving, setSaving] = useState(false);
 
@@ -62,7 +85,7 @@ export default function Settings() {
       <select id="lang" value={draft.lang} onChange={set("lang")}>
         <option value="en">English</option><option value="es">Español</option></select>
       <label htmlFor="merge-shortcut">Merge shortcut (OSM extractor)</label>
-      <input id="merge-shortcut" value={draft.mergeShortcut} onChange={set("mergeShortcut")} placeholder="Ctrl+G" aria-invalid={mergeEmpty} />
+      <ShortcutBind value={draft.mergeShortcut} onChange={(v) => setDraft((d) => ({ ...d, mergeShortcut: v }))} />
       {mergeEmpty && <p className="err">The shortcut can't be empty.</p>}
       <label htmlFor="stain-color">Regional stain colour</label>
       <select id="stain-color" value={draft.stainColor} onChange={set("stainColor")}>

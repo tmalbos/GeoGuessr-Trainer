@@ -250,7 +250,6 @@ export default function History({ seg = [] }) {
           </Fragment>;
         })}</tbody>
       </table></div>}
-    {items.some((g) => g.rounds.length > MAX_ROUND_COLS) && <p className="muted">Games with more than {MAX_ROUND_COLS} rounds show only the first {MAX_ROUND_COLS} here. Expand a game to see every round.</p>}
     {!!total && <div className="pager">
       <span className="muted">Showing {from}–{to} of {num(total)} games</span>
       <div className="pager-nav">

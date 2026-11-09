@@ -48,7 +48,7 @@ async def get_settings():
         "lang": str(prefs.load().get("lang") or "en"),
         "user_id": os.environ.get("GEOGUESSR_USER_ID") or DEFAULT_USER_ID,
         "cookie": bool(load_cookie()),
-        "merge_shortcut": str(prefs.load().get("merge_shortcut") or "Ctrl+G"),
+        "merge_shortcut": str(prefs.load().get("merge_shortcut") or "Shift+G"),
         "stain_color": str(prefs.load().get("stain_color") or "#c8283a"),
     }
 
