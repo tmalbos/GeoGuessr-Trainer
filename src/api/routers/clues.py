@@ -42,6 +42,7 @@ import shutil
 import threading
 import time
 import uuid
+import zlib
 from pathlib import Path
 from typing import Literal
 from xml.etree import ElementTree as ET
@@ -871,6 +872,7 @@ def list_clues(cc: str):
     cc = _cc(cc)
     items = _load(cc)
     sub = _SUB_OF.get(cc)
+    color = str(prefs.load().get("stain_color") or "#c8283a")
     for c in items:
         if c.get("csv"):
             p = CLUES_DIR / cc / c["csv"]
@@ -885,7 +887,7 @@ def list_clues(cc: str):
                 if p and p.is_file():
                     rev = max(rev, p.stat().st_mtime_ns)
             if rev:
-                c["rev"] = rev
+                c["rev"] = rev + (zlib.crc32(color.encode()) if c.get("overlay") else 0)
         if sub:
             c["subcontinent"] = sub  # for the badge tooltip: "Unique to South America"
     return items
