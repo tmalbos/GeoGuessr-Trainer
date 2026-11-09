@@ -999,7 +999,7 @@ def _preview_body(data: dict, levels: list[int], pct: int) -> str:
 # ── export names: strip the words that only add noise ──────────────────────
 
 COMMON_WORD_SHARE = (
-    0.8  # a word in at least this share of a level's names is dropped from all of them
+    0.5  # a word in at least this share of a level's names is dropped from all of them
 )
 MIN_NAMES_FOR_COMMON = 3  # fewer names than this and "common" means nothing
 # Administrative-type words dropped from every name. City / town / village and similar are kept.
@@ -1011,7 +1011,9 @@ _ADMIN_WORDS = frozenset(
         "province",
         "region",
         "district",
+        "partido",
         "department",
+        "departamento",
         "governorate",
         "prefecture",
         "canton",
