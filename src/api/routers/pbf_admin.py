@@ -805,7 +805,7 @@ def _fill_gaps(data: dict, level: int, base: dict) -> dict:
 
     names = data["renames"].get(level, {})
     unnamed = 0
-    if gap is not None and data["tree"] is not None:  # without coastlines the leftover may be sea
+    if gap is not None:  # `gap` is inside `country` land, so it cannot be sea
         for q in shapely.get_parts(gap):
             if q.geom_type != "Polygon" or q.area < MIN_PIECE:
                 continue
@@ -836,11 +836,12 @@ def _fill_gaps(data: dict, level: int, base: dict) -> dict:
                 out[i] = g
 
     log.info(
-        "Gap fill ADM%d: %d fragment(s) merged, %d from another level, %d unnamed",
+        "Gap fill ADM%d: %d fragment(s) merged, %d from another level, %d unnamed (tree=%s)",
         level,
         sum(map(len, merged.values())),
         from_other,
         unnamed,
+        data["tree"] is not None,
     )
     arr = np.empty(len(out), dtype=object)
     arr[:] = out
