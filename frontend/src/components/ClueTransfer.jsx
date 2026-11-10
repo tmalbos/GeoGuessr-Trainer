@@ -3,6 +3,13 @@ import { api, errorText } from "../lib/api.js";
 import { useToast } from "./Toast.jsx";
 import "./clue-transfer.css";
 
+const ExportIcon = () => <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
+  strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 14V4" /><path d="m8 8 4-4 4 4" />
+  <path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2" /></svg>;
+const ImportIcon = () => <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
+  strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 3v10" /><path d="m8 9 4 4 4-4" />
+  <path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2" /></svg>;
+
 /** Export / Import buttons for clue packs (.cluepack), pinned to the top right of the world map.
  *  Export asks which decks to include. Import is immediate and reports what changed. */
 export default function ClueTransfer({ onImported }) {
@@ -58,8 +65,10 @@ export default function ClueTransfer({ onImported }) {
 
   return <>
     <div className="ct">
-      <button type="button" className="btn ghost" disabled={busy} onClick={openExport}>Export clues</button>
-      <button type="button" className="btn ghost" disabled={busy} onClick={() => input.current.click()}>Import clues</button>
+      <button type="button" className="btn ghost" disabled={busy} onClick={openExport}
+        aria-label="Export clues" title="Export clues"><ExportIcon /></button>
+      <button type="button" className="btn ghost" disabled={busy} onClick={() => input.current.click()}
+        aria-label="Import clues" title="Import clues"><ImportIcon /></button>
       <input ref={input} type="file" accept=".cluepack" hidden onChange={(e) => { doImport(e.target.files[0]); e.target.value = ""; }} />
     </div>
     {dlg && <div className="confirm-back" onMouseDown={(e) => { if (e.target === e.currentTarget) setDlg(null); }}>

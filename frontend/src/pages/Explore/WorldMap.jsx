@@ -1,4 +1,5 @@
 import { memo, useEffect, useRef, useState } from "react";
+import ClueTransfer from "../../components/ClueTransfer.jsx";
 import { clueCountriesCached, loadClueCountries } from "./clueCountries.js";
 import { COVERAGE_LABELS, coverageCached, loadCoverage } from "./coverage.js";
 import { loadWorld } from "./geo.js";
@@ -277,6 +278,7 @@ export default function WorldMap({ onSelect }) {
     </svg>}
     {(!world || !known) && !err && <p className="wm-msg muted">Loading map…</p>}
     {err && <p className="wm-msg err">{err}</p>}
+    <ClueTransfer />
     <div className="wm-tip" ref={tipRef} style={{ display: "none" }} aria-hidden="true"><b /><span /></div>
   </div>;
 }

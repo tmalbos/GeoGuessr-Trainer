@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import ErrorBox from "../components/ErrorBox.jsx";
+import DecksCard from "../components/DecksCard.jsx";
 import MapSourceCard from "../components/MapSourceCard.jsx";
 import { Skeleton } from "../components/Skeleton.jsx";
 import StatusGrid from "../components/StatusGrid.jsx";
@@ -103,6 +104,8 @@ export default function Settings() {
         {dirty && <button type="button" className="btn ghost" disabled={saving} onClick={() => setDraft({ cookie: "", userId: saved.user_id, lang: saved.lang, mergeShortcut: saved.merge_shortcut, stainColor: saved.stain_color })}>Discard</button>}
       </p>
     </>}
+    <h3>Clues</h3>
+    <DecksCard />
     <h3>Maps</h3>
     <MapSourceCard />
   </>;

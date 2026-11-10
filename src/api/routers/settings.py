@@ -11,6 +11,7 @@ from src.geo import map_providers as mp
 from src.geoguessr.cookie_extraction import refresh_cookie
 from src.geoguessr.cookie_store import load_cookie, save_cookie
 from src.i18n.lang import load as load_lang
+from src.shared import decks as deck_store
 from src.shared import prefs
 from src.sync.user_identity import DEFAULT_USER_ID
 
@@ -38,6 +39,10 @@ class ShortcutBody(BaseModel):
     shortcut: str = Field(min_length=1, max_length=32)
 
 
+class DecksBody(BaseModel):
+    decks: list[str]
+
+
 class StainColorBody(BaseModel):
     color: str = Field(pattern=r"^#(c8283a|2f6fd0|e8c020|7b3fa0|1f6b3a|e0559a|7ac142|e07820)$")
 
@@ -50,6 +55,7 @@ async def get_settings():
         "cookie": bool(load_cookie()),
         "merge_shortcut": str(prefs.load().get("merge_shortcut") or "Shift+G"),
         "stain_color": str(prefs.load().get("stain_color") or "#c8283a"),
+        "decks": deck_store.load(),
     }
 
 
@@ -92,6 +98,15 @@ async def put_merge_shortcut(body: ShortcutBody):
 async def put_stain_color(body: StainColorBody):
     prefs.update(stain_color=body.color)
     return {"ok": True}
+
+
+@router.put("/settings/decks")
+async def put_decks(body: DecksBody):
+    names = list(dict.fromkeys(d for d in map(deck_store.clean, body.decks) if d))
+    if not names:
+        raise HTTPException(422, "Keep at least one deck")
+    prefs.update(decks=names)
+    return {"decks": deck_store.load()}
 
 
 @router.get("/settings/map")
