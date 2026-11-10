@@ -38,6 +38,7 @@ export default function SplitCard({ ds, onOpen }) {
   const [job, setJob] = useState(null);
   const [list, setList] = useState([]);
   const [sel, setSel] = useState([]);
+  const [anchor, setAnchor] = useState(null);
   const [folder, setFolder] = useState("");
   const [res, setRes] = useState(null);
   const [err, setErr] = useState(null);
@@ -74,6 +75,19 @@ export default function SplitCard({ ds, onOpen }) {
     catch (e) { setErr({ message: errorText(e), detail: "" }); }
   };
 
+  const toggle = (e, id) => {
+    const on = e.target.checked;
+    const a = list.findIndex((c) => c.id === anchor);
+    const b = list.findIndex((c) => c.id === id);
+    if (!e.nativeEvent.shiftKey || a < 0 || b < 0) {
+      setSel((s) => (on ? (s.includes(id) ? s : [...s, id]) : s.filter((x) => x !== id)));
+      setAnchor(id);
+      return;
+    }
+    const ids = list.slice(Math.min(a, b), Math.max(a, b) + 1).map((c) => c.id);
+    setSel((s) => (on ? [...new Set([...s, ...ids])] : s.filter((x) => !ids.includes(x))));
+  };
+
   if (ds.countries.length < 2) return null; // one country in the file: nothing to split
 
   const missing = tool && !tool.found;
@@ -94,7 +108,7 @@ export default function SplitCard({ ds, onOpen }) {
       </div>
       <div className="tp-tags" style={{ width: "100%" }}>
         {list.map((c) => <label className="tp-tag" key={c.id}>
-          <input type="checkbox" disabled={running} checked={sel.includes(c.id)} onChange={() => setSel((s) => (s.includes(c.id) ? s.filter((x) => x !== c.id) : [...s, c.id]))} />
+          <input type="checkbox" disabled={running} checked={sel.includes(c.id)} onChange={(e) => toggle(e, c.id)} />
           <span className="tp-dot" style={{ background: "transparent" }} /><span>{c.name}</span><span className="muted">{c.code}</span>
         </label>)}
       </div>
