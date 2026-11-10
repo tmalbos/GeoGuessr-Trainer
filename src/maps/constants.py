@@ -47,6 +47,7 @@ COUNTRIES_COLORS = {
     "India": {"water_color": "#79D4E9", "land_color": "#BEEDD8"},
     "Indonesia": {"water_color": "#7AD4E9", "land_color": "#96E3BE"},
     "Ireland": {"water_color": "#84D7EB", "land_color": "#BBEFD1"},
+    "Israel": {"water_color": "#86D7EB", "land_color": "#F7F3EB"},
     "Italy": {"water_color": "#7ED5E9", "land_color": "#C3EFDA"},
     "Japan": {"water_color": "#7AD4E9", "land_color": "#98E3C1"},
     "Jordan": {"water_color": "#86D7EB", "land_color": "#F7F3EB"},
