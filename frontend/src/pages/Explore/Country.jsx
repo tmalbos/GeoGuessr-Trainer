@@ -72,11 +72,11 @@ export default function Country({ id, section, query, backHref, backLabel = "Wor
       <button type="button" className={`cp-tool ${editing ? "on" : ""}`} aria-pressed={editing}
         aria-label={editing ? "Exit edit mode" : `Edit ${title} clues`} title={editing ? "Exit edit mode" : "Edit clues"}
         onClick={() => setEditing((e) => !e)}><Pencil /></button>
+      {/* The clue list renders its filter / add / import tools here through a portal (see ClueList). */}
+      <div id="clue-filter-slot" />
       <button type="button" className={`cp-tool ${collapsed ? "on" : ""}`} aria-pressed={collapsed}
         aria-label={collapsed ? "Expand clues" : "Collapse clues"} title={collapsed ? "Expand clues" : "Collapse clues"}
         onClick={() => setCollapsed((c) => !c)}><Collapse /></button>
-      {/* The clue list renders its filter / add / import tools here through a portal (see ClueList). */}
-      <div id="clue-filter-slot" />
     </aside>
   </div>;
 }
