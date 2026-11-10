@@ -138,7 +138,7 @@ export default function ClueCard({ cc, clue, editing, onDelete, onEdit, dragging
   const cat = clue.tags.find((t) => GENERAL_TAGS.includes(t));
   const idsOf = (c) => (clue.relations ?? []).filter((r) => r.type !== "group" && r.cc === c).map((r) => r.id);
   const shown = open.filter((c) => idsOf(c).length); // a relation removed while open just disappears
-  const folded = collapsed && clue.collapsible !== false && !!(clue.image || clue.svg) && !unfolded;
+  const folded = collapsed && !!(clue.image || clue.svg) && !unfolded;
   if (folded) return <article data-clue-id={clue.id} className="clue collapsed" role="button" tabIndex={0}
     onClick={() => setUnfolded(true)} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setUnfolded(true); } }}>
     <Media cc={cc} clue={clue}><Badges clue={clue} /></Media>

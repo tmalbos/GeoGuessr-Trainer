@@ -121,7 +121,6 @@ export default function ClueEditor({ cc, name, clue, prefill, onClose, onSaved, 
   const [relations, setRelations] = useState(clue?.relations ?? []);
   const [notes, setNotes] = useState(clue?.relation_notes ?? {});
   const [badge, setBadge] = useState(clue?.badge ?? "");
-  const [collapsible, setCollapsible] = useState(clue?.collapsible !== false);
   const [medal, setMedal] = useState(clue?.medal ? { medal: clue.medal, score: clue.score } : null); // what the card would show
   const [srcOpen, setSrcOpen] = useState(false);
   const [picking, setPicking] = useState(false);
@@ -173,7 +172,7 @@ export default function ClueEditor({ cc, name, clue, prefill, onClose, onSaved, 
 
   // Only ratings set by hand count as "changes": the automatic ones alone shouldn't make a fresh form look dirty.
   const snapshot = () => JSON.stringify([scope, info, general, location, RATINGS.map(([k]) => (manual[k] ? rating[k] : null)), blur, maxH,
-    img.sig, source, relations, notes, badge, collapsible, mainKind, media.upload?.token ?? "", area.kind, area.upload?.token ?? ""]);
+    img.sig, source, relations, notes, badge, mainKind, media.upload?.token ?? "", area.kind, area.upload?.token ?? ""]);
   const initial = useRef(snapshot());
   const dirty = snapshot() !== initial.current;
   const requestClose = () => (dirty ? setConfirm(true) : onClose());
@@ -364,7 +363,6 @@ export default function ClueEditor({ cc, name, clue, prefill, onClose, onSaved, 
       relations,
       relation_notes: Object.fromEntries(NOTE_TYPES.filter(present).map((t) => [t, note(t)])),
       badge: badge || null,
-      collapsible,
       files: upload,
       remove,
     };
@@ -541,8 +539,6 @@ export default function ClueEditor({ cc, name, clue, prefill, onClose, onSaved, 
           {RATINGS.map(([k, label, lo, hi]) => <RatingDots key={k} label={label} lo={lo} hi={hi} value={rating[k]}
             onChange={(v) => setRatingByHand(k, v)} />)}
           {!clue && <p className="muted">Ratings fill in by themselves until you set one. × gives it back to the automation.</p>}
-          {(isImage || mainKind === "svg") && <label className="chk-row"><input type="checkbox" checked={collapsible}
-            onChange={(e) => setCollapsible(e.target.checked)} />Collapsible</label>}
         </div>
       </div>
 

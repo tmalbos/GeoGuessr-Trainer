@@ -592,9 +592,6 @@ class ClueBody(BaseModel):
     ] = []  # the full list of relations of this clue (replaces the stored one)
     relation_notes: dict[str, NoteIn] = {}  # sentence for same_as / similar_to
     badge: Literal["subcontinent", "world"] | None = None  # manual uniqueness badge
-    collapsible: bool = (
-        True  # the card may collapse to its media (only kept with an image or an SVG)
-    )
     files: dict[str, str] = {}  # kind -> staging token
     remove: list[str] = []  # kinds of the clue's own files to delete (e.g. the media changed type)
     deck: str = ""  # deck (group) the clue belongs to; empty = the last one used
@@ -978,15 +975,12 @@ def add_clue(cc: str, body: ClueBody, request: Request):
                 "relation_notes": notes or None,
                 "badge": body.badge,
                 "deck": deck,
-                "collapsible": None if body.collapsible else False,
                 **names,
             }
             entry = {k: v for k, v in entry.items() if v is not None}
             if "image" not in entry:
                 entry.pop("blur", None)
                 entry.pop("max_height", None)
-            if "image" not in entry and "svg" not in entry:
-                entry.pop("collapsible", None)
             geo_kind = next((k for k in GEOM_KINDS if k in names), None)
             if body.scope == "reg" and geo_kind:
                 svg = _render_overlay(cc, folder / names[geo_kind], get_ctx(request).local_geo)
@@ -1165,7 +1159,6 @@ def update_clue(cc: str, clue_id: str, body: ClueBody, request: Request):
                 "relation_notes": notes or None,
                 "badge": body.badge,
                 "deck": deck_store.use(body.deck) if body.deck.strip() else old.get("deck"),
-                "collapsible": None if body.collapsible else False,
                 **kept,
                 **names,
             }
@@ -1173,8 +1166,6 @@ def update_clue(cc: str, clue_id: str, body: ClueBody, request: Request):
             if "image" not in entry:
                 entry.pop("blur", None)
                 entry.pop("max_height", None)
-            if "image" not in entry and "svg" not in entry:
-                entry.pop("collapsible", None)
             geo_kind = next((k for k in GEOM_KINDS if entry.get(k)), None)
             if entry["scope"] == "reg" and geo_kind:
                 # A geometry file that is being overwritten is still the staged one at this point.
