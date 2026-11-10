@@ -117,7 +117,6 @@ export default function RegionPreview({ cc, layers, stains, onStain, onArea, sel
   const project = fitProjection(bb, W, H, 6, align === "right");
   const land = outline ? shapes(outline, project).polys : "";
   const borders = base?.borders ? shapes(base.borders, project).lines : "";
-  const stainTop = Math.max(0, ...(stains ?? []).filter((s) => s.active).map((s) => s.shade ?? 0));
 
   const total = outline ? polyArea(outline, project) : 0;
   const plain = layers.filter((g) => !g.colors);
@@ -164,12 +163,11 @@ export default function RegionPreview({ cc, layers, stains, onStain, onArea, sel
         d={shapes(geom, project).polys} fillRule="evenodd" style={{ fill: g.colors[i] }} {...act}><title>{name}</title></path>;
     }))}
     {(stains ?? []).map((s) => {
-      const op = s.active && s.shade ? 0.85 * shadeFactor(s.shade, stainTop) : null;
       const toggle = () => onStain?.(s.id);
       const name = s.label ?? s.id;
       const cls = `cl-poly cl-stain ${s.active ? "" : "off"}`;
       const paint = stainColor && s.active ? { fill: stainColor, stroke: darken(stainColor) } : null;
-      const st = op != null ? { fillOpacity: op, strokeOpacity: op, ...paint } : paint ?? undefined;
+      const st = paint ?? undefined;
       const act = onStain ? {
         role: "button", tabIndex: 0, "aria-pressed": s.active, "aria-label": `${name}: ${s.active ? "included" : "left out"}`,
         onClick: toggle,
