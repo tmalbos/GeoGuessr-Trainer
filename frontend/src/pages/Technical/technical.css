@@ -5,6 +5,7 @@
 .tp-drop h3 { margin: 0; }
 .tp-drop.over { border-color: var(--sea-hi); background: #6cc0e50d; }
 .tp-tags { display: grid; gap: 2px; max-height: 320px; overflow-y: auto; padding-right: 4px; }
+.tp-row + .tp-tags { margin-top: 4px; }
 .tp-tag { display: grid; grid-template-columns: auto 16px minmax(0, 1fr) auto; align-items: center; gap: 8px; margin: 0; padding: 4px 6px;
   border-radius: 6px; font-weight: 400; font-size: 13px; cursor: pointer; }
 .tp-tag:hover { background: var(--raise); }
