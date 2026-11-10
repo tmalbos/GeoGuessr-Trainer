@@ -51,11 +51,13 @@ outline and first-level borders are known:
                        chosen ones (base included);
                      - a stain made mostly of small / thin disconnected pieces is anti-aliasing
                        between two other colours, not a stain: all its pixels become undefined;
-                     - going from the darkest stain to the lightest, the small / thin pieces of a
-                       stain are the blend between a darker stain and its neighbour: they join the
-                       closest darker stain (or become undefined when none is close);
-                     - the remaining stains grow into undefined pixels, one pixel layer at a
-                       time (EXPAND_PX layers), the darkest stain first;
+                     - the small / thin pieces of every stain are the blend between two stains
+                       (anti-aliasing): each one joins the closest non-small stain (a tie goes to
+                       the darker one), or becomes undefined when none is close;
+                     - the remaining stains grow into undefined pixels, darkest first. Each stain
+                       has EXPAND_PX points to spend and stepping onto a pixel costs its
+                       resistance: 1, or BORDER_RESISTANCE for the grey pixels of the inner
+                       borders, so a border slows the growth down;
                      - whatever is still undefined goes to the base.
   5. polygons      each label -> polygon straight from its pixels, so neighbouring stains share the
                    exact same boundary. No per-stain growing: the only changes are an optional
@@ -180,12 +182,14 @@ LIGHT_BLUE_VAL_MIN = 0.7
 SMALL_PIECE_PX = 12  # a connected piece of a stain with fewer px than this is "small" (full-res px)
 FRAGMENT_SHARE = 0.5  # a stain with more than this share of its pixels in small pieces is dropped
 SPECK_REASSIGN_PX = (
-    2  # a small piece of a lighter stain joins a darker stain at most this far away (px)
+    2  # a small piece of a stain joins the closest non-small stain at most this far away (px)
 )
 CLIP_PX = 3  # the stains may reach this many px past the app's own country outline
-EXPAND_MIN_FRONT_PX = (
-    0  # a piece of one expansion layer shorter than this is a bump and is not added
+BORDER_RESISTANCE = (
+    3  # cost of expanding onto a grey pixel of an inner border (a normal pixel costs 1)
 )
+BORDER_INSET_PX = 5  # work px: grey pixels this close to the country outline are not inner borders
+BORDER_WHITE_MIN = 235  # a grey this bright (brightest channel) is paper / white, not a border
 
 
 class StainError(Exception):
@@ -1229,6 +1233,15 @@ def _dull_mask(rgb: np.ndarray) -> np.ndarray:
     return dull | light_blue
 
 
+def _grey_mask(rgb: np.ndarray) -> np.ndarray:
+    """(N, 3) RGB -> bool per colour: greyish / dark pixels (inner borders, text), not white paper
+    and not light blue.
+    """
+    c = rgb.astype(np.float32)
+    mx, mn = c.max(1), c.min(1)
+    return ((mx - mn) <= GREY_SPREAD) & (mx < BORDER_WHITE_MIN)
+
+
 def _cross_dilate(m: np.ndarray) -> np.ndarray:
     """One pixel layer of growth (up, down, left, right)."""
     out = m.copy()
@@ -1269,58 +1282,74 @@ def _fragmented(lab: np.ndarray, k: int) -> bool:
     return float(_small_pieces(lab, k).sum()) > FRAGMENT_SHARE * total
 
 
-def _hand_specks_to_darker(lab: np.ndarray, order: list[int]) -> None:
-    """`order` = stains from the darkest to the lightest. The small / thin pieces of a stain are usually
-    the blend between a darker stain and its neighbour, which is closer to this lighter colour than to
-    either. Each such piece joins the closest darker stain (within SPECK_REASSIGN_PX); when there is none
-    that close it becomes undefined. The darkest stain has nothing darker to join and is left alone.
-    Works in place.
+def _hand_specks_to_nearest(lab: np.ndarray, order: list[int]) -> None:
+    """`order` = stains from the darkest to the lightest. The small / thin pieces of every stain are
+    usually the blend between two stains (anti-aliasing). Each such piece joins the closest NON-small
+    stain (within SPECK_REASSIGN_PX); a tie goes to the darker stain. When no stain is that close it
+    becomes undefined. Works in place.
     """
-    if distance_transform_edt is None:
+    if distance_transform_edt is None or not order:
         return
     h, w = lab.shape
-    for pos in range(1, len(order)):
-        k = order[pos]
-        specks = _small_pieces(lab, k)
-        if not specks.any():
-            continue
-        ys, xs = np.nonzero(specks)
-        pad = SPECK_REASSIGN_PX + 1
-        y0, y1 = max(0, ys.min() - pad), min(h, ys.max() + pad + 1)
-        x0, x1 = max(0, xs.min() - pad), min(w, xs.max() + pad + 1)
-        sub = lab[y0:y1, x0:x1]
-        darker = np.isin(sub, order[:pos])
-        sp = specks[y0:y1, x0:x1]
-        if darker.any():
-            dist, (iy, ix) = distance_transform_edt(~darker, return_indices=True)
-            near = sp & (dist <= SPECK_REASSIGN_PX)
-            sub[near] = sub[iy[near], ix[near]]
-            sp &= ~near
-        sub[sp] = -1
+    specks = np.zeros(lab.shape, bool)
+    for k in order:
+        specks |= _small_pieces(lab, k)
+    if not specks.any():
+        return
+    solid = np.where(np.isin(lab, order) & ~specks, lab, -1)
+    ys, xs = np.nonzero(specks)
+    pad = SPECK_REASSIGN_PX + 1
+    y0, y1 = max(0, ys.min() - pad), min(h, ys.max() + pad + 1)
+    x0, x1 = max(0, xs.min() - pad), min(w, xs.max() + pad + 1)
+    sub = lab[y0:y1, x0:x1]
+    sp = specks[y0:y1, x0:x1]
+    sol = solid[y0:y1, x0:x1]
+    far = np.full(sub.shape, np.inf)
+    # distance of every pixel to the nearest solid pixel of each stain (darkest first: argmin keeps ties dark)
+    dist = np.stack([distance_transform_edt(sol != k) if (sol == k).any() else far for k in order])
+    best = dist.argmin(0)
+    near = sp & (dist.min(0) <= SPECK_REASSIGN_PX)
+    sub[near] = np.asarray(order, dtype=sub.dtype)[best][near]
+    sub[sp & ~near] = -1
 
 
-def _expand(lab: np.ndarray, order: list[int], layers: int, allowed: np.ndarray) -> None:
-    """Grow the stains of `order` (darkest first) into undefined pixels of `allowed`, one pixel layer
-    at a time. Works in place.
+def _expand(
+    lab: np.ndarray, order: list[int], points: int, allowed: np.ndarray, resistance: np.ndarray
+) -> None:
+    """Grow the stains of `order` (darkest first) into undefined pixels of `allowed`. Works in place.
+
+    Every stain has `points` to spend. Stepping onto an undefined pixel costs its `resistance` (1 = normal),
+    and the cost adds up along the way: a pixel is taken when the cheapest way to it from the stain's own
+    pixels is at most `points`. Time advances one point at a time, so stains still grow side by side.
     """
-    for _ in range(layers):
+    big = points + 1
+    cost = np.where(lab >= 0, 0, big).astype(np.int16)  # points spent to reach each labelled pixel
+    for t in range(1, points + 1):
         if not ((lab < 0) & allowed).any():
             break
         for k in order:
             m = lab == k
             if not m.any():
                 continue
-            grow = _cross_dilate(m) & (lab < 0) & allowed
-            if nd_label is not None and grow.any():
-                comp, n = nd_label(grow, structure=np.ones((3, 3), bool))
-                sizes = np.bincount(comp.ravel(), minlength=n + 1)
-                sizes[0] = EXPAND_MIN_FRONT_PX  # background label is never "small"
-                grow &= (sizes >= EXPAND_MIN_FRONT_PX)[comp]
-            lab[grow] = k
+            src = np.where(m, cost, big).astype(np.int16)
+            nb = np.full(lab.shape, big, np.int16)  # cheapest 4-neighbour of this stain
+            nb[1:] = np.minimum(nb[1:], src[:-1])
+            nb[:-1] = np.minimum(nb[:-1], src[1:])
+            nb[:, 1:] = np.minimum(nb[:, 1:], src[:, :-1])
+            nb[:, :-1] = np.minimum(nb[:, :-1], src[:, 1:])
+            arrive = nb + resistance
+            take = (lab < 0) & allowed & (nb < big) & (arrive <= t)
+            cost[take] = arrive[take]
+            lab[take] = k
 
 
 def _classify(
-    img: np.ndarray, region: np.ndarray, delta_e: float, max_classes: int, expand_px: int
+    img: np.ndarray,
+    region: np.ndarray,
+    delta_e: float,
+    max_classes: int,
+    expand_px: int,
+    border_inset: int = 0,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Label every pixel of `region`. Returns (labels (h, w) int16, colours (K, 3)).
 
@@ -1339,6 +1368,7 @@ def _classify(
     ucol = np.column_stack([ukey >> 16, (ukey >> 8) & 255, ukey & 255]).astype(np.int16)
     ulab = _lab(ucol).astype(np.float64)
     dull = _dull_mask(ucol)
+    grey = _grey_mask(ucol)
     pale = (ulab[:, 0] >= BASE_L_MIN) & (np.hypot(ulab[:, 1], ulab[:, 2]) <= BASE_CHROMA_MAX)
 
     order = np.argsort(-cnt, kind="stable")  # most common colour first
@@ -1378,10 +1408,15 @@ def _classify(
     # the remaining stains grow into undefined pixels, darkest first; the rest goes to the base
     alive = [k for k in range(1, len(centres)) if (lab == k).any()]
     alive.sort(key=lambda k: ulab[centres[k], 0])
-    # specks of a lighter stain next to a darker one are the darker stain's anti-aliasing
-    _hand_specks_to_darker(lab, alive)
+    # small / thin pieces are anti-aliasing: they join the closest non-small stain
+    _hand_specks_to_nearest(lab, alive)
     _log_counts("after speck handoff", lab, region, ucol[centres])
-    _expand(lab, alive, expand_px, region)
+    # inner borders (grey pixels inside the country, not on its outline) are harder to grow over
+    resistance = np.ones(h * w, np.int16)
+    resistance[idx] = np.where(grey[inv], BORDER_RESISTANCE, 1)
+    resistance = resistance.reshape(h, w)
+    resistance[~_erode(region, border_inset)] = 1
+    _expand(lab, alive, expand_px, region, resistance)
     _log_counts("after expansion", lab, region, ucol[centres])
     lab[(lab < 0) & region] = 0
     _log_counts("final", lab, region, ucol[centres])
@@ -1877,7 +1912,7 @@ def analyze(
     region = _dilate(inside, SCOPE_PX)
 
     # 3. ONE label per pixel: base map = 0, stains = 1..  (see _classify)
-    lab, centers = _classify(img, region, delta_e, max_classes, expand_px)
+    lab, centers = _classify(img, region, delta_e, max_classes, expand_px, rad(BORDER_INSET_PX))
 
     # the app's own country outline, a few px wider: the drawn coast and the fitted one never agree exactly
     p0, p1 = to_lonlat(np.array([[wid / 2, hgt / 2], [wid / 2 + 1, hgt / 2]], float))
