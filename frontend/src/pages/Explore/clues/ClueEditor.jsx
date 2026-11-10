@@ -12,6 +12,7 @@ import RatingDots from "./RatingDots.jsx";
 import RelatePicker from "./RelatePicker.jsx";
 import RichEditor from "./RichEditor.jsx";
 import { MAPMAKING_FILE, autoRatings } from "./autoRatings.js";
+import { guessCategory } from "./autoTags.js";
 import { useCountries } from "./countries.js";
 import fileUrl from "./fileUrl.js";
 import { discardStaged, stageFile, stagePath } from "./imageTools.js";
@@ -84,6 +85,7 @@ export default function ClueEditor({ cc, name, clue, prefill, onClose, onSaved, 
   const [location, setLocation] = useState(clue?.tags?.find((t) => LOCATION_TAGS.includes(t)) ?? prefill?.location ?? "");
   const [general, setGeneral] = useState(clue?.tags?.find((t) => GENERAL_TAGS.includes(t)) ?? prefill?.general ?? "");
   const [locTouched, setLocTouched] = useState(!!clue || !!prefill); // user picked "where it applies" by hand
+  const [genAuto, setGenAuto] = useState(false); // the category was guessed from the text
   const [menu, setMenu] = useState(null); // null | "cat" | "loc"
   const [skipOpen, setSkipOpen] = useState(false); // the "Skip to <section>" dropdown
   const [tab, setTab] = useState("import"); // regional media slot: import | draw
@@ -225,6 +227,7 @@ export default function ClueEditor({ cc, name, clue, prefill, onClose, onSaved, 
 
   const pickCategory = (t) => {
     setGeneral(t);
+    setGenAuto(false);
     if (!locTouched) setLocation(DEFAULT_LOCATION[t] ?? "Anywhere");
     setMenu(null);
   };
@@ -249,6 +252,15 @@ export default function ClueEditor({ cc, name, clue, prefill, onClose, onSaved, 
     setLocation(t.find((x) => LOCATION_TAGS.includes(x)) ?? "");
     setGeneral(t.find((x) => GENERAL_TAGS.includes(x)) ?? "");
   }, [relations, others]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Until the user picks a category, guess it (and where it applies) from the text.
+  useEffect(() => {
+    if (clue || grouped || (general && !genAuto)) return;
+    const g = guessCategory(info) ?? "";
+    if (g === general) return;
+    setGeneral(g);
+    setGenAuto(!!g);
+    if (!locTouched) setLocation(g ? DEFAULT_LOCATION[g] ?? "Anywhere" : "");
+  }, [info, grouped]); // eslint-disable-line react-hooks/exhaustive-deps
   const host = hostOf(source.trim());
   const srcBad = !!source.trim() && !URL_OK.test(source.trim());
 

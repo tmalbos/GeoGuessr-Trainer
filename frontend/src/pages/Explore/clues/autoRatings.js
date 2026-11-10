@@ -2,13 +2,13 @@
 // The editor calls autoRatings() on every change and applies the result to each rating the user hasn't touched.
 //
 // National
-//   frequency    not filled
+//   frequency    10
 //   ease         10 - log2(n), n = concepts in the text + "similar to" links
 //   reliability  10 - number of "same as" links
 // Regional
-//   frequency    only for a mapmaking region: average distance between the points of each cluster (km), see FREQ_STEPS
+//   frequency    only for a mapmaking region: average distance between the points of each cluster (km), see FREQ_STEPS; 5 for any other region
 //   ease         10 - log2(n), n = concepts + "similar to" links + (polygons - 1) + (shades - 1)
-//   reliability  10 - (separate pieces after merging all polygons - 1)
+//   reliability  10 - (separate pieces after merging all polygons - 1); 10 when there are no stats (SVG, CSV)
 // `stats` comes from the staging endpoint (src/geo/region_stats.py): { polygons, shades, components, spread_km }.
 
 // Name AreaPicker gives the file it stages for a mapmaking region.
@@ -61,8 +61,10 @@ export function autoRatings({ scope, info, relations, stats, fromMapmaking }) {
   }
 
   if (!regional) out.reliability = rate(10 - sameAs);
-  else if (stats?.components) out.reliability = rate(10 - (stats.components - 1));
+  else out.reliability = rate(10 - Math.max(0, (stats?.components ?? 1) - 1));
 
-  if (regional && fromMapmaking && stats && stats.spread_km != null) out.frequency = rate(frequencyFromKm(stats.spread_km));
+  if (!regional) out.frequency = "10";
+  else if (fromMapmaking && stats && stats.spread_km != null) out.frequency = rate(frequencyFromKm(stats.spread_km));
+  else out.frequency = "5";
   return out;
 }
