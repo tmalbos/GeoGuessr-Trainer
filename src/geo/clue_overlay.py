@@ -34,7 +34,7 @@ PIN_H = 50
 
 LAND = 'fill="#f6f4e4" stroke="#8b98a8" stroke-width="1" stroke-linejoin="round"'
 STAIN_FILL = "#c8283a"
-STAIN_STROKE = "#7a1320"
+STAIN_STROKE = "#c8283a"
 POLY = f'fill="{STAIN_FILL}" fill-opacity=".85" stroke="{STAIN_STROKE}" stroke-width="1" stroke-linejoin="round"'
 NSS = 'vector-effect="non-scaling-stroke"'
 
@@ -205,7 +205,7 @@ def render_overlay(
             op = 0.85 * shade_factor(v, pin_top) if v else None
             parts.append(
                 f'<g transform="translate({x:.1f} {y:.1f})" fill="#c8283a" '
-                f'stroke="#7a1320" stroke-width="1"{_opacity(op) or ' fill-opacity=".85"'}>'
+                f'stroke="#c8283a" stroke-width="1"{_opacity(op) or ' fill-opacity=".85"'}>'
                 f'<path d="{PIN_D}" {NSS}/><circle cy="-30" r="5.5" fill="#fff" stroke="none"/></g>'
             )
             grow(x - PIN_HALF_W, y - PIN_H, x + PIN_HALF_W, y)

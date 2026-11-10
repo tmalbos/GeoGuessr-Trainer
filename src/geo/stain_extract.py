@@ -164,7 +164,7 @@ CHANCE_SHIFT_FRAC = 0.04  # chance level = line shifted by this share of the map
 CHANCE_SHIFT_MIN, CHANCE_SHIFT_MAX = 4.0, 12.0  # ...limited to this range (px)
 
 # Colours / labels
-DELTA_E = 6.67  # CIEDE2000 distance under which two colours are the same stain (UI slider)
+DELTA_E = 15.0  # CIEDE2000 distance under which two colours are the same stain (UI slider)
 MAX_CLASSES = 4  # stains kept besides the base map (UI slider)
 EXPAND_PX = 3  # pixel layers the stains grow into undefined pixels (UI slider)
 SCOPE_PX = 0  # px beyond the fitted outline whose pixels are read (constant, not in the UI)
