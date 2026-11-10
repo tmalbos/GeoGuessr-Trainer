@@ -104,7 +104,7 @@ export default function ClueEditor({ cc, name, clue, prefill, onClose, onSaved, 
     }).catch(() => {});
     return () => { off = true; };
   }, []);
-  const [blur, setBlur] = useState(!!clue?.blur || prefill?.general === "License Plate");
+  const [blur, setBlur] = useState(!!clue?.blur);
   const [maxH, setMaxH] = useState(clue?.max_height ?? null); // px cap for the image on the card
   const [img, setImg] = useState({ has: !!clue?.image, sig: ":0" }); // reported by ClueImage
   // The media slot: an image (handled by ClueImage), or an SVG / CSV / geometry staged here.
