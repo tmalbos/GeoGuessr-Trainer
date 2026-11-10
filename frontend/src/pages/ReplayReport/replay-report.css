@@ -75,7 +75,7 @@
   background: none; border-radius: 50%; filter: drop-shadow(0 1px 2px rgba(0,0,0,.6)); }
 .tl-ev.can:hover { outline: 2px solid #ffffff80; outline-offset: 2px; }
 .tl-ev.sel { outline: 2px solid var(--ok); outline-offset: 3px; z-index: 2; }
-.tl-ev:focus-visible { border-radius: 50%; outline-color: var(--ok); }
+.tl-ev:focus-visible { border-radius: 50%; outline-color: var(--sea-hi); }
 
 /* Street View photo of the selected look event, under the map */
 .rr-photo { margin: 8px 0 0; }

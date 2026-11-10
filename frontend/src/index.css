@@ -7,7 +7,7 @@
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--paper); color: var(--ink); font: 15px/1.5 "Bricolage Grotesque", system-ui, sans-serif; }
 button, input, select { font: inherit; color: inherit; }
-:focus-visible { outline: 2px solid var(--coral); outline-offset: 2px; }
+:focus-visible { outline: 2px solid var(--sea-hi); outline-offset: 2px; }
 
 /* ── Collapsible side rail: peeks at the left edge, opens when the mouse gets near ── */
 .rail-wrap { position: fixed; inset: 0 auto 0 0; width: 220px; z-index: 50;
