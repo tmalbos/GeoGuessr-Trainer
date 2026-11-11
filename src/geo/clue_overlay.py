@@ -45,7 +45,8 @@ def recolour(svg: str, fill: str) -> str:
         return svg
     r, g, b = (int(fill[i : i + 2], 16) for i in (1, 3, 5))
     stroke = "#" + "".join(f"{round(v * 0.55):02x}" for v in (r, g, b))
-    return svg.replace(STAIN_STROKE, stroke).replace(STAIN_FILL, fill)
+    svg = svg.replace(f'stroke="{STAIN_STROKE}"', f'stroke="{stroke}"')
+    return svg.replace(STAIN_FILL, fill)
 
 
 def shade_factor(shade: float, top: float) -> float:
