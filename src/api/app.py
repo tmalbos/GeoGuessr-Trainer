@@ -9,6 +9,7 @@ from fastapi import FastAPI
 
 from src.api.routers import (
     analysis,
+    anki_export,
     clue_base,
     clue_draw,
     clue_pack,
@@ -52,6 +53,7 @@ for router_module in (
     status,
     sync,
     analysis,
+    anki_export,
     history,
     settings,
     study_scripts,

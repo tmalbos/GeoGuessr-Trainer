@@ -38,6 +38,18 @@ class AnkiConnectClient:
     async def ensure_deck(self, deck_name: str) -> None:
         await self._invoke("createDeck", deck=deck_name)
 
+    async def deck_names(self) -> list[str]:
+        return await self._invoke("deckNames")
+
+    async def model_names(self) -> list[str]:
+        return await self._invoke("modelNames")
+
+    async def model_fields(self, model: str) -> list[str]:
+        return await self._invoke("modelFieldNames", modelName=model)
+
+    async def model_templates(self, model: str) -> dict:
+        return await self._invoke("modelTemplates", modelName=model)
+
     async def ensure_model(
         self,
         model_name: str,

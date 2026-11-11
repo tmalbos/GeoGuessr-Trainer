@@ -1,6 +1,7 @@
 import { Fragment, useEffect, useState } from "react";
 import Flag from "../../../components/Flag.jsx";
 import { api, errorText } from "../../../lib/api.js";
+import AnkiExport from "./AnkiExport.jsx";
 import ClueMap from "./ClueMap.jsx";
 import RichText from "./richText.jsx";
 import { CategoryChip, LocationChip } from "./tagUi.jsx";
@@ -147,6 +148,7 @@ export default function ClueCard({ cc, clue, editing, onDelete, onEdit, dragging
     onClick={unfolded ? refold : undefined}>
     {editing && <span className="clue-grip" draggable title="Drag to reorder" aria-label="Drag to reorder"
       onDragStart={onGrab} onDragEnd={onRelease}><Grip /></span>}
+    {!editing && clue.scope === "nat" && <AnkiExport cc={cc} clue={clue} />}
     <Media cc={cc} clue={clue} onArea={setPick} selected={pick?.name}><Badges clue={clue} /></Media>
     {shown.map((c) => <RelatedMedia key={c} cc={c} ids={idsOf(c)} name={nameOf(c)} onClose={() => toggleOpen(c)} />)}
     <div className={`clue-body ${editing ? "has-tools" : ""}`}>
