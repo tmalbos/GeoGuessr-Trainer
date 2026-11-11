@@ -17,7 +17,6 @@ Relations: a clue has `relations: [{type, cc, id}]` (same_as | similar_to | grou
            group       stays inside one country and is transitive (see _close_group).
          Removing a link only removes that link.
          `relation_notes: {same_as|similar_to: {verb, text}}` is the sentence the card shows.
-         `badge`: "subcontinent" | "world" (manual uniqueness badge).
          `max_height`: px cap for the clue image on the card (only kept when the clue has an image).
 Shades:  a polygons file may carry a `shade` column (0 = the main tone, 1..4 = lighter = rarer part of the region).
          The geo preview / GET /clues/{CC}/geo/{file} then adds a `shades` list next to the geometries.
@@ -103,8 +102,6 @@ URL_RE = re.compile(r"https?://\S+", re.IGNORECASE)
 ASSET_RE = re.compile(r"(nat|reg)_[a-z]+_\d{5}(\.overlay)?\.(webp|svg|csv|parquet)")
 TOKEN_RE = re.compile(r"[0-9a-f]{32}")
 
-# Country code -> subcontinent label ("CL" -> "South America"), for the badge tooltip.
-_SUB_OF = {code: label for _, label, codes in SUBCONTINENTS for code in codes.split()}
 _LOCK = threading.Lock()
 
 # Countries that have at least one clue. Built from disk on first request,
@@ -591,7 +588,6 @@ class ClueBody(BaseModel):
         RelationIn
     ] = []  # the full list of relations of this clue (replaces the stored one)
     relation_notes: dict[str, NoteIn] = {}  # sentence for same_as / similar_to
-    badge: Literal["subcontinent", "world"] | None = None  # manual uniqueness badge
     files: dict[str, str] = {}  # kind -> staging token
     remove: list[str] = []  # kinds of the clue's own files to delete (e.g. the media changed type)
     deck: str = ""  # deck (group) the clue belongs to; empty = the last one used
@@ -888,7 +884,6 @@ def clues_subcontinents():
 def list_clues(cc: str):
     cc = _cc(cc)
     items = _load(cc)
-    sub = _SUB_OF.get(cc)
     color = str(prefs.load().get("stain_color") or "#c8283a")
     for c in items:
         if c.get("csv"):
@@ -905,8 +900,6 @@ def list_clues(cc: str):
                     rev = max(rev, p.stat().st_mtime_ns)
             if rev:
                 c["rev"] = rev + (zlib.crc32(color.encode()) if c.get("overlay") else 0)
-        if sub:
-            c["subcontinent"] = sub  # for the badge tooltip: "Unique to South America"
     return items
 
 
@@ -973,7 +966,6 @@ def add_clue(cc: str, body: ClueBody, request: Request):
                 "source": source,
                 "relations": rels or None,
                 "relation_notes": notes or None,
-                "badge": body.badge,
                 "deck": deck,
                 **names,
             }
@@ -1045,7 +1037,6 @@ def preview_medal(cc: str, body: MedalBody, request: Request):
         "ease": body.ease,
         "reliability": body.reliability,
         "relations": [r.model_dump() for r in body.relations] or None,
-        "badge": body.badge,
         **{k: old[k] for k in KINDS if old and old.get(k) and k not in replaced},
     }
     made_folder = not folder.exists()
@@ -1073,7 +1064,7 @@ def preview_medal(cc: str, body: MedalBody, request: Request):
 
 @router.put("/clues/{cc}/{clue_id}")
 def update_clue(cc: str, clue_id: str, body: ClueBody, request: Request):
-    """Edit a clue. Text, tags, ratings, source, relations and badge are replaced; files only when new ones are sent.
+    """Edit a clue. Text, tags, ratings, source and relations are replaced; files only when new ones are sent.
 
     A new file of a kind the clue already has (same extension) overwrites the old file in place, so
     nothing is left behind. A new geometry file replaces whichever geometry the clue had: if it is the
@@ -1157,7 +1148,6 @@ def update_clue(cc: str, clue_id: str, body: ClueBody, request: Request):
                 "source": source,
                 "relations": rels or None,
                 "relation_notes": notes or None,
-                "badge": body.badge,
                 "deck": deck_store.use(body.deck) if body.deck.strip() else old.get("deck"),
                 **kept,
                 **names,

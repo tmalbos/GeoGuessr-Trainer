@@ -70,7 +70,7 @@ function Media({ cc, clue, children, onArea, selected }) {
   </div>;
 }
 
-// ⚠️ same_as, ℹ️ similar_to (automatic) + one manual uniqueness badge (chess "great" / "brilliant"). Three at most.
+// ⚠️ same_as, ℹ️ similar_to (automatic).
 function Badges({ clue }) {
   const items = [];
   if (clue.medal) {
@@ -79,11 +79,6 @@ function Badges({ clue }) {
   }
   if (relsOf(clue, "same_as").length) items.push(<span key="w" className="cb" role="img" aria-label="Same clue in other countries" title="The same clue exists in other countries">⚠️</span>);
   if (relsOf(clue, "similar_to").length) items.push(<span key="i" className="cb" role="img" aria-label="Similar clue in other countries" title="A similar clue exists in other countries">ℹ️</span>);
-  if (clue.badge === "subcontinent") {
-    const t = clue.subcontinent ? `Unique to ${clue.subcontinent}` : "Subcontinent unique";
-    items.push(<img key="s" className="cb-img" src="/grades/great.png" alt={t} title={t} />);
-  }
-  if (clue.badge === "world") items.push(<img key="u" className="cb-img" src="/grades/brilliant.png" alt="World unique" title="World unique" />);
   return items.length ? <div className="clue-badges">{items}</div> : null;
 }
 

@@ -120,7 +120,6 @@ export default function ClueEditor({ cc, name, clue, prefill, onClose, onSaved, 
   const [source, setSource] = useState(clue?.source ?? prefill?.source ?? "");
   const [relations, setRelations] = useState(clue?.relations ?? []);
   const [notes, setNotes] = useState(clue?.relation_notes ?? {});
-  const [badge, setBadge] = useState(clue?.badge ?? "");
   const [medal, setMedal] = useState(clue?.medal ? { medal: clue.medal, score: clue.score } : null); // what the card would show
   const [srcOpen, setSrcOpen] = useState(false);
   const [picking, setPicking] = useState(false);
@@ -136,7 +135,6 @@ export default function ClueEditor({ cc, name, clue, prefill, onClose, onSaved, 
   const srcRef = useRef(null);
   const srcInput = useRef(null);
   const asked = useRef(new Set());
-  const [sub, setSub] = useState(clue?.subcontinent ?? ""); // this country's subcontinent, for the badge tooltip
 
   const mainKind = media.kind ?? (img.has ? "image" : null); // what the media slot is showing now
   const isImage = mainKind === "image";
@@ -172,7 +170,7 @@ export default function ClueEditor({ cc, name, clue, prefill, onClose, onSaved, 
 
   // Only ratings set by hand count as "changes": the automatic ones alone shouldn't make a fresh form look dirty.
   const snapshot = () => JSON.stringify([scope, info, general, location, RATINGS.map(([k]) => (manual[k] ? rating[k] : null)), blur, maxH,
-    img.sig, source, relations, notes, badge, mainKind, media.upload?.token ?? "", area.kind, area.upload?.token ?? ""]);
+    img.sig, source, relations, notes, mainKind, media.upload?.token ?? "", area.kind, area.upload?.token ?? ""]);
   const initial = useRef(snapshot());
   const dirty = snapshot() !== initial.current;
   const requestClose = () => (dirty ? setConfirm(true) : onClose());
@@ -204,16 +202,6 @@ export default function ClueEditor({ cc, name, clue, prefill, onClose, onSaved, 
     document.addEventListener("mousedown", onDown);
     return () => document.removeEventListener("mousedown", onDown);
   }, [srcOpen]);
-
-  // Which subcontinent this country belongs to (badge tooltip). New clues have it nowhere: ask the map.
-  useEffect(() => {
-    let off = false;
-    api("/clues/subcontinents").then((d) => {
-      if (off) return;
-      setSub(d.find((s) => s.all?.includes(cc))?.label ?? "");
-    }).catch(() => {});
-    return () => { off = true; };
-  }, [cc]);
 
   // Load the clues on the other end of each relation, so the chips can say which clue they point at.
   useEffect(() => {
@@ -362,14 +350,13 @@ export default function ClueEditor({ cc, name, clue, prefill, onClose, onSaved, 
       source: source.trim(),
       relations,
       relation_notes: Object.fromEntries(NOTE_TYPES.filter(present).map((t) => [t, note(t)])),
-      badge: badge || null,
       files: upload,
       remove,
     };
   };
 
   // The score and medal the clue would get if it were saved now; the editor follows every change.
-  const medalKey = JSON.stringify([scope, info, general, location, rating, relations, badge, mainKind, media.upload?.token ?? "", area.kind, area.upload?.token ?? ""]);
+  const medalKey = JSON.stringify([scope, info, general, location, rating, relations, mainKind, media.upload?.token ?? "", area.kind, area.upload?.token ?? ""]);
   useEffect(() => {
     if (!general || !location) { setMedal(null); return undefined; }
     let off = false;
@@ -390,17 +377,12 @@ export default function ClueEditor({ cc, name, clue, prefill, onClose, onSaved, 
     } catch (e) { setErr(errorText(e)); setSaving(false); }
   };
 
-  const badgeBtn = (key, src, label) => <button type="button" key={key} className={`cb-btn ${badge === key ? "on" : ""}`}
-    aria-pressed={badge === key} aria-label={label} title={label} onClick={() => setBadge(badge === key ? "" : key)}>
-    <img className="cb-img" src={src} alt="" /></button>;
-  // Same badges as the card. The warning / info ones follow the relations by themselves; the two chess icons are toggles.
+  // Same badges as the card. The warning / info ones follow the relations by themselves.
   const badges = <div className="clue-badges ed-badges">
     {medal && <img className="cb-img medal" src={`/medals/${medal.medal}.png`} alt={`${medal.medal} medal`}
       title={`${medal.medal[0].toUpperCase()}${medal.medal.slice(1)} medal · ${medal.score}/10`} />}
     {present("same_as") && <span className="cb" role="img" aria-label="Same clue in other countries" title="Same clue in other countries (from relations)">⚠️</span>}
     {present("similar_to") && <span className="cb" role="img" aria-label="Similar clue in other countries" title="Similar clue in other countries (from relations)">ℹ️</span>}
-    {badgeBtn("subcontinent", "/grades/great.png", sub ? `Unique to ${sub}` : "Subcontinent unique")}
-    {badgeBtn("world", "/grades/brilliant.png", "World unique")}
   </div>;
 
   // What the media box shows when it is not a picture. A stored CSV / geometry is drawn on its country.

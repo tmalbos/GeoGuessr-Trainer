@@ -90,9 +90,6 @@
 
 /* Badges inside the image: inactive ones are dimmed */
 .cb.dim { opacity: .3; filter: grayscale(1); }
-.cb-btn { display: grid; place-items: center; padding: 0; border: 0; background: none; opacity: .35; filter: grayscale(.7); transition: opacity .15s, filter .15s; }
-.cb-btn:hover { opacity: .75; }
-.cb-btn.on { opacity: 1; filter: none; }
 
 /* Relations under the image: icon + miniature, no text labels */
 .ed-rels { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
