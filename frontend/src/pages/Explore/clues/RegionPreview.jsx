@@ -16,6 +16,7 @@ const loadBase = (cc) => {
 // Regional stains are painted in the colour picked in Settings (default: red).
 const loadStainColor = () => api("/settings").then((s) => s.stain_color || "#c8283a").catch(() => "#c8283a");
 const darken = (hex) => `#${[1, 3, 5].map((i) => Math.round(parseInt(hex.slice(i, i + 2), 16) * 0.55).toString(16).padStart(2, "0")).join("")}`;
+const lighten = (hex, k) => `#${[1, 3, 5].map((i) => Math.round(parseInt(hex.slice(i, i + 2), 16) + (255 - parseInt(hex.slice(i, i + 2), 16)) * k).toString(16).padStart(2, "0")).join("")}`;
 
 // A layer may carry `shades` (one number per geometry, 0 = the main tone, higher = rarer = lighter).
 // Returns [[shade, geometry collection]], lightest first so the stronger tones sit on top.
@@ -124,6 +125,7 @@ export default function RegionPreview({ cc, layers, stains, onStain, onArea, sel
   const split = plain.map((g) => splitPins(g, total, project));
   const smallStains = (stains ?? []).filter((s) => isSmall(s.geometry, total, project));
   const pinned = new Set(smallStains.length <= MAX_PINS ? smallStains.map((s) => s.id) : []);
+  const stainTop = Math.max(0, ...(stains ?? []).map((s) => s.shade ?? 0));
 
   return <svg className="cl-svg" style={{ ...style, "--stain": stainColor ?? undefined, "--stain-dark": stainColor ? darken(stainColor) : undefined }} viewBox={`0 0 ${W} ${H}`} role="img" aria-label={label}
     preserveAspectRatio={align === "right" ? "xMaxYMid meet" : undefined}>
@@ -166,7 +168,8 @@ export default function RegionPreview({ cc, layers, stains, onStain, onArea, sel
       const toggle = () => onStain?.(s.id);
       const name = s.label ?? s.id;
       const cls = `cl-poly cl-stain ${s.active ? "" : "off"}`;
-      const paint = stainColor && s.active ? { fill: stainColor, stroke: darken(stainColor) } : null;
+      const tone = stainColor && s.active ? lighten(stainColor, 1 - shadeFactor(s.shade ?? 0, stainTop)) : null;
+      const paint = tone ? { fill: tone, stroke: darken(tone) } : null;
       const st = paint ?? undefined;
       const act = onStain ? {
         role: "button", tabIndex: 0, "aria-pressed": s.active, "aria-label": `${name}: ${s.active ? "included" : "left out"}`,
