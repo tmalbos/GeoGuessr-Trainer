@@ -168,7 +168,7 @@ export default function RegionPreview({ cc, layers, stains, onStain, onArea, sel
       const toggle = () => onStain?.(s.id);
       const name = s.label ?? s.id;
       const cls = `cl-poly cl-stain ${s.active ? "" : "off"}`;
-      const tone = stainColor && s.active ? lighten(stainColor, stainTop ? 0.15 * ((s.shade ?? 0) / stainTop) : 0) : null;
+      const tone = stainColor && s.active ? lighten(stainColor, 1 - shadeFactor(s.shade ?? 0, stainTop)) : null;
       const paint = tone ? { fill: tone, stroke: darken(tone) } : null;
       const st = paint ?? undefined;
       const act = onStain ? {
