@@ -13,13 +13,12 @@ DELETE /import/plonkit/{token}        -> end the import and throw staged files a
 
 A clue is regional when the map detector finds a drawn map in its image AND the tip has a Street View link
 we can open. A map without a usable Street View link falls back to a national clue (the image as it is).
-Tags and text come from scripts/import_plonkit_clues.py (same rules). The source is page#step
+Tags and text come from src/plonkit (the same rules scripts/import_plonkit_clues.py uses). The source is page#step
 (the guide step the clue lives in, not the section number).
 """
 
 import asyncio
 import contextlib
-import importlib.util
 import logging
 import math
 import re
@@ -27,7 +26,6 @@ import time
 import unicodedata
 import urllib.parse
 from collections import OrderedDict
-from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 from uuid import uuid4
 
@@ -38,6 +36,8 @@ from starlette.concurrency import run_in_threadpool
 from src.api.deps import get_ctx
 from src.api.plonkit_titles import classify
 from src.api.routers.stain import _borders, _outline  # noqa: PLC2701
+from src.plonkit.categories import DEFAULT_LOCATION, category_for
+from src.plonkit.guide import clean_text, read_guide
 
 logger = logging.getLogger("uvicorn.error")
 router = APIRouter()
@@ -56,19 +56,6 @@ MAPS_RE = re.compile(
 TITLE_KEYS = ("title", "name", "label", "heading", "header")
 
 _SESSIONS: OrderedDict[str, dict] = OrderedDict()
-_MOD = None
-
-
-def _script():
-    """The existing import script, loaded from its file (its category / text rules are reused as they are)."""
-    global _MOD  # noqa: PLW0603
-    if _MOD is None:
-        path = Path(__file__).parents[3] / "scripts" / "import_plonkit_clues.py"
-        spec = importlib.util.spec_from_file_location("import_plonkit_clues", path)
-        mod = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(mod)
-        _MOD = mod
-    return _MOD
 
 
 def _slug(name: str) -> str:
@@ -240,7 +227,6 @@ async def plonkit_start(body: StartBody, request: Request):
     if not row:
         raise HTTPException(404, "That country isn't in the database.")
     name = row["name"]
-    mod = _script()
     slugs = list(
         dict.fromkeys([_slug(name), _slug(re.sub(r"^the ", "", name, flags=re.IGNORECASE))])
     )
@@ -255,7 +241,7 @@ async def plonkit_start(body: StartBody, request: Request):
                 if r.status_code != 404:
                     _log_blocked(page_url, r)
                 continue
-            g = mod.read_guide(r.text)
+            g = read_guide(r.text)
         except Exception:  # noqa: BLE001
             continue
         if str(g.get("code") or "").upper() == cc:
@@ -280,14 +266,14 @@ async def plonkit_start(body: StartBody, request: Request):
                 continue
             data = item.get("data") or {}
             image_url = (data.get("image") or {}).get("imageUrl")
-            text = mod.clean_text(data.get("text") or [])
+            text = clean_text(data.get("text") or [])
             if not text or not image_url:
                 continue  # nothing to import without text and a picture
             if pending is not None:
                 sections.append({"step": len(sections) + 1, "title": pending, "index": len(tips)})
                 pending = None
             tags = item.get("tags") or []
-            category, title = classify(text, mod.category_for(text, tags))
+            category, title = classify(text, category_for(text, tags))
             tips.append(
                 {
                     "id": item.get("id") or uuid4().hex[:8],
@@ -348,7 +334,6 @@ async def plonkit_clue(token: str, index: int):
     if not 0 <= index < n:
         raise HTTPException(404, "No such clue")
     tip = s["tips"][index]
-    mod = _script()
     category = tip["category"]
     return {
         "index": index,
@@ -357,7 +342,7 @@ async def plonkit_clue(token: str, index: int):
         "step": tip["step"],
         "info": tip["text"],
         "category": category,
-        "location": mod.DEFAULT_LOCATION.get(category, "Anywhere"),
+        "location": DEFAULT_LOCATION.get(category, "Anywhere"),
         "source": f"{s['page_url']}#{tip['step']}",
         "link": tip["link"],
         "zone": s["reg_from"] is not None and index >= s["reg_from"],

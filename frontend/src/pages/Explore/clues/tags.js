@@ -7,7 +7,7 @@ export const GENERAL_TAGS = [
   "Infrastructure", "Vehicle", "License Plate", "Flags", "Roads", "Subdivision Names",
   "City Names", "Agriculture", "Soil", "Brand", "Language", "Script", "Road Sign",
   "Electricity Pole", "Bollard", "National Parks", "Biome", "Religion",
-  "Animals", "Car Meta", "Copyright", "Generation Meta", "Camera Meta",
+  "Animals", "Google Car", "Copyright", "Camera Generation", "Camera", "Coverage",
 ];
 
 // [field, label, what 1 means, what 10 means]
@@ -25,8 +25,8 @@ export const DEFAULT_LOCATION = {
   "Agriculture": "Rural", "Soil": "Rural", "Brand": "Urban", "Language": "Anywhere", "Script": "Anywhere",
   "Road Sign": "Anywhere", "Electricity Pole": "Anywhere", "Bollard": "Rural", "National Parks": "Rural",
   "Biome": "Anywhere", "Religion": "Urban",
-  "Animals": "Rural", "Car Meta": "Anywhere", "Copyright": "Anywhere", "Generation Meta": "Anywhere",
-  "Camera Meta": "Anywhere",
+  "Animals": "Rural", "Google Car": "Anywhere", "Copyright": "Anywhere", "Camera Generation": "Anywhere",
+  "Camera": "Anywhere", "Coverage": "Anywhere",
 };
 
 // ── Custom, slightly cartoonish icons (plain SVG elements, no JSX so this stays a .js file) ──
@@ -84,8 +84,8 @@ const ANIMALS = svg(
   el("path", { d: "M5 17l5 2M9 15.5l8 3M19 16.5l-4 3", stroke: "#c79a62", strokeWidth: 0.9, strokeLinecap: "round" }),
 );
 
-// Car Meta: the Ghana car, vertical, filled (not blurred): blue top with two eyes, silver slatted body
-const CAR_META = svg(
+// Camera Generation: the Ghana car, vertical, filled (not blurred): blue top with two eyes, silver slatted body
+const CAMERA_GENERATION = svg(
   el("rect", { x: 6, y: 9, width: 12, height: 13, rx: 1.5, fill: "#c9ccd1", stroke: "#555", strokeWidth: 1 }),
   ...[11.6, 14, 16.4, 18.8].map((y) => el("path", { key: y, d: `M7.5 ${y}H16.5`, stroke: "#858a92", strokeWidth: 0.9, strokeLinecap: "round" })),
   el("rect", { x: 4.5, y: 2, width: 15, height: 8.5, rx: 3.8, fill: "#2b6fd6", stroke: "#174a9a", strokeWidth: 1 }),
@@ -101,8 +101,8 @@ const COPYRIGHT = svg(
   el("path", { d: "M15.3 9.4A4.3 4.3 0 1 0 15.3 14.6", fill: "none", stroke: "#e6edf3", strokeWidth: 2.2, strokeLinecap: "round" }),
 );
 
-// Generation Meta: small cam, straight: top-down dirt road, edge posts, the small car bump on the right edge
-const GEN_META = svg(
+// Google Car: small cam, straight: top-down dirt road, edge posts, the small car bump on the right edge
+const GOOGLE_CAR = svg(
   el("rect", { x: 1, y: 3, width: 22, height: 18, rx: 2, fill: "#b79a78", stroke: "#7a6246", strokeWidth: 1 }),
   el("rect", { x: 4, y: 3.6, width: 1.7, height: 3.6, rx: 0.5, fill: "#fff" }),
   el("rect", { x: 9, y: 3.6, width: 1.7, height: 3.6, rx: 0.5, fill: "#fff" }),
@@ -112,8 +112,8 @@ const GEN_META = svg(
   el("rect", { x: 20.4, y: 10, width: 1.7, height: 4, rx: 0.5, fill: "#c0304a" }),
 );
 
-// Camera Meta: a leaf
-const CAM_META = svg(
+// Camera: a leaf
+const CAMERA = svg(
   el("path", { d: "M4 20C3.5 10 10 4 20.5 3.5C20.5 14 14 20.5 4 20Z", fill: "#4caf50", stroke: "#2e7d32", strokeWidth: 1, strokeLinejoin: "round" }),
   el("path", { d: "M4.5 19.5L16 8M10 14l-0.5-4.5M13 11.2l3.2 0.3", stroke: "#2e7d32", strokeWidth: 1, strokeLinecap: "round", fill: "none" }),
 );
@@ -125,7 +125,8 @@ export const CATEGORY_ICONS = {
   "Subdivision Names": "🗺️", "City Names": "🏙️", "Agriculture": "🌾", "Soil": "🟤", "Brand": "🏷️",
   "Language": "💬", "Script": "🔤", "Road Sign": STOP, "Electricity Pole": POLE, "Bollard": BOLLARD,
   "National Parks": "🏞️", "Biome": "🌲", "Religion": "🛐",
-  "Animals": ANIMALS, "Car Meta": CAR_META, "Copyright": COPYRIGHT, "Generation Meta": CAM_META, "Camera Meta": GEN_META,
+  "Animals": ANIMALS, "Google Car": GOOGLE_CAR, "Copyright": COPYRIGHT, "Camera Generation": CAMERA_GENERATION,
+  "Camera": CAMERA, "Coverage": "❄️",
 };
 
 const LOCATION_HUES = { Urban: 35, Rural: 140, Anywhere: 220 };

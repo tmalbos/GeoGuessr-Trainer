@@ -2,7 +2,7 @@
 
 classify(text, base_category) -> (category, title)
 
-Title, first rule that gives one wins ("noun" = the category name, or Chevron / Road Marker / Landscape):
+Title, first rule that gives one wins ("noun" = the category name, or Chevron / Road Marker / Snow Pole / Crosswalk Sign / Landscape):
   1. the first bold phrase: 1 word -> "<word> <noun>", 2-3 words -> the phrase itself, 4+ words -> not used
   2. the same with the first link text
   3. the first one or two capitalised words of the first sentence + noun (obvious sentence starters skipped)
@@ -10,6 +10,8 @@ Title, first rule that gives one wins ("noun" = the category name, or Chevron / 
 """
 
 import re
+
+from src.plonkit.categories import META_CATEGORIES
 
 BOLD = re.compile(r"\*\*(.+?)\*\*", re.DOTALL)
 LINK = re.compile(r"\[([^\]]+)\]\(https?://[^\s)]+\)")
@@ -27,6 +29,8 @@ SKIP = {
 RULES = [
     (re.compile(r"\bchevrons?\b", re.IGNORECASE), "Road Sign", "Chevron", True),
     (re.compile(r"\broad markers?\b", re.IGNORECASE), "Road Sign", "Road Marker", True),
+    (re.compile(r"\bsnow\s*poles?\b", re.IGNORECASE), "Infrastructure", "Snow Pole", True),
+    (re.compile(r"\bcrosswalks?\s+signs?\b", re.IGNORECASE), "Road Sign", "Crosswalk Sign", True),
     (re.compile(r"\blandscapes?\b", re.IGNORECASE), "Topography", "Landscape", True),
     (re.compile(r"\b(?:soil|dirt)\b", re.IGNORECASE), "Soil", None, False),
     (
@@ -61,7 +65,12 @@ def _runs(pattern: re.Pattern, text: str) -> list[str]:
 
 def _with(phrase: str, noun: str) -> str:
     phrase = phrase[:1].upper() + phrase[1:]
-    return phrase if noun.lower().rstrip("s") in phrase.lower() else f"{phrase} {noun}"
+    if noun.lower().rstrip("s") in phrase.lower():
+        return phrase
+    have = [w.lower().rstrip("s") for w in phrase.split()]
+    if [w.lower().rstrip("s") for w in noun.split()][: len(have)] == have:
+        return noun  # the phrase is only the start of the noun ("Snow" -> "Snow Pole")
+    return f"{phrase} {noun}"
 
 
 def _from_run(runs: list[str], noun: str) -> str | None:
@@ -93,7 +102,9 @@ def classify(text: str, base: str) -> tuple[str, str]:
     links = _runs(LINK, text)
     first = re.split(r"(?<=[.!?])\s", _plain(text), maxsplit=1)[0]
     category, noun = base, None
-    for rx, cat, shown, whole in RULES:
+    # The meta categories (Google Car, Camera Generation...) are never overridden by the rules below.
+    rules = () if base in META_CATEGORIES else RULES
+    for rx, cat, shown, whole in rules:
         if rx.search(text if whole else first):
             category, noun = cat, shown
             break

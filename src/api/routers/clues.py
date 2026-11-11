@@ -79,7 +79,7 @@ GENERAL_TAGS = [
     "Infrastructure", "Vehicle", "License Plate", "Flags", "Roads", "Subdivision Names",
     "City Names", "Agriculture", "Soil", "Brand", "Language", "Script", "Road Sign",
     "Electricity Pole", "Bollard", "National Parks", "Biome", "Religion",
-    "Animals", "Car Meta", "Copyright", "Generation Meta", "Camera Meta",
+    "Animals", "Google Car", "Copyright", "Camera Generation", "Camera", "Coverage",
 ]  # fmt: skip
 
 KINDS = ("image", "svg", "csv", "polygons", "lines", "points")
