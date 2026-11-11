@@ -32,7 +32,6 @@ from starlette.concurrency import run_in_threadpool
 
 from src.api.deps import get_ctx
 from src.geo.map_detect import detect_map
-from src.geo.pinpoint import convert_pins
 from src.geo.stain_extract import (
     StainError,
     analyze,
@@ -42,7 +41,6 @@ from src.geo.stain_extract import (
 router = APIRouter()
 
 FIXED_PARAMS = {"cap": 1.0}  # no longer tunable
-PIN_CLIP_DEG = 0.0009  # a pin circle may reach this far past the (simplified) country outline
 MIN_STAIN_PCT = (
     0.0  # drop stains whose total area is below this % of the country (no longer in the UI)
 )
@@ -123,39 +121,21 @@ async def stain_upload(request: Request, path: str | None = None):
     }
 
 
-def _polygons(g) -> shapely.Geometry:
-    """Only the polygons of a geometry, as one geometry."""
-    parts = [p for p in shapely.get_parts(g) if p.geom_type == "Polygon" and not p.is_empty]
-    return shapely.union_all(parts) if parts else shapely.GeometryCollection()
-
-
 def _mark_pins(res: dict) -> dict:
-    """Map pins (pinpoint clues, any colour) become circles around the pin tip, flagged `pin`.
+    """Flag the stains made only of map pins. The pins are found (and turned into circles around the tip)
+    in analyze, BEFORE the clip to the country, so a pin on a border is not cut first.
 
     A stain made only of pins is tagged "Pin n"; a stain that mixes pins with ordinary areas keeps its tag.
     """
-    outline = shapely.from_geojson(json.dumps(res["base"]["outline"]))
-    clip = shapely.buffer(outline, PIN_CLIP_DEG)
-    classes, feats, n = [], [], 0
+    n = 0
     for c, f in zip(res["classes"], res["geojson"]["features"], strict=True):
-        c.setdefault("pin", False)
-        if not c["base"]:
-            geom = shapely.from_geojson(json.dumps(f["geometry"]))
-            new, pins, rest = convert_pins(geom, outline)
-            if pins:
-                new = _polygons(shapely.intersection(shapely.make_valid(new), clip))
-                if new.is_empty:
-                    continue
-                f["geometry"] = json.loads(shapely.to_geojson(new))
-                if rest == 0:
-                    n += 1
-                    c["pin"] = True
-                    c["tag"] = f["properties"]["tag"] = f"Pin {n}"
-        f["properties"]["pin"] = c["pin"]
-        classes.append(c)
-        feats.append(f)
-    res["classes"] = classes
-    res["geojson"]["features"] = feats
+        props = f["properties"]
+        pins, rest = props.pop("pins", 0), props.pop("rest", 0)
+        c["pin"] = bool(pins) and rest == 0 and not c["base"]
+        if c["pin"]:
+            n += 1
+            c["tag"] = props["tag"] = f"Pin {n}"
+        props["pin"] = c["pin"]
     return res
 
 

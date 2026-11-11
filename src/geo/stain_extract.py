@@ -85,6 +85,8 @@ import shapely
 from PIL import Image, ImageDraw, ImageOps
 from shapely.affinity import affine_transform
 
+from src.geo.pinpoint import find_pins
+
 try:  # much faster nearest-neighbour search when scipy is around
     from scipy.spatial import cKDTree
 except ImportError:  # pragma: no cover
@@ -168,6 +170,13 @@ DELTA_E = 14.61  # CIEDE2000 distance under which two colours are the same stain
 MAX_CLASSES = 4  # stains kept besides the base map (UI slider)
 EXPAND_PX = 2  # pixel layers the stains grow into undefined pixels (UI slider)
 SCOPE_PX = 0  # px beyond the fitted outline whose pixels are read (constant, not in the UI)
+PIN_MARGIN_PX = (
+    40  # work px around the map where pins are looked for (only pins; the stains don't use it)
+)
+PIN_EXTRA_CLASSES = (
+    4  # extra stains in that pass, so neighbours in the margin don't take the pins' slot
+)
+PIN_CLIP_DEG = 0.0009  # a pin circle may reach this far past the country outline (degrees)
 BASE_L_MIN = 85.0  # the base map is at least this light (Lab L)...
 BASE_CHROMA_MAX = 30.0  # ...and at most this saturated (Lab chroma)
 HOLE_MIN = 10000.0  # holes in a stain smaller than this (px² at work size) are filled
@@ -210,7 +219,7 @@ COLOR_TIERS = [
     ("outer_border", "#6D706D", 14.61, False, 1),
     ("water", "dynamic", 0.0, False, 1),
     ("coastline", "#2077A2", 14.61, False, 3),
-    ("base", "dynamic", 14.61, False, -1),
+    ("base", "dynamic", 10.0, False, -1),
     ("stain", "dynamic", None, False, 0),
     ("undefined", "dynamic", 0.0, False, 2),
 ]
@@ -1819,6 +1828,54 @@ def _raster(poly_geom, size: tuple[int, int]) -> np.ndarray:
     return np.asarray(im) > 0
 
 
+def _mostly_in(part, pin) -> bool:
+    """True when at least half of `part` lies inside the pin polygon."""
+    return part.intersects(pin) and shapely.intersection(part, pin).area >= 0.5 * part.area
+
+
+def _pin_pieces(
+    img, inside, centers, delta_e, max_classes, expand_px, inset, hole_min, band, margin
+) -> dict:
+    """The stains as they look with a margin around the map. Only used to look for map pins in them.
+
+    The picture is classified AGAIN, with the very same steps, on the map plus a ring of `margin` px, so a pin
+    that sticks out of the country is whole and has the same shape as a pin inside it. Nothing of this is used
+    for anything else: the normal classification is untouched. The stains found here are matched by colour to
+    the normal ones (`centers`) and returned as {normal label: geometry in px} (holes filled, smoothed).
+    """
+    if len(centers) < 2:
+        return {}
+    try:
+        lab, cen = _classify(
+            img,
+            _dilate(inside, margin),
+            delta_e,
+            max_classes + PIN_EXTRA_CLASSES,
+            expand_px,
+            inset,
+            hole_min,
+            band,
+        )
+    except StainError:
+        return {}
+    mine = _lab(np.asarray(centers[1:])).astype(np.float64)
+    owner = {}
+    for k in range(1, len(cen)):
+        d = _delta_e(mine, _lab(np.asarray(cen[k : k + 1])).astype(np.float64))
+        j = int(d.argmin())
+        if d[j] <= delta_e:
+            owner[k] = 1 + j
+    keys, geoms = [], []
+    for o in sorted(set(owner.values())):
+        mask = np.isin(lab, [k for k, v in owner.items() if v == o])
+        parts = [p for p in _polys(_runs_geom(mask)) if p.area >= SMALL_PIECE_PX]
+        if parts:
+            keys.append(o)
+            geoms.append(shapely.union_all(parts))
+    geoms = _smooth_shared(_fill_small_holes(geoms, hole_min), SMOOTH_PX)
+    return dict(zip(keys, geoms, strict=True))
+
+
 def _fill_small_holes(geoms: list, min_area: float) -> list:
     """Fill the small holes of each polygon (a label or border crossing a stain), except the
     part of a hole that belongs to another stain.
@@ -2188,6 +2245,20 @@ def analyze(
         band,
     )
 
+    # 3b. pins are looked for in a margin around the map, so one that sticks out of the country is whole
+    pin_shapes = _pin_pieces(
+        img,
+        inside,
+        centers,
+        delta_e,
+        max_classes,
+        expand_px,
+        rad(BORDER_INSET_PX),
+        HOLE_MIN * scale * scale,
+        band,
+        rad(PIN_MARGIN_PX),
+    )
+
     # the app's own country outline, a few px wider: the drawn coast and the fitted one never agree exactly
     p0, p1 = to_lonlat(np.array([[wid / 2, hgt / 2], [wid / 2 + 1, hgt / 2]], float))
     clip = reg["clip_outline"].buffer(rad(CLIP_PX) * float(np.hypot(*(p1 - p0))))
@@ -2211,7 +2282,24 @@ def analyze(
     stain_n = 0
     for g, i in zip(geoms, ids, strict=True):
         ll = shapely.make_valid(shapely.transform(g, to_lonlat))
+        is_base = i == 0  # label 0 is always the base map
+        found = []
+        if i in pin_shapes:
+            # Each pin read in the margin replaces the pieces of this stain that are the pin by a circle at its tip.
+            cand = _poly_only(shapely.make_valid(shapely.transform(pin_shapes[i], to_lonlat)))
+            found = find_pins(cand, reg["clip_outline"])
+        pins = len(found)
+        if found:
+            keep = [
+                p for p in _polys(_poly_only(ll)) if not any(_mostly_in(p, f[0]) for f in found)
+            ]
+            ll = shapely.union_all(keep)
         ll = _poly_only(shapely.intersection(ll, clip))
+        rest = len(_polys(ll))
+        if found:
+            pin_clip = reg["clip_outline"].buffer(PIN_CLIP_DEG)
+            circles = shapely.union_all([f[1] for f in found])
+            ll = _poly_only(shapely.union_all([ll, shapely.intersection(circles, pin_clip)]))
         if ll.is_empty:
             continue
         try:
@@ -2219,7 +2307,6 @@ def analyze(
         except Exception:  # noqa: BLE001
             pass
         hx = _hex(centers[i])
-        is_base = i == 0  # label 0 is always the base map
         if is_base:
             tag = "Base"
         else:
@@ -2231,7 +2318,14 @@ def analyze(
         features.append(
             {
                 "type": "Feature",
-                "properties": {"tag": tag, "color": hx, "hex": hx, "base": is_base},
+                "properties": {
+                    "tag": tag,
+                    "color": hx,
+                    "hex": hx,
+                    "base": is_base,
+                    "pins": pins,
+                    "rest": rest,
+                },
                 "geometry": json.loads(shapely.to_geojson(ll)),
             }
         )
