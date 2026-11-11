@@ -188,7 +188,12 @@ BORDER_INSET_PX = 4  # work px: grey pixels this close to the country outline ar
 BORDER_WHITE_MIN = 235  # a grey this bright (brightest channel) is paper / white, not a border
 MIN_MAP_SIDE_PX = 100  # a placed map must be at least this wide AND this tall (work px)
 MIN_MAP_LONG_PX = 300  # ...and its longest side at least this long (work px)
-MIN_STAIN_WIDTH_PX = 3  # a stain piece narrower than this (2 px wide or less, before growth) is not a stain: undefined
+MIN_STAIN_WIDTH_PX = 4  # a stain piece narrower than this (2 px wide or less, before growth) is not a stain: undefined
+TENTACLE_WIDTH_PX = 4  # a part of a stain thinner than this that hangs off a thicker part is a tentacle (full-res px)
+TENTACLE_LEN_PX = (
+    8  # ...and only when it sticks out at least this far from the thick part (full-res px)
+)
+BORDER_BAND_PX = 2  # half-width of the band around the placed inner borders where thin stain pixels are not trusted (work px)
 # Colour tiers, in PRIORITY order: a colour belongs to the FIRST tier it fits. Reorder the rows to change priority.
 #   (name, colour, delta_e, only_in_inner, resistance)
 #   name           base / water / stain / undefined are special (see _classify). Any other name is a fixed-colour
@@ -1282,7 +1287,38 @@ def _cross_dilate(m: np.ndarray) -> np.ndarray:
     return out
 
 
-def _small_pieces(lab: np.ndarray, k: int) -> np.ndarray:
+MIN_STAIN_WIDTH_LOOSE_PX = (
+    3  # same check for a stain that is NOT a blend of two other colours (a real tiny stain)
+)
+BLEND_DIST = (
+    12.0  # a stain colour this close (Lab) to the line between two other colours is a blend of them
+)
+
+
+def _stain_widths(cent: np.ndarray) -> list[int]:
+    """Width of the "small piece" check per label. A stain whose colour lies on the line between two other
+    classes (e.g. the pale fringe between red and cream) is a blend: it gets MIN_STAIN_WIDTH_PX. Any other
+    stain gets the looser MIN_STAIN_WIDTH_LOOSE_PX, so a real tiny stain survives. `cent` = Lab of the centres.
+    """
+    loose = min(MIN_STAIN_WIDTH_PX, MIN_STAIN_WIDTH_LOOSE_PX)
+    out = [MIN_STAIN_WIDTH_PX] * len(cent)
+    for k in range(1, len(cent)):
+        out[k] = loose
+        for i in range(len(cent)):
+            for j in range(i + 1, len(cent)):
+                if k in {i, j}:
+                    continue
+                ab = cent[j] - cent[i]
+                t = float(np.dot(cent[k] - cent[i], ab) / max(float(np.dot(ab, ab)), 1e-9))
+                if (
+                    0.1 <= t <= 0.9
+                    and float(np.linalg.norm(cent[k] - (cent[i] + t * ab))) <= BLEND_DIST
+                ):
+                    out[k] = MIN_STAIN_WIDTH_PX
+    return out
+
+
+def _small_pieces(lab: np.ndarray, k: int, width: int = MIN_STAIN_WIDTH_PX) -> np.ndarray:
     """Mask of the pixels of label k that sit in small or thin pieces (anti-aliasing specks).
 
     A piece is small when it has fewer than SMALL_PIECE_PX pixels, or when it has no MIN_STAIN_WIDTH_PX
@@ -1294,7 +1330,7 @@ def _small_pieces(lab: np.ndarray, k: int) -> np.ndarray:
     comp, n = nd_label(m, structure=np.ones((3, 3), bool))
     flat = comp.ravel()
     sizes = np.bincount(flat, minlength=n + 1)
-    blocks = _solid_blocks(m, MIN_STAIN_WIDTH_PX)
+    blocks = _solid_blocks(m, width)
     solid = (
         np.bincount(
             comp[: blocks.shape[0], : blocks.shape[1]].ravel(),
@@ -1308,7 +1344,7 @@ def _small_pieces(lab: np.ndarray, k: int) -> np.ndarray:
     return small[comp]
 
 
-def _fragmented(lab: np.ndarray, k: int) -> bool:
+def _fragmented(lab: np.ndarray, k: int, width: int = MIN_STAIN_WIDTH_PX) -> bool:
     """True when most of label k's pixels are in small or thin pieces (anti-aliasing, not a stain).
 
     Islands are not penalised for being many: only the share of the stain's pixels that sit in
@@ -1317,7 +1353,44 @@ def _fragmented(lab: np.ndarray, k: int) -> bool:
     total = int((lab == k).sum())
     if not total:
         return False
-    return float(_small_pieces(lab, k).sum()) > FRAGMENT_SHARE * total
+    return float(_small_pieces(lab, k, width).sum()) > FRAGMENT_SHARE * total
+
+
+def _thin_parts(m: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """(core, tentacles) of a stain mask. core = the part thick enough to survive an opening of width
+    TENTACLE_WIDTH_PX. tentacles = thin parts attached to a core that stick out more than TENTACLE_LEN_PX.
+    A piece with no core at all (small and thin on its own) is neither: it is left as it is.
+    """
+    core = np.zeros_like(m)
+    tent = np.zeros_like(m)
+    if distance_transform_edt is None or nd_label is None:
+        return m.copy(), tent
+    rows = np.flatnonzero(m.any(1))
+    if not len(rows):
+        return core, tent
+    cols = np.flatnonzero(m.any(0))
+    r = TENTACLE_WIDTH_PX / 2
+    pad = int(r) + 2
+    y0, y1 = max(0, rows[0] - pad), min(m.shape[0], rows[-1] + 1 + pad)
+    x0, x1 = max(0, cols[0] - pad), min(m.shape[1], cols[-1] + 1 + pad)
+    s = m[y0:y1, x0:x1]
+    solid = distance_transform_edt(s) > r
+    if not solid.any():
+        return core, tent
+    c = (distance_transform_edt(~solid) <= r) & s
+    rem = s & ~c
+    comp, n = nd_label(rem, structure=np.ones((3, 3), bool))
+    if n:
+        bad = np.zeros(n + 1, bool)
+        bad[comp[rem & _dilate(c, 1)]] = True
+        depth = distance_transform_edt(~c)
+        far = np.zeros(n + 1)
+        np.maximum.at(far, comp[rem], depth[rem])
+        bad &= far > TENTACLE_LEN_PX
+        bad[0] = False
+        tent[y0:y1, x0:x1] = bad[comp]
+    core[y0:y1, x0:x1] = c
+    return core, tent
 
 
 def _hand_specks_to_nearest(lab: np.ndarray, order: list[int]) -> None:
@@ -1469,6 +1542,7 @@ def _classify(
     expand_px: int,
     border_inset: int = 0,
     hole_max: float = 0.0,
+    border_band: np.ndarray | None = None,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Label every pixel of `region`. Returns (labels (h, w) int16, colours (K, 3)).
 
@@ -1568,10 +1642,11 @@ def _classify(
     resistance = resistance.reshape(h, w)
     _log_colours(ucol, ulab, cnt, dull, pale, ulabel, centres, delta_e, max_classes)
     _log_counts("initial", lab, region, ucol[centres])
+    widths = _stain_widths(ulab[centres])
 
     # a stain made of small / thin disconnected pieces is anti-aliasing: all of it becomes undefined
     for k in range(1, len(centres)):
-        if _fragmented(lab, k):
+        if _fragmented(lab, k, widths[k]):
             logger.info(
                 "classify: stain %d dropped as fragmented (%d px)", k, int((lab == k).sum())
             )
@@ -1583,8 +1658,19 @@ def _classify(
     alive.sort(key=lambda k: ulab[centres[k], 0])
     # a piece 3 px wide or less is not a stain: it becomes undefined (growth below may still take it)
     for k in alive:
-        lab[_small_pieces(lab, k)] = -1
+        lab[_small_pieces(lab, k, widths[k])] = -1
     _log_counts("after thin pieces", lab, region, ucol[centres])
+    # tentacles (thin parts hanging off a thick one) never regrow; thin stain pixels on a placed inner
+    # border are undefined too (growth below may refill them from the neighbours)
+    for k in alive:
+        m = lab == k
+        core, tent = _thin_parts(m)
+        drop = tent.copy()
+        if border_band is not None:
+            drop |= m & border_band & ~core
+        lab[drop] = -1
+        resistance[tent] = 1000
+    _log_counts("after tentacles", lab, region, ucol[centres])
     # the resistance of every pixel comes from its colour tier (COLOR_TIERS)
     _expand(lab, alive, expand_px, region, resistance)
     # undefined gaps the stains did not reach are theirs when nothing else touches them
@@ -2086,8 +2172,20 @@ def analyze(
     region = _dilate(inside, SCOPE_PX)
 
     # 3. ONE label per pixel: base map = 0, stains = 1..  (see _classify)
+    band = None
+    if reg["placed_b"] is not None:
+        band = _dilate(
+            _line_mask(affine_transform(reg["placed_b"], to_full), (hgt, wid)), rad(BORDER_BAND_PX)
+        )
     lab, centers = _classify(
-        img, region, delta_e, max_classes, expand_px, rad(BORDER_INSET_PX), HOLE_MIN * scale * scale
+        img,
+        region,
+        delta_e,
+        max_classes,
+        expand_px,
+        rad(BORDER_INSET_PX),
+        HOLE_MIN * scale * scale,
+        band,
     )
 
     # the app's own country outline, a few px wider: the drawn coast and the fitted one never agree exactly
