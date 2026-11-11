@@ -164,14 +164,13 @@ CHANCE_SHIFT_FRAC = 0.04  # chance level = line shifted by this share of the map
 CHANCE_SHIFT_MIN, CHANCE_SHIFT_MAX = 4.0, 12.0  # ...limited to this range (px)
 
 # Colours / labels
-DELTA_E = 15.0  # CIEDE2000 distance under which two colours are the same stain (UI slider)
+DELTA_E = 14.61  # CIEDE2000 distance under which two colours are the same stain (UI slider)
 MAX_CLASSES = 4  # stains kept besides the base map (UI slider)
-EXPAND_PX = 3  # pixel layers the stains grow into undefined pixels (UI slider)
+EXPAND_PX = 2  # pixel layers the stains grow into undefined pixels (UI slider)
 SCOPE_PX = 0  # px beyond the fitted outline whose pixels are read (constant, not in the UI)
 BASE_L_MIN = 85.0  # the base map is at least this light (Lab L)...
 BASE_CHROMA_MAX = 30.0  # ...and at most this saturated (Lab chroma)
-HOLE_MIN = 10.0  # holes in a stain smaller than this (px² at work size) are filled
-MIN_POLY = 4.0  # polygons smaller than this (px² at work size) are dropped
+HOLE_MIN = 10000.0  # holes in a stain smaller than this (px² at work size) are filled
 GREY_SPREAD = (
     30  # max(R,G,B) - min(R,G,B) at or under this: grey / black / white, not a stain colour
 )
@@ -179,17 +178,37 @@ BLACK_MAX = 70  # a colour whose brightest channel is under this is black
 LIGHT_BLUE_HUE = (170.0, 260.0)  # degrees
 LIGHT_BLUE_SAT_MAX = 0.5  # a blue this pale (low saturation) and this bright is "light blue"
 LIGHT_BLUE_VAL_MIN = 0.7
-SMALL_PIECE_PX = 12  # a connected piece of a stain with fewer px than this is "small" (full-res px)
+SMALL_PIECE_PX = 6  # a connected piece of a stain with fewer px than this is "small" (full-res px)
 FRAGMENT_SHARE = 0.5  # a stain with more than this share of its pixels in small pieces is dropped
 SPECK_REASSIGN_PX = (
-    2  # a small piece of a stain joins the closest non-small stain at most this far away (px)
+    200  # a small piece of a stain joins the closest non-small stain at most this far away (px)
 )
 CLIP_PX = 3  # the stains may reach this many px past the app's own country outline
-BORDER_RESISTANCE = (
-    3  # cost of expanding onto a grey pixel of an inner border (a normal pixel costs 1)
-)
-BORDER_INSET_PX = 5  # work px: grey pixels this close to the country outline are not inner borders
+BORDER_INSET_PX = 4  # work px: grey pixels this close to the country outline are not inner borders
 BORDER_WHITE_MIN = 235  # a grey this bright (brightest channel) is paper / white, not a border
+MIN_MAP_SIDE_PX = 100  # a placed map must be at least this wide AND this tall (work px)
+MIN_MAP_LONG_PX = 300  # ...and its longest side at least this long (work px)
+MIN_STAIN_WIDTH_PX = 3  # a stain piece narrower than this (2 px wide or less, before growth) is not a stain: undefined
+# Colour tiers, in PRIORITY order: a colour belongs to the FIRST tier it fits. Reorder the rows to change priority.
+#   (name, colour, delta_e, only_in_inner, resistance)
+#   name           base / water / stain / undefined are special (see _classify). Any other name is a fixed-colour
+#                  tier of undefined pixels (borders, text...). A tier called "undefined" catches everything left.
+#   colour         "#RRGGBB", or "dynamic" (base: the most common pale colour; water: light blue; stain: found in
+#                  the image; undefined: whatever is left)
+#   delta_e        CIEDE2000 distance to that colour that still counts as the tier. None = the Delta E slider.
+#                  (ignored by dynamic water / undefined)
+#   only_in_inner  True: only applies away from the country outline (BORDER_INSET_PX); near it the tier is skipped
+#   resistance     cost for a stain to grow over such a pixel. -1 = cannot grow into it. (Stain pixels that were
+#                  dropped as too thin use the resistance of "undefined".)
+COLOR_TIERS = [
+    ("inner_border", "#869696", 14.61, True, 3),
+    ("outer_border", "#6D706D", 14.61, False, 1),
+    ("water", "dynamic", 0.0, False, 1),
+    ("coastline", "#2077A2", 14.61, False, 3),
+    ("base", "dynamic", 14.61, False, -1),
+    ("stain", "dynamic", None, False, 0),
+    ("undefined", "dynamic", 0.0, False, 2),
+]
 
 
 class StainError(Exception):
@@ -494,6 +513,11 @@ def _placed_box(uv, amat, tvec) -> tuple[float, float, float, float]:
     return float(lo[0]), float(lo[1]), float(hi[0] - lo[0]), float(hi[1] - lo[1])
 
 
+def _box_ok(w: float, h: float) -> bool:
+    """A placed map must be at least MIN_MAP_SIDE_PX wide and tall, and its longest side at least MIN_MAP_LONG_PX."""
+    return min(w, h) >= MIN_MAP_SIDE_PX and max(w, h) >= MIN_MAP_LONG_PX
+
+
 # ── match metric (old, distance to ANY edge; only the fallback without scipy) ──
 
 
@@ -577,7 +601,7 @@ def _candidates(
         px = np.round((pts[:, 0] - ub[0]) * a).astype(int)
         py = np.round((ub[3] - pts[:, 1]) * a).astype(int)
         w, h = int(px.max()) + 1, int(py.max()) + 1
-        if w <= ww and h <= hh:
+        if w <= ww and h <= hh and _box_ok(w * f, h * f):
             t = np.zeros((h, w), np.float32)
             t[py, px] = 1
             n_t = float(t.sum())
@@ -1156,6 +1180,8 @@ def register(sub: np.ndarray, outline, borders, projection: str, hint=None) -> d
             )
             r["score"] = r["lift"]
         bx0, by0, bw, bh = _placed_box(c["uv"], r["A"], r["t"])
+        if not _box_ok(bw, bh):
+            continue
         r["prior"] = float(_hint_prior(bx0, by0, bw, bh, hint))
         refined.append(
             {
@@ -1167,6 +1193,10 @@ def register(sub: np.ndarray, outline, borders, projection: str, hint=None) -> d
                 "fwd": c["fwd"],
             }
         )
+
+    if not refined:
+        msg = "The map came out too small (under 100 px on a side, or under 300 px on its longest). Use a bigger crop or image."
+        raise StainError(msg)
 
     def hint_nudge(r: dict) -> float:
         return 1 - HINT_FINAL_WEIGHT + HINT_FINAL_WEIGHT * r.get("prior", 1.0)
@@ -1255,8 +1285,8 @@ def _cross_dilate(m: np.ndarray) -> np.ndarray:
 def _small_pieces(lab: np.ndarray, k: int) -> np.ndarray:
     """Mask of the pixels of label k that sit in small or thin pieces (anti-aliasing specks).
 
-    A piece is small when it has fewer than SMALL_PIECE_PX pixels, or when it has no 3x3 solid block
-    (a 1-2 px wide line, such as the fringe around a stain).
+    A piece is small when it has fewer than SMALL_PIECE_PX pixels, or when it has no MIN_STAIN_WIDTH_PX
+    square solid block (a line 3 px wide or less, such as the fringe around a stain).
     """
     m = lab == k
     if not m.any() or nd_label is None:
@@ -1264,7 +1294,15 @@ def _small_pieces(lab: np.ndarray, k: int) -> np.ndarray:
     comp, n = nd_label(m, structure=np.ones((3, 3), bool))
     flat = comp.ravel()
     sizes = np.bincount(flat, minlength=n + 1)
-    solid = np.bincount(flat, weights=_erode(m, 1).ravel(), minlength=n + 1) > 0
+    blocks = _solid_blocks(m, MIN_STAIN_WIDTH_PX)
+    solid = (
+        np.bincount(
+            comp[: blocks.shape[0], : blocks.shape[1]].ravel(),
+            weights=blocks.ravel(),
+            minlength=n + 1,
+        )
+        > 0
+    )
     small = (sizes < SMALL_PIECE_PX) | ~solid
     small[0] = False
     return small[comp]
@@ -1343,6 +1381,86 @@ def _expand(
             lab[take] = k
 
 
+def _hex_lab(colour: str) -> np.ndarray:
+    """'#RRGGBB' -> CIE Lab."""
+    rgb = [int(colour.lstrip("#")[i : i + 2], 16) for i in (0, 2, 4)]
+    return _lab(np.array([rgb]))[0].astype(np.float64)
+
+
+def _solid_blocks(m: np.ndarray, k: int) -> np.ndarray:
+    """Top-left corners of the k x k blocks that lie fully inside the mask."""
+    h, w = m.shape
+    if h < k or w < k:
+        return np.zeros((0, 0), bool)
+    rows = np.ones((h, w - k + 1), bool)
+    for s in range(k):
+        rows &= m[:, s : w - k + 1 + s]
+    out = np.ones((h - k + 1, w - k + 1), bool)
+    for s in range(k):
+        out &= rows[s : h - k + 1 + s]
+    return out
+
+
+def _fill_gaps(lab: np.ndarray, region: np.ndarray, max_area: float) -> None:
+    """Give the stains the small undefined gaps that growth left behind. Works in place.
+
+    A gap is a connected group of undefined pixels inside `region`. It is filled when it has at most
+    `max_area` px, touches a stain and does not touch the base map; every pixel takes the nearest stain.
+    Gaps next to the base are left alone (they end up as base).
+    """
+    if nd_label is None or distance_transform_edt is None or max_area <= 0:
+        return
+    gaps = (lab < 0) & region
+    if not gaps.any():
+        return
+    comp, n = nd_label(gaps)
+    base_adj = np.zeros(lab.shape, bool)
+    stain_adj = np.zeros(lab.shape, bool)
+    for dy, dx in ((0, 1), (0, -1), (1, 0), (-1, 0)):
+        nb = _shifted(lab, dy, dx)
+        base_adj |= gaps & (nb == 0)
+        stain_adj |= gaps & (nb > 0)
+    flat = comp.ravel()
+    sizes = np.bincount(flat, minlength=n + 1)
+    has_base = np.bincount(flat, weights=base_adj.ravel(), minlength=n + 1) > 0
+    has_stain = np.bincount(flat, weights=stain_adj.ravel(), minlength=n + 1) > 0
+    fill = (sizes <= max_area) & has_stain & ~has_base
+    fill[0] = False
+    todo = fill[comp]
+    if todo.any():
+        nearest = _fill_nearest(np.where(lab > 0, lab, -1).astype(lab.dtype), todo)
+        lab[todo] = nearest[todo]
+
+
+CLOSE_STAIN_PX = 4  # undefined channels up to about 2x this wide between parts of a stain are closed (full-res px)
+
+
+def _close_stains(lab: np.ndarray, region: np.ndarray, r: int) -> None:
+    """Morphological closing of every stain, applied only to undefined pixels. Works in place.
+
+    A stain is grown by `r` px and shrunk back by `r` px: that bridges narrow undefined channels and slivers
+    (also the ones open to the outside, which _fill_gaps ignores) without growing its outer edge. Base and
+    other stains are never overwritten. A pixel several stains could close takes the nearest one.
+    """
+    if r <= 0 or distance_transform_edt is None:
+        return
+    undefined = (lab < 0) & region
+    if not undefined.any():
+        return
+    best = np.full(lab.shape, np.inf)
+    pick = np.full(lab.shape, -1, lab.dtype)
+    for k in np.unique(lab[lab > 0]):
+        m = lab == k
+        cand = _erode(_dilate(m, r), r) & undefined
+        if not cand.any():
+            continue
+        d = distance_transform_edt(~m)
+        take = cand & (d < best)
+        best[take] = d[take]
+        pick[take] = k
+    lab[pick > 0] = pick[pick > 0]
+
+
 def _classify(
     img: np.ndarray,
     region: np.ndarray,
@@ -1350,6 +1468,7 @@ def _classify(
     max_classes: int,
     expand_px: int,
     border_inset: int = 0,
+    hole_max: float = 0.0,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Label every pixel of `region`. Returns (labels (h, w) int16, colours (K, 3)).
 
@@ -1368,31 +1487,85 @@ def _classify(
     ucol = np.column_stack([ukey >> 16, (ukey >> 8) & 255, ukey & 255]).astype(np.int16)
     ulab = _lab(ucol).astype(np.float64)
     dull = _dull_mask(ucol)
-    grey = _grey_mask(ucol)
+    _grey_mask(ucol)
     pale = (ulab[:, 0] >= BASE_L_MIN) & (np.hypot(ulab[:, 1], ulab[:, 2]) <= BASE_CHROMA_MAX)
 
     order = np.argsort(-cnt, kind="stable")  # most common colour first
     pale_first = order[pale[order]]
     base = int(pale_first[0]) if len(pale_first) else int(order[0])
+    c32 = ucol.astype(np.float32)
+    water = dull & ~(((c32.max(1) - c32.min(1)) <= GREY_SPREAD) | (c32.max(1) < BLACK_MAX))
 
-    # stains: walk down the list; a colour far from everything chosen so far starts a new stain
-    left = order[~dull[order]]
-    left = left[_delta_e(ulab[left], ulab[base]) > delta_e]
-    stains: list[int] = []
-    while len(left) and len(stains) < max_classes:
-        c = int(left[0])
-        stains.append(c)
-        left = left[_delta_e(ulab[left], ulab[c]) > delta_e]
+    # Every colour gets the FIRST tier of COLOR_TIERS it fits (one answer near the outline, one inside).
+    tiers = list(COLOR_TIERS)
+    if not any(t[0] == "undefined" for t in tiers):
+        tiers.append(("undefined", "dynamic", 0.0, False, 2))
+    names = [t[0] for t in tiers]
+    base_lab = ulab[base]
+    if "base" in names and tiers[names.index("base")][1] != "dynamic":
+        base_lab = _hex_lab(tiers[names.index("base")][1])
+        base = int(_delta_e(ulab, base_lab).argmin())
+    n_u = len(ukey)
+    tier_out = np.full(n_u, -1, np.int16)
+    tier_in = np.full(n_u, -1, np.int16)
+    centres = [base]
+    dist = None
+    for ti, (name, colour, de, only_inner, _res) in enumerate(tiers):
+        d = delta_e if de is None else de
+        fixed = None if colour == "dynamic" else _hex_lab(colour)
+        if name == "base":
+            m = _delta_e(ulab, base_lab) <= d
+            if fixed is None:
+                m[base] = True
+        elif name == "water":
+            m = water if fixed is None else _delta_e(ulab, fixed) <= d
+        elif name == "stain":
+            # walk down the unclaimed colours; one far from everything chosen so far starts a new stain
+            claimed = (tier_out >= 0) | (tier_in >= 0)
+            left = order[~dull[order] & ~claimed[order]]
+            left = left[left != base]
+            left = left[_delta_e(ulab[left], base_lab) > d]
+            stains: list[int] = []
+            while len(left) and len(stains) < max_classes:
+                c = int(left[0])
+                stains.append(c)
+                left = left[_delta_e(ulab[left], ulab[c]) > d]
+            centres = [base, *stains]
+            dist = np.stack([_delta_e(ulab, ulab[c]) for c in centres], axis=1)
+            m = (dist[:, 1:].min(1) <= d) if stains else np.zeros(n_u, bool)
+        elif name == "undefined":
+            m = np.ones(n_u, bool)
+        else:
+            m = np.zeros(n_u, bool) if fixed is None else _delta_e(ulab, fixed) <= d
+        if not only_inner:
+            tier_out[m & (tier_out < 0)] = ti
+        tier_in[m & (tier_in < 0)] = ti
+    tier_out[tier_out < 0] = names.index("undefined")
 
-    centres = [base, *stains]
-    dist = np.stack([_delta_e(ulab, ulab[c]) for c in centres], axis=1)  # (K, n)
-    ulabel = np.where(dull, -1, dist.argmin(1)).astype(np.int16)  # leftovers: the closest centre
-    ulabel[dull & (dist[:, 0] <= delta_e)] = 0  # base-coloured noise is not "undefined"
-    ulabel[base] = 0
+    is_base = np.array([x == "base" for x in names])
+    is_stain = np.array([x == "stain" for x in names])
+    stain_lbl = np.zeros(n_u, np.int16)
+    if dist is not None and dist.shape[1] > 1:
+        stain_lbl = (1 + dist[:, 1:].argmin(1)).astype(np.int16)
+
+    def label_of(t: np.ndarray) -> np.ndarray:
+        return np.where(is_base[t], 0, np.where(is_stain[t], stain_lbl, -1)).astype(np.int16)
+
+    undef_res = tiers[names.index("undefined")][4]
+    res_t = np.array(
+        [undef_res if x == "stain" else t[4] for x, t in zip(names, tiers, strict=True)]
+    )
+    res_t = np.where(res_t < 0, 1000, np.maximum(res_t, 1)).astype(np.int16)
+    inner = _erode(region, border_inset).ravel()[idx]
+    pix_tier = np.where(inner, tier_in[inv], tier_out[inv])
+    ulabel = label_of(tier_out)
 
     lab = np.full(h * w, -1, np.int16)
-    lab[idx] = ulabel[inv]
+    lab[idx] = np.where(inner, label_of(tier_in)[inv], ulabel[inv])
     lab = lab.reshape(h, w)
+    resistance = np.ones(h * w, np.int16)
+    resistance[idx] = res_t[pix_tier]
+    resistance = resistance.reshape(h, w)
     _log_colours(ucol, ulab, cnt, dull, pale, ulabel, centres, delta_e, max_classes)
     _log_counts("initial", lab, region, ucol[centres])
 
@@ -1408,15 +1581,16 @@ def _classify(
     # the remaining stains grow into undefined pixels, darkest first; the rest goes to the base
     alive = [k for k in range(1, len(centres)) if (lab == k).any()]
     alive.sort(key=lambda k: ulab[centres[k], 0])
-    # small / thin pieces are anti-aliasing: they join the closest non-small stain
-    _hand_specks_to_nearest(lab, alive)
-    _log_counts("after speck handoff", lab, region, ucol[centres])
-    # inner borders (grey pixels inside the country, not on its outline) are harder to grow over
-    resistance = np.ones(h * w, np.int16)
-    resistance[idx] = np.where(grey[inv], BORDER_RESISTANCE, 1)
-    resistance = resistance.reshape(h, w)
-    resistance[~_erode(region, border_inset)] = 1
+    # a piece 3 px wide or less is not a stain: it becomes undefined (growth below may still take it)
+    for k in alive:
+        lab[_small_pieces(lab, k)] = -1
+    _log_counts("after thin pieces", lab, region, ucol[centres])
+    # the resistance of every pixel comes from its colour tier (COLOR_TIERS)
     _expand(lab, alive, expand_px, region, resistance)
+    # undefined gaps the stains did not reach are theirs when nothing else touches them
+    _fill_gaps(lab, region, hole_max)
+    # narrow channels and slivers between parts of a stain (also open ones) are closed
+    _close_stains(lab, region, CLOSE_STAIN_PX)
     _log_counts("after expansion", lab, region, ucol[centres])
     lab[(lab < 0) & region] = 0
     _log_counts("final", lab, region, ucol[centres])
@@ -1912,7 +2086,9 @@ def analyze(
     region = _dilate(inside, SCOPE_PX)
 
     # 3. ONE label per pixel: base map = 0, stains = 1..  (see _classify)
-    lab, centers = _classify(img, region, delta_e, max_classes, expand_px, rad(BORDER_INSET_PX))
+    lab, centers = _classify(
+        img, region, delta_e, max_classes, expand_px, rad(BORDER_INSET_PX), HOLE_MIN * scale * scale
+    )
 
     # the app's own country outline, a few px wider: the drawn coast and the fitted one never agree exactly
     p0, p1 = to_lonlat(np.array([[wid / 2, hgt / 2], [wid / 2 + 1, hgt / 2]], float))
@@ -1924,7 +2100,7 @@ def analyze(
     for i in np.argsort(-counts, kind="stable"):
         if counts[i] <= 0:
             continue
-        parts = [p for p in _polys(_runs_geom(lab == i)) if p.area >= MIN_POLY * scale * scale]
+        parts = [p for p in _polys(_runs_geom(lab == i)) if p.area >= SMALL_PIECE_PX]
         if parts:
             geoms.append(shapely.union_all(parts))
             ids.append(int(i))
