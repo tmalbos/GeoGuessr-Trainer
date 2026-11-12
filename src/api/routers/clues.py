@@ -74,7 +74,7 @@ STAGING = CLUES_DIR / ".staging"
 # Keep in sync with frontend/src/pages/Explore/clues/tags.js
 LOCATION_TAGS = ["Urban", "Rural", "Anywhere"]
 GENERAL_TAGS = [
-    "Architecture", "Phone Numbers", "Postal Codes", "Topography", "Vegetation",
+    "Architecture", "Phone Numbers", "Postal Codes", "Landscape", "Vegetation",
     "Infrastructure", "Vehicle", "License Plate", "Flags", "Roads", "Subdivision Names",
     "City Names", "Agriculture", "Soil", "Brand", "Language", "Script", "Road Sign",
     "Electricity Pole", "Bollard", "National Parks", "Biome", "Religion",

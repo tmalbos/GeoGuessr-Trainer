@@ -63,6 +63,7 @@ router = APIRouter()
 FORMAT = 1
 ID_RE = re.compile(r"[\w-]{1,100}")
 REL_TYPES = {"same_as", "similar_to", "group"}
+LEGACY_TAGS = {"Topography": "Landscape"}  # tags of packs made before the rename
 # The fields of a clue that travel in a pack (files are handled apart; overlay / score / medal are rebuilt).
 KEEP = (
     "id", "scope", "info", "tags", "frequency", "ease", "reliability", "blur",
@@ -179,6 +180,7 @@ def _build(c: dict, cc: str, z: zipfile.ZipFile, folder: Path) -> tuple[dict, li
     """A clue of the pack as a local entry, its files copied into `folder` under new names."""
     cid, scope = c.get("id"), c.get("scope")
     tags = c.get("tags") if isinstance(c.get("tags"), list) else []
+    tags = [LEGACY_TAGS.get(t, t) if isinstance(t, str) else t for t in tags]
     loc = [t for t in tags if t in LOCATION_TAGS]
     gen = [t for t in tags if t in GENERAL_TAGS]
     info = str(c.get("info") or "").strip()

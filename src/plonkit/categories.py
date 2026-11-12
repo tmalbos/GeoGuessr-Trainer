@@ -11,7 +11,7 @@ DEFAULT_LOCATION = {
     "Architecture": "Urban",
     "Phone Numbers": "Urban",
     "Postal Codes": "Urban",
-    "Topography": "Anywhere",
+    "Landscape": "Anywhere",
     "Vegetation": "Rural",
     "Infrastructure": "Anywhere",
     "Vehicle": "Anywhere",
@@ -40,7 +40,8 @@ DEFAULT_LOCATION = {
 }
 
 
-# Camera / coverage "meta" tips. In this order, the first rule that matches wins, before any other.
+# Camera / coverage "meta" tips. They compete with every other rule: the tag whose trigger word
+# is closest to the start of the text wins (see category_for). On a tie, these come first.
 GOOGLE_CAR_RE = re.compile(
     r"\b(?:google car|street view car|snorkel|roof ?rack|antenn?as?)\b", re.IGNORECASE
 )
@@ -51,28 +52,50 @@ SEASON_RE = re.compile(
 COVERAGE_RE = re.compile(r"\bcoverage\b", re.IGNORECASE)
 COPYRIGHT_RE = re.compile(r"©|\bcopyright\b", re.IGNORECASE)
 CAMERA_RE = re.compile(r"\b(?:smudges?|rifts?|dead pixels?)\b", re.IGNORECASE)
+TREKKER_RE = re.compile(r"\btrekkers?\b", re.IGNORECASE)
+CAR_RE = re.compile(r"\bcar\b", re.IGNORECASE)
+BACK_RE = re.compile(r"\bback\b", re.IGNORECASE)
 
 META_CATEGORIES = frozenset({"Google Car", "Camera Generation", "Coverage", "Copyright", "Camera"})
 
 
-def meta_category(text: str) -> str | None:
-    """The meta category the text says (Google Car, Camera Generation, Coverage, Copyright,
-    Camera, in that order of priority), or None.
+def _first(*matches: re.Match | None) -> int | None:
+    """Start of the earliest of the given matches (None entries are ignored)."""
+    starts = [m.start() for m in matches if m]
+    return min(starts) if starts else None
+
+
+def meta_hits(text: str) -> list[tuple[int, int, str]]:
+    """Every meta category the text says, as (position, order, category).
+
+    Google Car also fires when the words "car" and "back" are both there; Coverage also fires
+    on a trekker.
     """
-    if GOOGLE_CAR_RE.search(text):
-        return "Google Car"
-    if CAMERA_GENERATION_RE.search(text):
-        return "Camera Generation"
-    if SEASON_RE.search(text) and COVERAGE_RE.search(text):
-        return "Coverage"
-    if COPYRIGHT_RE.search(text):
-        return "Copyright"
-    if CAMERA_RE.search(text):
-        return "Camera"
-    return None
+    season, coverage = SEASON_RE.search(text), COVERAGE_RE.search(text)
+    car, back = CAR_RE.search(text), BACK_RE.search(text)
+    found = [
+        ("Google Car", _first(GOOGLE_CAR_RE.search(text), *((car, back) if car and back else ()))),
+        ("Camera Generation", _first(CAMERA_GENERATION_RE.search(text))),
+        (
+            "Coverage",
+            _first(*((season, coverage) if season and coverage else ()), TREKKER_RE.search(text)),
+        ),
+        ("Copyright", _first(COPYRIGHT_RE.search(text))),
+        ("Camera", _first(CAMERA_RE.search(text))),
+    ]
+    return [(pos, i, cat) for i, (cat, pos) in enumerate(found) if pos is not None]
 
 
-# First match wins. The item-level Plonkit tags are appended to the text before matching.
+def meta_category(text: str) -> str | None:
+    """The meta category (Google Car, Camera Generation, Coverage, Copyright, Camera) whose
+    trigger is closest to the start of the text, or None.
+    """
+    hits = meta_hits(text)
+    return min(hits)[2] if hits else None
+
+
+# Every rule is tried; the one whose trigger sits closest to the start of the text wins (a tie
+# goes to the rule listed first). The item-level Plonkit tags are appended to the text before matching.
 CATEGORY_RULES: list[tuple[str, str]] = [
     (r"\b(license|licence|number)?\s*plates?\b", "License Plate"),
     (r"\bbollards?\b", "Bollard"),
@@ -99,7 +122,7 @@ CATEGORY_RULES: list[tuple[str, str]] = [
             r"\b(chevrons?|road signs?|street signs?|signposts?|directional signs?|"
             r"give[ -]?way signs?|yield signs?|speed limit signs?|green signs?|"
             r"town entrance signs?|pedestrian signs?|bus stop signs?|traffic signs?|"
-            r"kilomet(?:re|er) markers?|road numbers?|sign backs?)\b"
+            r"kilomet(?:re|er) markers?|road markers?|road numbers?|sign backs?)\b"
         ),
         "Road Sign",
     ),
@@ -117,12 +140,24 @@ CATEGORY_RULES: list[tuple[str, str]] = [
         "Brand",
     ),
     (
-        r"\b(architecture|buildings?|houses?|roofs?|walls?|stone buildings?)\b",
+        r"\b(architecture|buildings?|houses?|roofs?|walls?|stone buildings?|bricks?)\b",
         "Architecture",
     ),
-    (r"\b(landscape|hills?|mountains?|terrain|elevation|topography|valleys?)\b", "Topography"),
-    (r"\b(vineyards?|agriculture|farmlands?|crops?|fields?)\b", "Agriculture"),
-    (r"\b(vegetation|trees?|forests?|plants?|bamboo|palms?)\b", "Vegetation"),
+    (
+        (
+            r"\b(landscapes?|hills?|mountains?|terrain|elevation|topography|valleys?|"
+            r"coast(?:al)?|grassland|lakes?|rocks?|salt pans?)\b"
+        ),
+        "Landscape",
+    ),
+    (r"\b(vineyards?|agriculture|farmlands?|crops?|fields?|plantations?)\b", "Agriculture"),
+    (
+        (
+            r"\b(vegetation|trees?|forests?|plants?|bamboo|palms?|cactus|cacti|"
+            r"sunflowers?|grass|flora)\b"
+        ),
+        "Vegetation",
+    ),
     (r"\bsoil\b", "Soil"),
     (r"\b(brands?|logos?|supermarkets?)\b", "Brand"),
     (r"\bnational parks?\b", "National Parks"),
@@ -130,7 +165,7 @@ CATEGORY_RULES: list[tuple[str, str]] = [
     (
         (
             r"\b(road markings?|road lines?|lane (?:lines?|markings?)|asphalt|road surface|"
-            r"highways?)\b"
+            r"highways?|pavements?)\b"
         ),
         "Roads",
     ),
@@ -140,6 +175,34 @@ CATEGORY_RULES: list[tuple[str, str]] = [
         "Subdivision Names",
     ),
 ]
+
+# Rules that only say where something is, not what it is: used only when nothing else matches.
+WEAK_CATEGORIES = frozenset({"Subdivision Names"})
+
+LINK_RE = re.compile(r"\[([^\]]+)\]\(https?://[^\s)]+\)")
+URL_RE = re.compile(r"https?://\S+")
+
+
+def _plain(text: str) -> str:
+    """The text without link targets / bare URLs (their words must not trigger anything)."""
+    return URL_RE.sub(" ", LINK_RE.sub(r"\1", text))
+
+
+def _best(text: str, meta: bool = True) -> str | None:
+    """The category whose trigger is closest to the start of `text`.
+
+    Ties go to the meta tags, then to the order of CATEGORY_RULES. Weak categories only count
+    when nothing else matched.
+    """
+    hits = meta_hits(text) if meta else []
+    lowered = text.lower()
+    for i, (pattern, category) in enumerate(CATEGORY_RULES, start=5):
+        m = re.search(pattern, lowered)
+        if m:
+            hits.append((m.start(), i, category))
+    pool = [h for h in hits if h[2] not in WEAK_CATEGORIES] or hits
+    return min(pool)[2] if pool else None
+
 
 PLONKIT_TAG_CATEGORY = {
     "bollard": "Bollard",
@@ -153,11 +216,12 @@ PLONKIT_TAG_CATEGORY = {
 
 def category_for(text: str, plonkit_tags: list[str]) -> str:
     """Classify a tip. The first paragraph is the main claim; NOTES often mention other things."""
-    paragraphs = text.split("\n\n")
-    # Camera / coverage meta wins over everything else (see meta_category above).
-    meta = meta_category(paragraphs[0])
-    if meta:
-        return meta
+    plain = _plain(text)
+    paragraphs = plain.split("\n\n")
+    best = _best(paragraphs[0])
+    # A camera / coverage tag wins when its trigger is the closest one to the start of the text.
+    if best in META_CATEGORIES:
+        return best
     # Plonkit tags roadside snow poles as "pole", but they are edge markers rather than
     # electricity poles. Check the text before trusting that tag.
     if re.search(r"\bsnow\s*poles?\b", paragraphs[0], re.IGNORECASE):
@@ -174,11 +238,9 @@ def category_for(text: str, plonkit_tags: list[str]) -> str:
             mapped = PLONKIT_TAG_CATEGORY.get(part)
             if mapped:
                 return mapped
-    for haystack in (paragraphs[0], text):
-        lowered = haystack.lower()
-        for pattern, category in CATEGORY_RULES:
-            if re.search(pattern, lowered):
-                return category
-    if re.search(r"\bsigns?\b", text, re.IGNORECASE):
+    best = best or _best(plain, meta=False)
+    if best:
+        return best
+    if re.search(r"\bsigns?\b", plain, re.IGNORECASE):
         return "Road Sign"
     return "Infrastructure"

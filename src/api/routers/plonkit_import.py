@@ -34,7 +34,7 @@ from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
 from src.api.deps import get_ctx
-from src.api.plonkit_titles import classify
+from src.api.plonkit_titles import classify_full
 from src.api.routers.stain import _borders, _outline  # noqa: PLC2701
 from src.plonkit.categories import DEFAULT_LOCATION, category_for
 from src.plonkit.guide import clean_text, read_guide
@@ -273,7 +273,7 @@ async def plonkit_start(body: StartBody, request: Request):
                 sections.append({"step": len(sections) + 1, "title": pending, "index": len(tips)})
                 pending = None
             tags = item.get("tags") or []
-            category, title = classify(text, category_for(text, tags))
+            category, title, location = classify_full(text, category_for(text, tags), name)
             tips.append(
                 {
                     "id": item.get("id") or uuid4().hex[:8],
@@ -284,6 +284,7 @@ async def plonkit_start(body: StartBody, request: Request):
                     "link": _find_link(data),
                     "category": category,
                     "title": title,
+                    "location": location,
                 }
             )
     if not tips:
@@ -346,7 +347,7 @@ async def plonkit_clue(token: str, index: int):
         "step": tip["step"],
         "info": tip["text"],
         "category": category,
-        "location": DEFAULT_LOCATION.get(category, "Anywhere"),
+        "location": tip["location"] or DEFAULT_LOCATION.get(category, "Anywhere"),
         "source": f"{s['page_url']}#{tip['step']}",
         "link": tip["link"],
         "zone": s["reg_from"] is not None and index >= s["reg_from"],

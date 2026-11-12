@@ -3,7 +3,7 @@ import { createElement as h } from "react";
 // Keep in sync with LOCATION_TAGS / GENERAL_TAGS in src/api/routers/clues.py.
 export const LOCATION_TAGS = ["Urban", "Rural", "Anywhere"];
 export const GENERAL_TAGS = [
-  "Architecture", "Phone Numbers", "Postal Codes", "Topography", "Vegetation",
+  "Architecture", "Phone Numbers", "Postal Codes", "Landscape", "Vegetation",
   "Infrastructure", "Vehicle", "License Plate", "Flags", "Roads", "Subdivision Names",
   "City Names", "Agriculture", "Soil", "Brand", "Language", "Script", "Road Sign",
   "Electricity Pole", "Bollard", "National Parks", "Biome", "Religion",
@@ -19,7 +19,7 @@ export const RATINGS = [
 
 // Picking a category pre-fills "where it applies" with this (until the user picks one themselves).
 export const DEFAULT_LOCATION = {
-  "Architecture": "Urban", "Phone Numbers": "Urban", "Postal Codes": "Urban", "Topography": "Anywhere",
+  "Architecture": "Urban", "Phone Numbers": "Urban", "Postal Codes": "Urban", "Landscape": "Anywhere",
   "Vegetation": "Rural", "Infrastructure": "Anywhere", "Vehicle": "Anywhere", "License Plate": "Anywhere",
   "Flags": "Urban", "Roads": "Anywhere", "Subdivision Names": "Anywhere", "City Names": "Anywhere",
   "Agriculture": "Rural", "Soil": "Rural", "Brand": "Urban", "Language": "Anywhere", "Script": "Anywhere",
@@ -120,7 +120,7 @@ const CAMERA = svg(
 
 // Category = WHAT it is (neutral chip + icon). Values are emoji strings or ready-made SVG elements.
 export const CATEGORY_ICONS = {
-  "Architecture": "🏛️", "Phone Numbers": "📞", "Postal Codes": "✉️", "Topography": "⛰️", "Vegetation": "🌿",
+  "Architecture": "🏛️", "Phone Numbers": "📞", "Postal Codes": "✉️", "Landscape": "⛰️", "Vegetation": "🌿",
   "Infrastructure": "🏗️", "Vehicle": "🚗", "License Plate": PLATE, "Flags": "🚩", "Roads": "🛣️",
   "Subdivision Names": "🗺️", "City Names": "🏙️", "Agriculture": "🌾", "Soil": "🟤", "Brand": "🏷️",
   "Language": "💬", "Script": "🔤", "Road Sign": STOP, "Electricity Pole": POLE, "Bollard": BOLLARD,
