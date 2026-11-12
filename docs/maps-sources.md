@@ -9,5 +9,6 @@
 **Argentina**: OSM extract for ADM0 through ADM2 (08-10-2026). Missing ADM3
 **Armenia**: OSM extract for ADM0 through ADM2 (28-10-2026)
 **Ascension**: OSM extract for ADM0 (06-11-2026)
+**Australia**: OSM extract for ADM0 and ADM1 (28-10-2026). Missing ADM2
 **Austria**: OSM extract for ADM0 through ADM3 (28-10-2026)
 **United Arab Emirates**: https://data.humdata.org/dataset/cod-em-are for ADM0 and ADM1 (06-11-2026). Missing ADM2 and ADM3
