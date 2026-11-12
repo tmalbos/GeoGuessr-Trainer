@@ -151,8 +151,8 @@ export default function ClueEditor({ cc, name, clue, prefill, onClose, onSaved, 
   // The region's numbers come from the geometry the server staged (polygons, shades, separate pieces, spread).
   const regionUp = scope === "reg" ? (showArea ? area.upload : mainKind === "geometry" ? media.upload : null) : null;
   const auto = useMemo(() => autoRatings({
-    scope, info, relations, stats: regionUp?.stats ?? null, fromMapmaking: regionUp?.name === MAPMAKING_FILE,
-  }), [scope, info, relations, regionUp]);
+    scope, info, relations, stats: regionUp?.stats ?? null, fromMapmaking: regionUp?.name === MAPMAKING_FILE, general,
+  }), [scope, info, relations, regionUp, general]);
   useEffect(() => {
     if (clue) return;
     setRating((r) => {

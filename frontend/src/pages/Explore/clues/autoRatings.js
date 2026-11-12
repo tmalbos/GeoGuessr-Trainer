@@ -2,11 +2,11 @@
 // The editor calls autoRatings() on every change and applies the result to each rating the user hasn't touched.
 //
 // National
-//   frequency    10
+//   frequency    see tagFrequency (10 when the clue has no tag yet)
 //   ease         10 - log2(n), n = concepts in the text + "similar to" links
 //   reliability  10 - number of "same as" links
 // Regional
-//   frequency    only for a mapmaking region: average distance between the points of each cluster (km), see FREQ_STEPS; 5 for any other region
+//   frequency    only for a mapmaking region: average distance between the points of each cluster (km), see FREQ_STEPS; any other region: see tagFrequency
 //   ease         10 - log2(n), n = concepts + "similar to" links + (polygons - 1) + (shades - 1)
 //   reliability  10 - (separate pieces after merging all polygons - 1); 10 when there are no stats (SVG, CSV)
 // `stats` comes from the staging endpoint (src/geo/region_stats.py): { polygons, shades, components, spread_km }.
@@ -45,10 +45,33 @@ export function countConcepts(text) {
   return seen.size;
 }
 
+// Base frequency per category tag, nudged by words in the text (see tagFrequency).
+const TAG_FREQ = {
+  "Architecture": 10, "Phone Numbers": 5, "Postal Codes": 1, "Landscape": 10, "Vegetation": 10,
+  "Infrastructure": 8, "Vehicle": 6, "License Plate": 9, "Flags": 3, "Roads": 10,
+  "Subdivision Names": 2, "City Names": 2, "Agriculture": 8, "Soil": 8, "Brand": 3,
+  "Language": 8, "Script": 9, "Road Sign": 9, "Electricity Pole": 10, "Bollard": 7,
+  "National Parks": 2, "Biome": 10, "Religion": 9, "Animals": 1, "Google Car": 10,
+  "Copyright": 10, "Camera Generation": 9, "Camera": 7, "Coverage": 7,
+};
+const FREQ_UP = /\b(common|commonly|everywhere|widespread|ubiquitous|frequent|frequently)\b/gi;
+const FREQ_DOWN = /\b(rare|rarely|some|occasional|occasionally|uncommon|sporadic)\b/gi;
+const WORD_NUDGE = 2; // the words never move the frequency more than this
+
+/** Frequency from the category tag, +1 per "common / everywhere" word and -1 per "rare / some / occasionally" word.
+ *  null when the clue has no known tag. */
+function tagFrequency(general, info) {
+  const base = TAG_FREQ[general];
+  if (base == null) return null;
+  const t = plain(info ?? "");
+  const nudge = (t.match(FREQ_UP)?.length ?? 0) - (t.match(FREQ_DOWN)?.length ?? 0);
+  return rate(base + Math.max(-WORD_NUDGE, Math.min(WORD_NUDGE, nudge)));
+}
+
 const rate = (n) => String(Math.max(1, Math.min(10, Math.round(n))));
 
 /** -> { frequency, ease, reliability }: each a "1".."10" string, or "" when it can't be worked out (leave empty). */
-export function autoRatings({ scope, info, relations, stats, fromMapmaking }) {
+export function autoRatings({ scope, info, relations, stats, fromMapmaking, general }) {
   const out = { frequency: "", ease: "", reliability: "" };
   const rels = relations ?? [];
   const sameAs = rels.filter((r) => r.type === "same_as").length;
@@ -64,8 +87,7 @@ export function autoRatings({ scope, info, relations, stats, fromMapmaking }) {
   if (!regional) out.reliability = rate(10 - sameAs);
   else out.reliability = rate(10 - Math.max(0, (stats?.components ?? 1) - 1));
 
-  if (!regional) out.frequency = "10";
-  else if (fromMapmaking && stats && stats.spread_km != null) out.frequency = rate(frequencyFromKm(stats.spread_km));
-  else out.frequency = "5";
+  if (regional && fromMapmaking && stats && stats.spread_km != null) out.frequency = rate(frequencyFromKm(stats.spread_km));
+  else out.frequency = tagFrequency(general, info) ?? (regional ? "5" : "10");
   return out;
 }
