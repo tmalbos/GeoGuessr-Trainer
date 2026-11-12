@@ -22,7 +22,7 @@ const locOf = (c) => c.tags.find((t) => LOCATION_TAGS.includes(t));
 // Urban / Rural also show the "Anywhere" clues (they apply there too); Anywhere shows only itself.
 const locMatches = (c, loc) => !loc || locOf(c) === loc || (loc !== "Anywhere" && locOf(c) === "Anywhere");
 const UNDO_MS = 5000;
-const MIN_GROUP = 5; // a regional category gets its own group only with more clues than this
+const MIN_GROUP = 6; // a regional category gets its own group only with more clues than this
 const Funnel = () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
   strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M3 4h18l-7 8v6l-4 2v-8z" /></svg>;
 const ImportIcon = () => <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
