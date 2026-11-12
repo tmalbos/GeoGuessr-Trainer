@@ -197,6 +197,13 @@ export default function ClueList({ id, name, editing, collapsed, query }) {
 
   // ── Import from Plonkit: one clue at a time; the text is instant, the image downloads on demand ──
   // `sections` = [{ step, title, index }] from the start call: the guide's sections and where each one begins.
+  const plonkitImage = async (token, index) => {
+    const r = await fetch(`/api/import/plonkit/${token}/${index}/image`);
+    if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || r.statusText);
+    const b = await r.blob();
+    return new File([b], "plonkit.png", { type: b.type || "image/png" });
+  };
+
   const loadImport = async (token, index, total, sections, clues) => {
     const mine = () => impRef.current?.token === token && impRef.current.want === index;
     const set = (patch) => { impRef.current = { ...impRef.current, ...patch }; setImp(impRef.current); };
@@ -209,11 +216,8 @@ export default function ClueList({ id, name, editing, collapsed, query }) {
       const needsImage = d.zone || !sv; // before the Regional sections the Street View link is enough
       set({ index, clue: { ...d, scope: d.zone && sv ? "reg" : "nat", street_view_url: sv ? d.link : null }, file: null, pending: needsImage });
       if (!needsImage) return;
-      const r = await fetch(`/api/import/plonkit/${token}/${index}/image`);
-      if (!mine()) return;
-      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || r.statusText);
-      const b = await r.blob();
-      if (mine()) set({ file: new File([b], "plonkit.png", { type: b.type || "image/png" }), pending: false });
+      const file = await plonkitImage(token, index);
+      if (mine()) set({ file, pending: false });
     } catch (e) {
       if (mine()) set({ err: errorText(e), pending: false });
     }
@@ -437,6 +441,7 @@ export default function ClueList({ id, name, editing, collapsed, query }) {
         scope: ic.scope, info: ic.info, general: ic.category, location: ic.location, source: ic.source,
         mediaText: ic.street_view_url, pending: !!imp.pending,
         areaFile: ic.scope === "reg" ? imp.file : null, imageFile: ic.scope === "reg" ? null : imp.file,
+        fallbackImage: ic.scope === "nat" && ic.street_view_url ? () => plonkitImage(imp.token, ic.index) : null,
         progress: `Plonkit ${imp.index + 1} of ${imp.total}`,
       }}
       skipTo={skipItems}

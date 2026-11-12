@@ -270,7 +270,7 @@ export default function ClueEditor({ cc, name, clue, prefill, onClose, onSaved, 
     return { ...up, kind: up.kind ?? kind };
   };
 
-  const takeMedia = async (input) => {
+  const takeMedia = async (input, { quiet = false } = {}) => {
     setMediaErr(""); setMediaBusy(true);
     try {
       const up = await stageInput(input);
@@ -284,7 +284,8 @@ export default function ClueEditor({ cc, name, clue, prefill, onClose, onSaved, 
         if (area.upload) { discardStaged(area.upload.token); setArea({ kind: null, upload: null }); }
         setMedia({ kind: uiKind(up.kind), upload: up });
       }
-    } catch (e) { setMediaErr(e.message); } finally { setMediaBusy(false); }
+    } catch (e) { if (!quiet) setMediaErr(e.message); return false; } finally { if (!quiet) setMediaBusy(false); }
+    return true;
   };
 
   const takeArea = (up) => {
@@ -298,8 +299,23 @@ export default function ClueEditor({ cc, name, clue, prefill, onClose, onSaved, 
     setMedia(up ? { kind: "geometry", upload: up } : { kind: null, upload: null });
   };
 
-  // Imported regional clue: the Street View picture goes into the media slot as soon as the editor opens.
-  useEffect(() => { if (prefill?.mediaText) takeMedia({ text: prefill.mediaText }); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  // Imported regional clue: the Street View picture goes into the media slot as soon as the editor opens;
+  // if it can't be loaded, the clue's Plonkit picture takes its place.
+  useEffect(() => {
+    if (!prefill?.mediaText) return;
+    (async () => {
+      try {
+        const ok = await takeMedia({ text: prefill.mediaText }, { quiet: !!prefill?.fallbackImage });
+        if (ok || !prefill?.fallbackImage) return;
+        const file = await prefill.fallbackImage();
+        if (file) await takeMedia({ file });
+      } catch (e) {
+        setMediaErr(e.message);
+      } finally {
+        setMediaBusy(false);
+      }
+    })();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // The Plonkit picture of a clue without a usable Street View link arrives after the editor opened.
   useEffect(() => { if (prefill?.imageFile) takeMedia({ file: prefill.imageFile }); }, [prefill?.imageFile]); // eslint-disable-line react-hooks/exhaustive-deps
