@@ -2,12 +2,12 @@
 
 Score (0..10), a rating that is not set counts as 0:
   national   (frequency + ease + reliability) / 3
-  regional   (frequency + ease + reliability + area_score) / 4
-  regional with several stain colours (shades in the geometry file), n = number of colours:
-             (sum(stain_factor * frequency + area_score of that stain) / n + ease + reliability) / 4
-             stain_factor = darkest 100%, then (n-1)/n ... down to 1/n for the lightest.
-area_score: share of the country's area, 45-55% -> 10, one point less per 5% further away
-            (5-10% -> 2, 2.5-5% -> 1, 0-2.5% -> 0, same on the other side).
+  regional   (freq_part + area_part + ease + reliability) / 4
+             freq_part = each shade's frequency * (n-k)/n (darkest full, lightest 1/n),
+                         weighted by that shade's share of the total stain area
+             area_part = area_score of the summed stain area share of the country (0 if none)
+area_score: share of the country's area, 37-63% -> 10, one point less per 4% further away
+            (1-5% -> 1, below 1% -> 0, same on the other side).
 Medal: ==10 platinum, >=9 gold, >=6 silver, >=2 bronze, else none.
 A regional clue without a measurable region (SVG only, no local geo layers) has area_score 0.
 """
@@ -25,9 +25,9 @@ from src.geo.local_geo import CountryAreaMissingError
 def area_score(share_pct: float) -> int:
     """Share of the country (0..100 %) -> 0..10."""
     d = abs(min(100.0, max(0.0, share_pct)) - 50.0)
-    if d <= 45:
-        return 10 - (max(1, math.ceil(d / 5)) - 1)
-    return 1 if d <= 47.5 else 0
+    if d <= 13:
+        return 10
+    return max(0, 10 - math.ceil((d - 13) / 4))
 
 
 def medal_of(score: float) -> str | None:
@@ -50,8 +50,11 @@ def clue_score(clue: dict, stains: list[float], country_km2: float) -> float:
     n = len(stains)
     if not n or country_km2 <= 0:
         return (freq + ease + rel) / 4
-    freq_part = sum(freq * (n - k) / n for k in range(n)) / n
-    area_part = sum(area_score(100 * a / country_km2) for a in stains) / n
+    total = sum(stains)
+    if total <= 0:
+        return (freq + ease + rel) / 4
+    freq_part = sum(freq * (n - k) / n * (a / total) for k, a in enumerate(stains))
+    area_part = area_score(100 * sum(stains) / country_km2)
     return (freq_part + area_part + ease + rel) / 4
 
 
