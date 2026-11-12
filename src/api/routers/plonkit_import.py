@@ -289,9 +289,13 @@ async def plonkit_start(body: StartBody, request: Request):
     if not tips:
         raise HTTPException(404, f"The Plonkit guide for {name} has no clues to import.")
 
-    # From the first "Regional ..." section on, every clue is expected to be regional.
+    # From the first "Regional ..." or "Spotlight" section on, every clue is expected to be regional.
     reg_from = next(
-        (x["index"] for x in sections if re.match(r"\s*regional\b", x["title"], re.IGNORECASE)),
+        (
+            x["index"]
+            for x in sections
+            if re.match(r"\s*(?:regional|spotlight)\b", x["title"], re.IGNORECASE)
+        ),
         None,
     )
 
