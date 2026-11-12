@@ -30,6 +30,7 @@ const STOP = new Set(("a an the is are was were be been being am of in on at to 
 const SPLIT = /[.!?]+(?=\s|$)|:(?=\s|$)|[;,\n()\[\]"“”•·|\/&+]|\s[-–—]+\s|\s(?:and|or|but|also|plus|while|whereas|then|with|without|except|unless|instead)\s/giu;
 
 const plain = (t) => t
+  .replace(/\bNOTES?\s*:[^\n]*/gi, " ")
   .replace(/\[([^\]]+)\]\(https?:\/\/[^\s)]+\)/g, "$1")
   .replace(/https?:\/\/\S+/g, " ")
   .replace(/[*_]{1,2}/g, "");
