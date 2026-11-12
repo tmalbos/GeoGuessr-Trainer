@@ -86,6 +86,7 @@ from PIL import Image, ImageDraw, ImageOps
 from shapely.affinity import affine_transform
 
 from src.geo.pinpoint import find_pins
+from src.geo.stain_fragment import fragment_candidates, has_islands
 
 try:  # much faster nearest-neighbour search when scipy is around
     from scipy.spatial import cKDTree
@@ -127,6 +128,13 @@ COARSE_MAX = 300  # longest side of the image used by the coarse search
 SCALE_STEP = 1.05  # ratio between two scales of the coarse search
 MIN_MAP_FRACTION = 0.2  # smallest map considered, relative to the largest that fits the image
 TOP_K = 2  # coarse candidates that get refined
+FRAG_TRIGGER = (
+    0.5  # fragment search (countries made of islands) runs when no placement scores at least this
+)
+FRAG_SCALE_STEP = 1.12  # ratio between two scales of the fragment search
+FRAG_MIN_FRACTION = 0.3  # smallest fragment scale, relative to the largest that fits the image
+FRAG_MIN_PX = 120  # a fragment template must be at least this long (work px)
+FRAG_VIS_FULL = 0.25  # share of the outline in view that counts as "enough" when ranking placements
 ICP_ITERS = 45
 SIMPLIFY_PX = 0  # gap-free simplification tolerance, in full-res px (sub-pixel)
 SMOOTH_PX = 0.5  # final boundary smoothing radius, in full-res px (no shape change beyond it)
@@ -581,7 +589,13 @@ def _match_key(r: dict) -> tuple[float, float]:
 
 
 def _candidates(
-    e_coarse: np.ndarray, light_coarse: np.ndarray, f: int, uv, uvb, hint=None
+    e_coarse: np.ndarray,
+    light_coarse: np.ndarray,
+    f: int,
+    uv,
+    uvb,
+    hint=None,
+    frag_floor: float | None = None,
 ) -> list[dict]:
     """Best placement of the known lines at every scale. Returns [{score, a, tx, ty}] in FULL-res
     px for x = a*u + tx, y = -a*v + ty.
@@ -609,13 +623,18 @@ def _candidates(
 
     a_max = min(ww / tw, hh / th) * 0.999
     a_min = a_max * MIN_MAP_FRACTION
+    step = SCALE_STEP
+    if frag_floor is not None:  # fragment search: bigger scales than the whole country allows
+        a_min = max(frag_floor, a_max * FRAG_MIN_FRACTION)
+        step = FRAG_SCALE_STEP
     out = []
     a = a_max
     while a >= a_min:
         px = np.round((pts[:, 0] - ub[0]) * a).astype(int)
         py = np.round((ub[3] - pts[:, 1]) * a).astype(int)
         w, h = int(px.max()) + 1, int(py.max()) + 1
-        if w <= ww and h <= hh and _box_ok(w * f, h * f):
+        big_enough = _box_ok(w * f, h * f) if frag_floor is None else max(w, h) * f >= FRAG_MIN_PX
+        if w <= ww and h <= hh and big_enough:
             t = np.zeros((h, w), np.float32)
             t[py, px] = 1
             n_t = float(t.sum())
@@ -660,7 +679,7 @@ def _candidates(
                     "ty": (iy + ub[3] * a) * f,
                 }
             )
-        a /= SCALE_STEP
+        a /= step
     return out
 
 
@@ -691,14 +710,25 @@ def _refine(e: np.ndarray, e_dil: np.ndarray, uv, uvb, init: dict) -> dict:
     """
     hgt, wid = e.shape
     ub = uv.bounds
-    diag = math.hypot(ub[2] - ub[0], ub[3] - ub[1])
-    po = _subsample(shapely.get_coordinates(shapely.segmentize(uv, diag / 150)), 900)
-    pb = None
-    if uvb is not None:
-        pb = _subsample(shapely.get_coordinates(shapely.segmentize(uvb, diag / 200)), 900)
-
     a, tx, ty = init["a"], init["tx"], init["ty"]
     b = -a
+    # only the lines inside the image: a fragment of a country is placed with most of the country outside it
+    view = (-tx / a, (hgt - ty) / b, (wid - tx) / a, -ty / b)
+    lines = shapely.clip_by_rect(shapely.boundary(uv), *view)
+    fail = {"a": a, "b": b, "tx": tx, "ty": ty, "hit_o": 0.0, "hit_b": None, "lift": -1.0}
+    if lines.is_empty:
+        return fail
+    lb = lines.bounds
+    diag = math.hypot(lb[2] - lb[0], lb[3] - lb[1])
+    po = _subsample(shapely.get_coordinates(shapely.segmentize(lines, diag / 150)), 900)
+    if len(po) < 10:
+        return fail
+    pb = None
+    bl = None if uvb is None else shapely.clip_by_rect(uvb, *view)
+    if bl is not None and not bl.is_empty:
+        pb = _subsample(shapely.get_coordinates(shapely.segmentize(bl, diag / 200)), 900)
+        if len(pb) < 10:
+            pb = None
     # edge pixels around the first placement only (the rest is clutter)
     x0, x1 = tx + a * ub[0], tx + a * ub[2]
     y0, y1 = ty - a * ub[3], ty - a * ub[1]
@@ -710,7 +740,7 @@ def _refine(e: np.ndarray, e_dil: np.ndarray, uv, uvb, init: dict) -> dict:
         return {"a": a, "b": b, "tx": tx, "ty": ty, "hit_o": 0.0, "hit_b": None, "lift": -1.0}
     exy = _subsample(np.column_stack([ex + xs0 + 0.5, ey + ys0 + 0.5]), 20000)
     tree = cKDTree(exy) if cKDTree is not None else shapely.STRtree(shapely.points(exy))
-    size = max(x1 - x0, y1 - y0)
+    size = max(min(x1, wid) - max(x0, 0.0), min(y1, hgt) - max(y0, 0.0))
 
     for i in range(ICP_ITERS):
         maxd = size * max(0.01, 0.06 * 0.9**i)
@@ -1013,7 +1043,9 @@ def _polish(sub: np.ndarray, uv, uvb, r: dict) -> dict | None:
     ub = uv.bounds
     xs = sorted((tx + a0 * ub[0], tx + a0 * ub[2]))
     ys = sorted((ty + b0 * ub[1], ty + b0 * ub[3]))
-    size = max(xs[1] - xs[0], ys[1] - ys[0])
+    vx = (max(xs[0], 0.0), min(xs[1], wid))  # the part of the placement that is inside the image
+    vy = (max(ys[0], 0.0), min(ys[1], hgt))
+    size = max(vx[1] - vx[0], vy[1] - vy[0])
     if size < 24:
         return None
     sigmas = [
@@ -1027,9 +1059,17 @@ def _polish(sub: np.ndarray, uv, uvb, r: dict) -> dict | None:
         return None
     strength, phi = _edge_field(sub[wy0:wy1, wx0:wx1])
 
-    spacing = math.hypot(ub[2] - ub[0], ub[3] - ub[1]) / SAMPLES_PER_DIAG
-    p_o, t_o = _samples(uv, spacing)
-    p_b, t_b = _samples(uvb, spacing)
+    # only the lines inside the window: a fragment of a country has most of its outline outside the image
+    view = ((wx0 - tx) / a0, (wy1 - ty) / b0, (wx1 - tx) / a0, (wy0 - ty) / b0)
+    full = shapely.boundary(uv)
+    lines = shapely.clip_by_rect(full, *view)
+    if lines.is_empty:
+        return None
+    lb = lines.bounds
+    spacing = math.hypot(lb[2] - lb[0], lb[3] - lb[1]) / SAMPLES_PER_DIAG
+    p_o, t_o = _samples(lines, spacing)
+    p_b, t_b = _samples(None if uvb is None else shapely.clip_by_rect(uvb, *view), spacing)
+    vis = float(shapely.length(lines) / max(float(shapely.length(full)), 1e-12))
     if len(p_o) < 50:
         return None
     pts = np.vstack([p_o, p_b])
@@ -1044,7 +1084,7 @@ def _polish(sub: np.ndarray, uv, uvb, r: dict) -> dict | None:
         "G": is_border,
         "A0": np.diag([a0, b0]),
         "t0": np.array([tx, ty]),
-        "c": np.array([(xs[0] + xs[1]) / 2, (ys[0] + ys[1]) / 2]),
+        "c": np.array([(vx[0] + vx[1]) / 2, (vy[0] + vy[1]) / 2]),
         "ox": wx0,
         "oy": wy0,
         "size": size,
@@ -1070,8 +1110,8 @@ def _polish(sub: np.ndarray, uv, uvb, r: dict) -> dict | None:
     before = _honest(strength, phi, ctx, ctx["A0"], ctx["t0"])
     after = _honest(strength, phi, ctx, a_new, t_new)
     if after["score"] >= before["score"]:
-        return {"A": a_new, "t": t_new, "honest": after}
-    return {"A": ctx["A0"], "t": ctx["t0"], "honest": before}
+        return {"A": a_new, "t": t_new, "honest": after, "vis": vis}
+    return {"A": ctx["A0"], "t": ctx["t0"], "honest": before, "vis": vis}
 
 
 def _prep_outline(outline):
@@ -1174,12 +1214,27 @@ def register(sub: np.ndarray, outline, borders, projection: str, hint=None) -> d
             break
 
     refined = []
-    for c in chosen:
+    pending = list(chosen)
+    frag_done = False
+    while pending or not frag_done:
+        if (
+            not pending
+        ):  # the normal placements are done: a country of islands may only show a fragment
+            frag_done = True
+            best_so_far = max((x["score"] for x in refined), default=-1.0)
+            if best_so_far < FRAG_TRIGGER and has_islands(fit_outline):
+                pending = fragment_candidates(
+                    e_coarse, light_coarse, f, fit_outline, inner, hint_coarse
+                )
+            if not pending:
+                break
+        c = pending.pop(0)
         r = _refine(e, e_dil, c["uv"], c["uvb"], c)
         pol = _polish(sub, c["uv"], c["uvb"], r)
         if pol is not None:
             h = pol["honest"]
             r["A"], r["t"], r["honest"] = pol["A"], pol["t"], h
+            r["vis"] = pol["vis"]
             r["m_o"], r["m_b"] = h["o"], h["b"]
             r["lift"], r["score"] = h["lift"], h["score"]
             r["hit_o"] = h["o"]["precision"] if h["o"] else 0.0
@@ -1213,7 +1268,10 @@ def register(sub: np.ndarray, outline, borders, projection: str, hint=None) -> d
         raise StainError(msg)
 
     def hint_nudge(r: dict) -> float:
-        return 1 - HINT_FINAL_WEIGHT + HINT_FINAL_WEIGHT * r.get("prior", 1.0)
+        vis = 0.8 + 0.2 * min(
+            1.0, r.get("vis", 1.0) / FRAG_VIS_FULL
+        )  # a sliver of outline can't win by luck
+        return (1 - HINT_FINAL_WEIGHT + HINT_FINAL_WEIGHT * r.get("prior", 1.0)) * vis
 
     if any(r.get("honest") for r in refined):
         # The honest, chance-corrected edge match decides; the hint only breaks near-ties.
