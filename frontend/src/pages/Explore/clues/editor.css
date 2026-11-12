@@ -63,7 +63,7 @@
 .ed-sep { width: 1px; height: 20px; margin: 0 4px; background: var(--line); }
 
 /* Height-limit handle: the bottom edge of the image */
-.ed-hh { position: absolute; left: 0; right: 0; bottom: 0; z-index: 3; height: 20px; display: grid; place-items: center; cursor: ns-resize;
+.ed-hh { position: absolute; left: 30%; right: 30%; bottom: 0; z-index: 3; height: 20px; display: grid; place-items: center; cursor: ns-resize;
   touch-action: none; color: #fff; opacity: .5; background: linear-gradient(transparent, rgba(0, 0, 0, .6)); transition: opacity .15s; }
 .ed-hh::before { content: ""; width: 44px; height: 4px; border-radius: 2px; background: currentColor; }
 .ed-media:hover .ed-hh, .ed-hh:focus-visible, .ed-hh.on { opacity: 1; }
