@@ -15,7 +15,7 @@ const ico = { width: 19, height: 19, viewBox: "0 0 24 24", fill: "none", stroke:
 const TOOLS = [
   ["fill", "Fill a subdivision (click a painted area to rename it)", <svg key="f" {...ico}><path d="M5 11l7-7 8 8-7 7z" /><path d="M5 11l8 8" /><path d="M20 17c0 1.5-1 2.5-1 2.5s-1-1-1-2.5a1 1 0 0 1 2 0z" /></svg>],
   ["paint", "Freeform paint", <svg key="p" {...ico}><path d="M18 3l3 3-9 9-3-3z" /><path d="M9 12c-3 0-4 2-4 4s-1 3-2 4c3 1 8 0 8-5" /></svg>],
-  ["erase", "Eraser", <svg key="e" {...ico}><path d="M4 16l9-9 6 6-6 6H8z" /><path d="M8 20h12" /></svg>],
+  ["erase", "Eraser (hold Shift and click to erase a whole subdivision)", <svg key="e" {...ico}><path d="M4 16l9-9 6 6-6 6H8z" /><path d="M8 20h12" /></svg>],
 ];
 
 function makeProjection(bb) {
@@ -232,6 +232,12 @@ export default function DrawMap({ cc, stage, onResult, trailing, showNames }) {
     if (e.button) return;
     const p = toSvg(e);
     if (!p) return;
+    if (tool === "erase" && e.shiftKey) {
+      const pt = new DOMPoint(p[0], p[1]);
+      const hit = [...svg.current.querySelectorAll(".dm-unit")].find((u) => u.isPointInFill(pt));
+      if (hit) setItems((it) => [...it, { op: "erase", name: "", level, id: Number(hit.dataset.id) }]);
+      return;
+    }
     e.currentTarget.setPointerCapture(e.pointerId);
     drag.current = { kind: "draw", pts: [p] };
     setLive([p]);
@@ -300,7 +306,7 @@ export default function DrawMap({ cc, stage, onResult, trailing, showNames }) {
           style={{ cursor: painting ? "crosshair" : undefined }} onContextMenu={(e) => e.preventDefault()}
           onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={up}>
           <path className="cl-r" d={landD} fillRule="evenodd" />
-          {unitPaths.map((u) => <path key={u.id} className={`dm-unit ${tool === "fill" ? "click" : ""}`} d={u.d} fillRule="evenodd"
+          {unitPaths.map((u) => <path key={u.id} data-id={u.id} className={`dm-unit ${tool === "fill" ? "click" : ""}`} d={u.d} fillRule="evenodd"
             style={tool === "fill" ? undefined : { pointerEvents: "none" }}
             onClick={tool === "fill" ? (e) => openPop(e, { item: { op: "fill", level, id: u.id }, name: last }) : undefined}><title>{u.name}</title></path>)}
           {shownPaths.map((p) => <path key={p.name} className={`dm-res ${tool === "fill" ? "click" : ""}`} d={p.d} fillRule="evenodd"

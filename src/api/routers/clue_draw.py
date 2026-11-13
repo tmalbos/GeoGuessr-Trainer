@@ -154,7 +154,7 @@ def _build(local, cc: str, items: list[Item]) -> dict:
     shapes: dict[str, object] = {}
     extras: dict[str, str] = {}
     for it in items:
-        if it.op == "fill":
+        if it.op == "fill" or (it.op == "erase" and not it.points):
             units = _units(local, cc, it.level)
             if not 0 <= it.id < len(units):
                 continue
