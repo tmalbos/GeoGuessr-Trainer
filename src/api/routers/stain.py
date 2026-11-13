@@ -71,12 +71,7 @@ def _drop_far_islands(outline):
 
     areas = [area_km2(p) for p in parts]
     main = parts[areas.index(max(areas))]
-    west, south, east, north = main.bounds
-    FAR_ISLAND_REACH * max(east - west, north - south)
     total = sum(areas)
-
-    for p, _a in zip(parts, areas, strict=True):
-        print(p.distance(main))
 
     keep = [
         p

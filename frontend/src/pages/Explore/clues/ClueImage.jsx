@@ -10,7 +10,7 @@ import { photoFit, useBoxHeight } from "./overlayFit.js";
 import "./editor.css";
 
 const MIN_H = 120; // smallest height limit the handle can set (px)
-const IMG_MAX_H = 700; // a loaded image is never taller than this on the card
+const IMG_MAX_H = 500; // a loaded image is never taller than this on the card
 const ANY_ACCEPT = "image/*,.svg,.csv,.geojson,.json,.gpkg,.zip,.parquet,.kml";
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
 
