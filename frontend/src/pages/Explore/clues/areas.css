@@ -1,7 +1,8 @@
 /* Named, colored areas (a clue made from a CSV of groups of subdivisions). */
 .cl-area { stroke: #0d1117; stroke-width: 1px; stroke-linejoin: round; vector-effect: non-scaling-stroke; fill-opacity: .92; }
 .cl-area.click { cursor: pointer; }
-.cl-area.click:hover, .cl-area.sel { stroke: var(--sea-hi); stroke-width: 2px; fill-opacity: 1; }
+.cl-area.sel { stroke: var(--sea-hi); stroke-width: 2px; fill-opacity: 1; }
+.cl-area.click:hover { fill-opacity: 1; }
 .cl-area:focus, .cl-area:focus-visible { outline: none; }
 .cl-area:focus-visible { stroke: var(--sea-hi); stroke-width: 2px; }
 /* The selected area's outline, drawn again on top of every area so no neighbour hides part of it */

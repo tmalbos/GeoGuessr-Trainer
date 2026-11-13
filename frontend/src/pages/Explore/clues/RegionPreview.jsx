@@ -215,6 +215,7 @@ export default function RegionPreview({ cc, layers, stains, onStain, onArea, sel
   const [stainColor, setStainColor] = useState(null);
   const [svgEl, setSvgEl] = useState(null);
   const [scale, setScale] = useState(0); // screen px per map unit: names are sized and fitted in real px
+  const [hoveredArea, setHoveredArea] = useState(null);
   useEffect(() => {
     let off = false;
     loadStainColor().then((c) => !off && setStainColor(c));
@@ -300,10 +301,14 @@ export default function RegionPreview({ cc, layers, stains, onStain, onArea, sel
         onKeyDown: (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onArea({ name, extra }); } },
       } : {};
       return <path key={`${name}-${i}`} className={`cl-area ${click ? "click" : ""} ${selected === name ? "sel" : ""}`}
+        onMouseEnter={click ? () => setHoveredArea(name) : undefined}
+        onMouseLeave={click ? () => setHoveredArea(null) : undefined}
         d={shapes(geom, project).polys} fillRule="evenodd" style={{ fill: g.colors[i] }} {...act}><title>{name}</title></path>;
     }))}
     {selected && areaLayers.flatMap((g) => g.geometries.map((geom, i) => (g.names?.[i] === selected
       ? <path key={`ring-${selected}-${i}`} className="cl-area-ring" d={shapes(geom, project).polys} fillRule="evenodd" /> : null)))}
+    {hoveredArea && hoveredArea !== selected && areaLayers.flatMap((g) => g.geometries.map((geom, i) => (g.names?.[i] === hoveredArea
+      ? <path key={`hover-${hoveredArea}-${i}`} className="cl-area-ring" d={shapes(geom, project).polys} fillRule="evenodd" /> : null)))}
     {showNames && scale > 0 && areaLayers.flatMap((g) => g.geometries.map((geom, i) => {
       const name = g.names?.[i];
       const spot = name ? areaNameSpot(geom, name, project, NAME_PX / scale, `${bb.join()}|${W}|${H}|${align}`) : null;
