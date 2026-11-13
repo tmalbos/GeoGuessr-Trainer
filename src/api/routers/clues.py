@@ -175,6 +175,18 @@ def _apply_medal(cc: str, entry: dict, request: Request, folder: Path, override=
         entry["medal"] = res[1]
 
 
+def _restandardize(path: Path) -> None:
+    """Re-check the colors of a drawn-areas file before it is saved. Never blocks the save."""
+    from src.api.routers.clue_draw import (
+        restandardize,
+    )
+
+    try:
+        restandardize(path)
+    except Exception:
+        logger.exception("Could not standardize the colors of %s", path.name)
+
+
 router = APIRouter()
 
 
@@ -960,6 +972,8 @@ def add_clue(cc: str, body: ClueBody, request: Request):
     deck = deck_store.use(body.deck)
     with _LOCK:
         staged = {k: _staged_path(t, k) for k, t in body.files.items()}
+        if "polygons" in staged:
+            _restandardize(staged["polygons"])
         folder.mkdir(parents=True, exist_ok=True)
         names: dict[str, str] = {}
         made: list[str] = []  # overlay files written by this request
@@ -1108,6 +1122,11 @@ def update_clue(cc: str, clue_id: str, body: ClueBody, request: Request):
         replaced = set(staged) | set(body.remove)
         if replaced & set(GEOM_KINDS):
             replaced |= set(GEOM_KINDS)
+        target = staged.get("polygons")
+        if target is None and old.get("polygons") and "polygons" not in replaced:
+            target = folder / old["polygons"]
+        if target is not None:
+            _restandardize(target)
         names: dict[str, str] = {}
         overwrite: dict[
             str, Path

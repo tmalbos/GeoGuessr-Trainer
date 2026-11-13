@@ -447,7 +447,7 @@ export default function ClueEditor({ cc, name, clue, prefill, onClose, onSaved, 
       {/* Same grid as the clue card: media on the left, body on the right. */}
       <div className="clue ed-clue">
         <div className="ed-left" ref={colRef}>
-          {drawing ? <DrawMap cc={cc} stage={stageInput} onResult={takeDrawn} trailing={modeToggle} showNames={showNames} /> : <ClueImage ref={imgApi} current={imageGone ? null : clue?.image ? fileUrl(cc, clue.image, clue.rev) : null} colRef={colRef} overlay={badges}
+          {drawing ? <DrawMap cc={cc} stage={stageInput} onResult={takeDrawn} trailing={modeToggle} showNames={showNames} stored={clue?.polygons ?? null} /> : <ClueImage ref={imgApi} current={imageGone ? null : clue?.image ? fileUrl(cc, clue.image, clue.rev) : null} colRef={colRef} overlay={badges}
             preview={mediaPreview} incoming={incoming}
             regionSlot={showArea} onOverlay={setOvEl} loading={mediaBusy || (!!prefill?.pending && !mainKind)}
             onOtherFile={(f) => takeMedia({ file: f })} onOtherText={(t) => takeMedia({ text: t })} onRemove={removeMedia}

@@ -10,6 +10,7 @@ const W = 1000;
 const PAD = 6;
 const MAX_ZOOM = 80;
 const DRAG_PX = 4;
+const PALE = "#f6f4e4"; // keep equal to PALE in src/api/routers/clue_draw.py
 
 const ico = { width: 19, height: 19, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 2, strokeLinecap: "round", strokeLinejoin: "round", "aria-hidden": true };
 const TOOLS = [
@@ -85,7 +86,7 @@ function CategoryImage({ name, value, onChange }) {
  *  (kept only once something is painted with it). Wheel zooms; drag pans (Fill tool), middle / right button pans with any tool.
  *  The server builds the colored polygons from the list of actions; the result is staged through `stage` and handed to `onResult`
  *  (null when nothing is drawn). `trailing` goes at the end of the toolbar row (the Import | Draw switch). */
-export default function DrawMap({ cc, stage, onResult, trailing, showNames }) {
+export default function DrawMap({ cc, stage, onResult, trailing, showNames, stored }) {
   const [base, setBase] = useState(null);
   const [err, setErr] = useState("");
   const [level, setLevel] = useState(0);
@@ -136,6 +137,27 @@ export default function DrawMap({ cc, stage, onResult, trailing, showNames }) {
     }).catch((e) => !off && setErr(errorText(e)));
     return () => { off = true; };
   }, [cc, level]);
+
+  // Editing a saved drawing: its areas (and their images) come back as shapes, so they can be repainted, renamed, erased or recolored.
+  useEffect(() => {
+    if (!stored) return undefined;
+    let off = false;
+    fetch(`/api/clues/${cc}/geo/${stored}`)
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(r.statusText))))
+      .then((g) => {
+        if (off || !g.names) return;
+        const parts = new Map();
+        g.geometries.forEach((geom, i) => {
+          const polys = geom.type === "Polygon" ? [geom.coordinates] : geom.type === "MultiPolygon" ? geom.coordinates : [];
+          parts.set(g.names[i], [...(parts.get(g.names[i]) ?? []), ...polys]);
+        });
+        setItems([...parts].map(([name, coordinates]) => ({ op: "shape", name, geometry: { type: "MultiPolygon", coordinates } })));
+        setImages(Object.fromEntries((g.extras ?? []).map((x, i) => [g.names[i], x]).filter(([, x]) => x.startsWith("data:image/"))));
+        setColored(g.colors.some((c) => c.toLowerCase() !== PALE));
+      })
+      .catch((e) => !off && setErr(errorText(e)));
+    return () => { off = true; };
+  }, [cc, stored]);
 
   useEffect(() => {
     if (!items.length) {

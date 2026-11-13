@@ -12,6 +12,7 @@ import json
 import math
 from typing import Literal
 
+import geopandas as gpd
 import numpy as np
 import shapely
 from fastapi import APIRouter, HTTPException, Request
@@ -107,6 +108,29 @@ def _distribute(geoms: list) -> list[str]:
     return [COLORS[c] for c in chosen]
 
 
+def restandardize(path) -> None:
+    """Recompute the colors of a drawn-areas file (name + color columns) so touching areas never look alike.
+
+    A file whose areas are all the pale land color (painted without colors) is left alone, and so is a file
+    whose colors are already right.
+    """
+    if not path.is_file():
+        return
+    gdf = gpd.read_parquet(path)
+    if not {"name", "color"} <= set(gdf.columns):
+        return
+    if set(gdf["color"].astype(str).str.lower()) <= {PALE}:
+        return
+    keys = gdf["name"].astype(str)
+    names = list(dict.fromkeys(keys))
+    geoms = [shapely.union_all(gdf.geometry[keys == n].to_numpy()) for n in names]
+    colors = keys.map(dict(zip(names, _distribute(geoms), strict=True)))
+    if (colors == gdf["color"].astype(str)).all():
+        return
+    gdf["color"] = colors
+    gdf.to_parquet(path, compression="zstd")
+
+
 _UNITS: dict[tuple[str, int], list[tuple[str, object]]] = {}
 
 
@@ -172,7 +196,7 @@ async def draw_units(cc: str, request: Request, level: int = 0):
 
 
 class Item(BaseModel):
-    op: Literal["fill", "stroke", "erase"]
+    op: Literal["fill", "stroke", "erase", "shape"]
     name: str = ""
     slot: int = 0  # index of the category's color in COLORS (wraps around)
     level: int = 0
@@ -180,6 +204,9 @@ class Item(BaseModel):
     width: float = 0.0  # stroke width, degrees of latitude
     points: list[list[float]] = []  # stroke path, lon/lat
     extra: str = ""  # image (data URI) of the category; sent on its first item
+    geometry: dict | None = (
+        None  # shape: GeoJSON of an area of a saved drawing that is being edited
+    )
 
 
 class BuildBody(BaseModel):
@@ -203,7 +230,12 @@ def _build(local, cc: str, items: list[Item], colored: bool = True) -> dict:
     extras: dict[str, str] = {}
     slots: dict[str, int] = {}
     for it in items:
-        if it.op == "fill" or (it.op == "erase" and not it.points):
+        if it.op == "shape":
+            if not it.geometry:
+                continue
+            shape = shapely.make_valid(shapely.from_geojson(json.dumps(it.geometry)))
+            geom = shapely.intersection(shape, outline)
+        elif it.op == "fill" or (it.op == "erase" and not it.points):
             units = _units(local, cc, it.level)
             if not 0 <= it.id < len(units):
                 continue
