@@ -33,11 +33,10 @@ export function SourceChip({ source }) {
 }
 
 // The extra_info of a clicked area: an embedded image, or text.
-function AreaInfo({ pick, onClose }) {
+function AreaInfo({ pick }) {
   return <div className="area-info">
-    <button type="button" aria-label="Close" onClick={onClose}>×</button>
-    <b>{pick.name}</b>
     {pick.extra.startsWith("data:image/") ? <img src={pick.extra} alt={pick.name} /> : <p><RichText text={pick.extra} /></p>}
+    <b>{pick.name}</b>
   </div>;
 }
 
@@ -153,7 +152,6 @@ export default function ClueCard({ cc, clue, editing, onDelete, onEdit, dragging
     <Media cc={cc} clue={clue} onArea={pickArea} selected={pick?.name}><Badges clue={clue} /></Media>
     {shown.map((c) => <RelatedMedia key={c} cc={c} ids={idsOf(c)} name={nameOf(c)} onClose={() => toggleOpen(c)} />)}
     <div className={`clue-body ${editing ? "has-tools" : ""}`}>
-      {pick?.extra && <AreaInfo pick={pick} onClose={() => setPick(null)} />}
       <div className="clue-tags">
         {showTags && loc && <LocationChip t={loc} />}
         {showTags && cat && <CategoryChip t={cat} />}
@@ -164,6 +162,7 @@ export default function ClueCard({ cc, clue, editing, onDelete, onEdit, dragging
       </div>
       <p className="clue-info"><RichText text={clue.info} /></p>
       {pick && !pick.extra && <p className="clue-note"><b>NOTE:</b> {pick.name}</p>}
+      {pick?.extra && <AreaInfo pick={pick} />}
       <RelationLine type="same_as" clue={clue} open={shown} nameOf={nameOf} onToggle={toggleOpen} />
       <RelationLine type="similar_to" clue={clue} open={shown} nameOf={nameOf} onToggle={toggleOpen} />
     </div>

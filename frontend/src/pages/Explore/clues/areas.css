@@ -13,13 +13,9 @@
 .clue-note { margin: 12px 0 0; font-size: 22px; line-height: 1.35; }
 .clue-note b { color: var(--sea-hi); }
 
-/* The extra_info of the clicked area, shown beside the map */
-.area-info { position: relative; display: grid; gap: 8px; margin-bottom: 12px; padding: 12px 36px 12px 14px;
-  background: var(--raise); border: 1px solid var(--line); border-radius: 8px; }
+/* The extra_info of the clicked area, shown below the clue text, its name to the left of the image */
+.area-info { display: flex; align-items: center; gap: 8px; margin-top: 12px; }
 .area-info b { font-size: 16px; }
 .area-info p { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
 .area-info a { color: var(--sea-hi); }
 .area-info img { max-width: 240px; max-height: 220px; object-fit: contain; border-radius: 6px; }
-.area-info > button { position: absolute; top: 6px; right: 8px; padding: 0 4px; background: none; border: 0;
-  color: var(--mute); cursor: pointer; font-size: 18px; line-height: 1; }
-.area-info > button:hover { color: var(--ink); }
