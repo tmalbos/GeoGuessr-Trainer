@@ -32,6 +32,7 @@ from starlette.concurrency import run_in_threadpool
 
 from src.api.deps import get_ctx
 from src.geo.map_detect import detect_map
+from src.geo.pinpoint import area_km2
 from src.geo.stain_extract import (
     StainError,
     analyze,
@@ -55,9 +56,39 @@ def _outline_full(local, code: str):
     return local.outline(code)
 
 
+FAR_ISLAND_REACH_FACTOR = 0.000001
+
+
+def _drop_far_islands(outline):
+    """The outline without its far-away, tiny parts (overseas islands and territories)."""
+    if outline is None or outline.is_empty:
+        return outline
+
+    parts = [p for p in shapely.get_parts(outline) if p.geom_type == "Polygon" and not p.is_empty]
+
+    if len(parts) < 2:
+        return outline
+
+    areas = [area_km2(p) for p in parts]
+    main = parts[areas.index(max(areas))]
+    west, south, east, north = main.bounds
+    FAR_ISLAND_REACH * max(east - west, north - south)
+    total = sum(areas)
+
+    for p, _a in zip(parts, areas, strict=True):
+        print(p.distance(main))
+
+    keep = [
+        p
+        for p, a in zip(parts, areas, strict=True)
+        if p is main or a >= FAR_ISLAND_REACH_FACTOR * p.distance(main) * total
+    ]
+    return shapely.union_all(keep) if len(keep) < len(parts) else outline
+
+
 def _outline(local, code: str):
     """Same outline, consistent with `_borders`. None when there is no local data."""
-    return local.outline(code)
+    return _drop_far_islands(local.outline(code))
 
 
 def _borders(local, code: str):

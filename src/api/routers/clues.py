@@ -319,6 +319,8 @@ def _render_overlay(cc: str, geo_file: Path, local) -> str | None:
         shades = _shades_of(gdf)
         keep = ~shapely.is_empty(geoms)
         outline = _outline(local, cc)
+        if outline is not None:
+            keep &= shapely.dwithin(geoms, outline, 0.01)  # nothing far from the trimmed outline
         borders = _borders(local, cc) if outline is not None else None
         return render_overlay(outline, borders, [(geoms[keep], shades[keep])])
     except Exception:
