@@ -8,6 +8,7 @@
 **Antigua and Barbuda**: OSM extract for ADM0 and ADM1 (28-10-2026). Missing ADM2 and ADM3
 **Argentina**: OSM extract for ADM0 through ADM2 (08-10-2026). Missing ADM3
 **Armenia**: OSM extract for ADM0 through ADM2 (28-10-2026)
+**Aruba**: https://geodataviewer.com/tools/download-boundaries for ADM0 (13-11-2026). Missing ADM1
 **Ascension**: OSM extract for ADM0 (06-11-2026)
 **Australia**: OSM extract for ADM0 and ADM1 (28-10-2026). Missing ADM2
 **Austria**: OSM extract for ADM0 through ADM3 (28-10-2026)
