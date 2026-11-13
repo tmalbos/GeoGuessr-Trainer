@@ -18,6 +18,8 @@
 .dm-res.click { cursor: pointer; }
 .dm-tools input[type="range"] { width: 110px; padding: 0; border: 0; background: none; margin: 0 4px; }
 .dm-status { margin-left: 8px; font-size: 12px; }
+.dm-cats { display: grid; gap: 8px; }
+.dm-cat { display: grid; gap: 8px; min-width: 0; }
 
 /* Import | Draw switch, at the right end of the media toolbar */
 .ed-mode { margin-left: auto; display: inline-flex; flex-shrink: 0; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }

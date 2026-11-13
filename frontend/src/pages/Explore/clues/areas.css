@@ -16,7 +16,7 @@
 .area-info b { font-size: 16px; }
 .area-info p { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
 .area-info a { color: var(--sea-hi); }
-.area-info img { max-width: 100%; max-height: 320px; object-fit: contain; border-radius: 6px; }
+.area-info img { max-width: 240px; max-height: 220px; object-fit: contain; border-radius: 6px; }
 .area-info > button { position: absolute; top: 6px; right: 8px; padding: 0 4px; background: none; border: 0;
   color: var(--mute); cursor: pointer; font-size: 18px; line-height: 1; }
 .area-info > button:hover { color: var(--ink); }

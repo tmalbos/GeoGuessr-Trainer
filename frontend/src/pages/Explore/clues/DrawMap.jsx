@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api, errorText } from "../../../lib/api.js";
 import { bboxOf, shapes } from "./geoDraw.js";
-import { discardStaged } from "./imageTools.js";
+import { discardStaged, loadImage, stagedUrl } from "./imageTools.js";
+import ClueImage from "./ClueImage.jsx";
 import "./draw.css";
 
 const W = 1000;
@@ -56,6 +57,43 @@ function NamePop({ left, top, initial, listId, onOk, onCancel }) {
   </div>;
 }
 
+const MAX_PX = 640;
+
+// Final pixels of an image slot -> a small data URI (the area's own "extra").
+async function toDataUri(url) {
+  const img = await loadImage(url);
+  const k = Math.min(1, MAX_PX / Math.max(img.naturalWidth, img.naturalHeight));
+  const c = document.createElement("canvas");
+  c.width = Math.max(1, Math.round(img.naturalWidth * k));
+  c.height = Math.max(1, Math.round(img.naturalHeight * k));
+  c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+  return c.toDataURL("image/webp", 0.8);
+}
+
+// The same image slot a regional clue's photo uses, for one category. `value` = its stored data URI (or undefined).
+function CategoryImage({ name, value, onChange }) {
+  const ed = useRef(null);
+  const col = useRef(null);
+  const seq = useRef(0);
+  const valueRef = useRef(value);
+  valueRef.current = value;
+  const [initial] = useState(value ?? null);
+  const [gone, setGone] = useState(false);
+  const [blur, setBlur] = useState(false);
+  const [maxH, setMaxH] = useState(null);
+  const onState = (has, sig) => {
+    const n = ++seq.current;
+    if (!has) { if (valueRef.current) onChange(name, null); return; }
+    if (sig === ":0") return; // untouched: still the stored image
+    ed.current.resolve().then((token) => token && toDataUri(stagedUrl(token)))
+      .then((uri) => { if (uri && n === seq.current) onChange(name, uri); }).catch(() => {});
+  };
+  return <div className="dm-cat" ref={col}>
+    <ClueImage ref={ed} current={gone ? null : initial} colRef={col} onState={onState} blur={blur} onBlur={setBlur} maxH={maxH} onMaxH={setMaxH}
+      onRemove={() => { setGone(true); onChange(name, null); }} />
+  </div>;
+}
+
 /** Draw a regional clue as colored categories on its country. Fill = the subdivision you click (level chosen on the map's top-left);
  *  paint = freeform strokes clipped to the outline. Clicking the map asks for the category name where you clicked; clicking an
  *  already painted area (Fill tool) renames it. Wheel zooms; drag pans (Fill tool), middle / right button pans with any tool.
@@ -76,6 +114,8 @@ export default function DrawMap({ cc, stage, onResult, trailing }) {
   const [last, setLast] = useState("");
   const [view, setView] = useState({ x: 0, y: 0, w: W });
   const [busy, setBusy] = useState(false);
+  const [images, setImages] = useState({});
+  const [cat, setCat] = useState("");
   const wrap = useRef(null);
   const svg = useRef(null);
   const drag = useRef(null);
@@ -115,7 +155,8 @@ export default function DrawMap({ cc, stage, onResult, trailing }) {
     setBusy(true); setErr("");
     const t = setTimeout(async () => {
       try {
-        const fc = await api(`/clues/${cc}/draw/build`, { method: "POST", body: { items } });
+        const sent = items.map((i, k) => (images[i.name] && items.findIndex((x) => x.name === i.name) === k ? { ...i, extra: images[i.name] } : i));
+        const fc = await api(`/clues/${cc}/draw/build`, { method: "POST", body: { items: sent } });
         if (stale) return;
         setShown(fc.features);
         if (!fc.features.length) { resultRef.current(null); return; }
@@ -126,7 +167,7 @@ export default function DrawMap({ cc, stage, onResult, trailing }) {
       } catch (e) { if (!stale) setErr(errorText(e)); } finally { if (!stale) setBusy(false); }
     }, 150);
     return () => { stale = true; clearTimeout(t); };
-  }, [items, cc]);
+  }, [items, images, cc]);
 
   const proj = useMemo(() => { const bb = base && bboxOf(base); return bb ? makeProjection(bb) : null; }, [base]);
   const landD = useMemo(() => (proj ? shapes(base, proj.fwd).polys : ""), [proj, base]);
@@ -215,11 +256,18 @@ export default function DrawMap({ cc, stage, onResult, trailing }) {
     const n = text.trim();
     if (!n) return;
     if (pop.rename != null) {
-      if (n !== pop.rename) setItems((it) => it.map((i) => (i.name === pop.rename ? { ...i, name: n } : i)));
+      if (n !== pop.rename) {
+        setItems((it) => it.map((i) => (i.name === pop.rename ? { ...i, name: n } : i)));
+        setImages(({ [pop.rename]: img, ...rest }) => (img && !rest[n] ? { ...rest, [n]: img } : rest));
+        setCat((c) => (c === pop.rename ? n : c));
+      }
     } else setItems((it) => [...it, { ...pop.item, name: n }]);
     setLast(n);
     setPop(null);
   };
+
+  const setImage = (n, uri) => setImages(({ [n]: _gone, ...rest }) => (uri ? { ...rest, [n]: uri } : rest));
+  const sel = names.includes(cat) ? cat : names[0] ?? "";
 
   const unit = (view.w / W) * size;
   const pend = proj && pop?.item?.points ? { d: pathOf(pop.item.points.map(proj.fwd)), w: pop.item.width * proj.s } : null;
@@ -256,9 +304,16 @@ export default function DrawMap({ cc, stage, onResult, trailing }) {
       {painting && <input type="range" min="4" max="80" value={size} aria-label="Brush size" title="Brush size" onChange={(e) => setSize(Number(e.target.value))} />}
       <i className="ed-sep" />
       <button type="button" className="ed-tool" aria-label="Undo" title="Undo" disabled={!items.length} onClick={() => setItems((it) => it.slice(0, -1))}>↶</button>
-      <button type="button" className="ed-tool" aria-label="Clear" title="Clear all" disabled={!items.length} onClick={() => setItems([])}>×</button>
+      <button type="button" className="ed-tool" aria-label="Clear" title="Clear all" disabled={!items.length} onClick={() => { setItems([]); setImages({}); }}>×</button>
       <span className={`dm-status ${err && proj ? "err" : "muted"}`}>{proj && err ? err : busy ? "Saving…" : ""}</span>
       {trailing}
     </div>
+    {names.length > 0 && <div className="dm-cats">
+      <div className="clue-chips" role="group" aria-label="Category image">
+        {names.map((n) => <button key={n} type="button" className={`fchip ${n === sel ? "on" : ""}`} aria-pressed={n === sel}
+          onClick={() => setCat(n)}>{n}{images[n] && <span aria-hidden="true"> 🖼️</span>}</button>)}
+      </div>
+      <CategoryImage key={sel} name={sel} value={images[sel]} onChange={setImage} />
+    </div>}
   </>;
 }

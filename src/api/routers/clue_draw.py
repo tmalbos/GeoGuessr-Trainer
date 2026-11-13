@@ -132,6 +132,7 @@ class Item(BaseModel):
     id: int = 0
     width: float = 0.0  # stroke width, degrees of latitude
     points: list[list[float]] = []  # stroke path, lon/lat
+    extra: str = ""  # image (data URI) of the category; sent on its first item
 
 
 class BuildBody(BaseModel):
@@ -151,6 +152,7 @@ def _build(local, cc: str, items: list[Item]) -> dict:
     if outline is None or outline.is_empty:
         raise HTTPException(422, f"No local outline for {cc}.")
     shapes: dict[str, object] = {}
+    extras: dict[str, str] = {}
     for it in items:
         if it.op == "fill":
             units = _units(local, cc, it.level)
@@ -171,6 +173,8 @@ def _build(local, cc: str, items: list[Item]) -> dict:
         name = it.name.strip()
         if not name:
             continue
+        if it.extra:
+            extras[name] = it.extra
         for k in shapes:
             if k != name:
                 shapes[k] = shapely.difference(shapes[k], geom)
@@ -187,7 +191,7 @@ def _build(local, cc: str, items: list[Item]) -> dict:
         "features": [
             {
                 "type": "Feature",
-                "properties": {"name": n, "color": c},
+                "properties": {"name": n, "color": c, "extra": extras.get(n, "")},
                 "geometry": json.loads(shapely.to_geojson(g)),
             }
             for n, c, g in zip(names, colors, geoms, strict=True)

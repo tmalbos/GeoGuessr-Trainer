@@ -270,6 +270,7 @@ def _to_geojson(
     shades: np.ndarray | None = None,
     names: np.ndarray | None = None,
     colors: np.ndarray | None = None,
+    extras: np.ndarray | None = None,
 ) -> dict:
     """GeometryCollection for the browser. When `shades` (one per geometry) has anything above 0 it is sent
     along as `shades`, in the same order as `geometries`.
@@ -281,6 +282,8 @@ def _to_geojson(
             shades = shades[::step]
         if names is not None:
             names, colors = names[::step], colors[::step]
+        if extras is not None:
+            extras = extras[::step]
     g = shapely.set_precision(geoms, PREVIEW_PRECISION)
     keep = ~shapely.is_empty(g)
     g = g[keep]
@@ -293,6 +296,8 @@ def _to_geojson(
     if names is not None:
         out["names"] = [str(v) for v in names[keep]]
         out["colors"] = [str(v) for v in colors[keep]]
+    if extras is not None:
+        out["extras"] = [str(v) for v in extras[keep]]
     return out
 
 
@@ -473,6 +478,8 @@ def _process_geo(data: bytes, suffix: str, token: str) -> tuple[str, dict]:
     if kind == "polygons" and {"name", "color"} <= set(gdf.columns):
         cols["name"] = gdf["name"].astype(str).to_numpy()[rows]
         cols["color"] = gdf["color"].astype(str).to_numpy()[rows]
+        if "extra" in gdf.columns:
+            cols["extra"] = gdf["extra"].fillna("").astype(str).to_numpy()[rows]
     gpd.GeoDataFrame(cols, geometry=parts, crs=4326).to_parquet(out, compression="zstd")
     return kind, {
         "kind": kind,
@@ -483,7 +490,12 @@ def _process_geo(data: bytes, suffix: str, token: str) -> tuple[str, dict]:
         "bytes_out": out.stat().st_size,
         "bbox": [float(v) for v in shapely.total_bounds(parts)],
         "geojson": _to_geojson(
-            parts, PREVIEW_MAX_FEATURES, shades, cols.get("name"), cols.get("color")
+            parts,
+            PREVIEW_MAX_FEATURES,
+            shades,
+            cols.get("name"),
+            cols.get("color"),
+            cols.get("extra"),
         ),
         "stats": region_stats(parts, shades, kind),  # pre-fills the ratings of a new clue
     }
@@ -933,6 +945,8 @@ def clue_geo(cc: str, name: str):
         if {"name", "color"} <= set(gdf.columns)
         else {}
     )
+    if named and "extra" in gdf.columns:
+        named["extras"] = gdf["extra"].fillna("").astype(str).to_numpy()
     return _to_geojson(gdf.geometry.to_numpy(), shades=_shades_of(gdf), **named)
 
 
