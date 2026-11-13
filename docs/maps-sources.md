@@ -1,4 +1,5 @@
 **Afghanistan**: OSM extract for ADM0 through ADM2 (28-10-2026)
+**Aland Islands**: OSM extract for ADM0 (28-10-2026). Missing ADM1
 **Albania**: OSM extract for ADM0 through ADM3 (28-10-2026). Missing ADM4
 **American Samoa**: https://www.geoboundaries.org/countryDownloads.html for ADM0 and ADM1 (11-11-2026)
 **Andorra**: OSM extract for ADM0 and ADM1 (25-10-2026)
