@@ -102,6 +102,7 @@ export default function DrawMap({ cc, stage, onResult, trailing, showNames }) {
   const [view, setView] = useState({ x: 0, y: 0, w: W });
   const [busy, setBusy] = useState(false);
   const [images, setImages] = useState({});
+  const [colored, setColored] = useState(true);
   const wrap = useRef(null);
   const shiftAt = useRef(0);
   const cycle = useRef({ options: [0], sel: 0 });
@@ -150,7 +151,7 @@ export default function DrawMap({ cc, stage, onResult, trailing, showNames }) {
           const first = items.findIndex((x) => x.slot === i.slot && x.op !== "erase") === k;
           return { ...i, name: i.op === "erase" ? "" : nameOf(i.slot), ...(first && images[i.slot] ? { extra: images[i.slot] } : {}) };
         });
-        const fc = await api(`/clues/${cc}/draw/build`, { method: "POST", body: { items: sent } });
+        const fc = await api(`/clues/${cc}/draw/build`, { method: "POST", body: { items: sent, colored } });
         if (stale) return;
         setShown(fc.features);
         if (!fc.features.length) { resultRef.current(null); return; }
@@ -161,7 +162,7 @@ export default function DrawMap({ cc, stage, onResult, trailing, showNames }) {
       } catch (e) { if (!stale) setErr(errorText(e)); } finally { if (!stale) setBusy(false); }
     }, 150);
     return () => { stale = true; clearTimeout(t); };
-  }, [items, images, custom, cc]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [items, images, custom, cc, colored]);
 
   const proj = useMemo(() => { const bb = base && bboxOf(base); return bb ? makeProjection(bb) : null; }, [base]);
   const landD = useMemo(() => (proj ? shapes(base, proj.fwd).polys : ""), [proj, base]);
@@ -312,6 +313,8 @@ export default function DrawMap({ cc, stage, onResult, trailing, showNames }) {
       <span className={`dm-status ${err && proj ? "err" : "muted"}`}>{proj && err ? err : busy ? "Saving…" : ""}</span>
       {trailing}
     </div>
+    <label className="chk-row"><input type="checkbox" checked={colored} onChange={(e) => setColored(e.target.checked)} />
+      Paint the areas with different colors</label>
     {proj && <div className="dm-cats">
       <div className="dm-catbar">
         <i className="dm-sw" style={{ background: colorOf(sel) }} />

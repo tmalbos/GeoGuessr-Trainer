@@ -26,18 +26,22 @@ from src.geo.simplify import _polygonal, simplify_coverage, tolerance  # noqa: P
 
 router = APIRouter()
 
-# Hand-picked, in the app's palette. After these, each new color is the candidate farthest (Lab distance) from all used ones.
+# Hand-picked, the app's coral / sea / sand / green accents softened to sit on the dark UI. After these, each new color
+# is the candidate farthest (Lab distance) from all used ones.
 PALETTE = [
-    "#ff7357",
-    "#4aa3d6",
-    "#e6b84a",
-    "#3fb97a",
-    "#a08fd8",
-    "#e56fa6",
-    "#5ed1c8",
-    "#cdbf93",
-    "#9bd14a",
+    "#d9775f",
+    "#5d9fc4",
+    "#d6b65e",
+    "#5fae88",
+    "#9d90cf",
+    "#cf7ca2",
+    "#69bfb8",
+    "#c4b78c",
+    "#9bba5f",
 ]
+PALE = "#f6f4e4"  # the land color of the clue maps: used when the areas are not painted with different colors
+ADJ_TOL_DEG = 0.005  # areas closer than this (~500 m) count as neighbours
+MIN_DISTANCE = 40.0  # Lab distance a color should keep from its neighbours' colors
 
 
 def _rgb(h: str) -> list[float]:
@@ -49,8 +53,8 @@ def _spread_colors(n: int) -> list[str]:
     labs = [_lab(_rgb(c)) for c in cols]
     pool = []
     for hue in range(0, 360, 15):
-        for light in (0.55, 0.65, 0.75):
-            for sat in (0.5, 0.75):
+        for light in (0.5, 0.6):
+            for sat in (0.3, 0.45):
                 rgb = colorsys.hls_to_rgb(hue / 360, light, sat)
                 pool.append(("#" + "".join(f"{round(v * 255):02x}" for v in rgb), _lab(rgb)))
     while len(cols) < n:
@@ -61,6 +65,47 @@ def _spread_colors(n: int) -> list[str]:
 
 
 COLORS = _spread_colors(40)
+_COLORS_LAB = np.array([_lab(_rgb(c)) for c in COLORS])
+
+
+def _distribute(geoms: list) -> list[str]:
+    """One color per geometry, chosen so touching areas get colors as far apart (Lab) as possible.
+
+    Greedy (most neighbours first), then a few passes that re-pick each area's color against its final neighbours.
+    Among equally good colors the least used one wins, so the colors spread out evenly.
+    """
+    n = len(geoms)
+    if not n:
+        return []
+    nbrs: list[set[int]] = [set() for _ in range(n)]
+    if n > 1:
+        arr = np.empty(n, dtype=object)
+        arr[:] = geoms
+        a, b = shapely.STRtree(arr).query(arr, predicate="dwithin", distance=ADJ_TOL_DEG)
+        for i, j in zip(a.tolist(), b.tolist(), strict=True):
+            if i != j:
+                nbrs[i].add(j)
+                nbrs[j].add(i)
+    chosen = [-1] * n
+    used = np.zeros(len(COLORS))
+    order = sorted(range(n), key=lambda k: (-len(nbrs[k]), k))
+    for _ in range(4):
+        for i in order:
+            if chosen[i] >= 0:
+                used[chosen[i]] -= 1
+            near = [chosen[j] for j in nbrs[i] if chosen[j] >= 0]
+            if near:
+                dist = np.linalg.norm(
+                    _COLORS_LAB[:, None, :] - _COLORS_LAB[near][None], axis=2
+                ).min(1)
+                score = np.minimum(dist, MIN_DISTANCE)
+            else:
+                score = np.zeros(len(COLORS))
+            ok = np.flatnonzero(score >= score.max() - 1e-9)
+            chosen[i] = int(ok[np.argmin(used[ok])])
+            used[chosen[i]] += 1
+    return [COLORS[c] for c in chosen]
+
 
 _UNITS: dict[tuple[str, int], list[tuple[str, object]]] = {}
 
@@ -139,6 +184,7 @@ class Item(BaseModel):
 
 class BuildBody(BaseModel):
     items: list[Item]
+    colored: bool = True  # False = every area keeps the pale land color
 
 
 def _stroke(points: list[list[float]], width: float):
@@ -149,7 +195,7 @@ def _stroke(points: list[list[float]], width: float):
     return shapely.transform(g, lambda c: c / np.array([k, 1.0]))
 
 
-def _build(local, cc: str, items: list[Item]) -> dict:
+def _build(local, cc: str, items: list[Item], colored: bool = True) -> dict:
     outline = _outline(local, cc)
     if outline is None or outline.is_empty:
         raise HTTPException(422, f"No local outline for {cc}.")
@@ -183,13 +229,13 @@ def _build(local, cc: str, items: list[Item]) -> dict:
             if k != name:
                 shapes[k] = shapely.difference(shapes[k], geom)
         shapes[name] = shapely.union(shapes[name], geom) if name in shapes else geom
-    names, geoms, colors = [], [], []
-    for i, (n, g) in enumerate(shapes.items()):
+    names, geoms = [], []
+    for n, g in shapes.items():
         g = _polygonal(g)
         if g is not None:
             names.append(n)
             geoms.append(g)
-            colors.append(COLORS[slots.get(n, i) % len(COLORS)])
+    colors = _distribute(geoms) if colored else [PALE] * len(geoms)
     return {
         "type": "FeatureCollection",
         "features": [
@@ -205,4 +251,4 @@ def _build(local, cc: str, items: list[Item]) -> dict:
 
 @router.post("/clues/{cc}/draw/build")
 async def draw_build(cc: str, body: BuildBody, request: Request):
-    return await run_in_threadpool(_build, _local(request), _cc(cc), body.items)
+    return await run_in_threadpool(_build, _local(request), _cc(cc), body.items, body.colored)
