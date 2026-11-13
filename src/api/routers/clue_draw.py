@@ -113,6 +113,7 @@ def _payload(local, cc: str, level: int) -> dict:
     units = _units(local, cc, level)
     return {
         "levels": len(_layer(local, cc)[1]),
+        "colors": COLORS,
         "units": [
             {"id": i, "name": n, "geometry": json.loads(shapely.to_geojson(g))}
             for i, (n, g) in enumerate(units)
@@ -128,6 +129,7 @@ async def draw_units(cc: str, request: Request, level: int = 0):
 class Item(BaseModel):
     op: Literal["fill", "stroke", "erase"]
     name: str = ""
+    slot: int = 0  # index of the category's color in COLORS (wraps around)
     level: int = 0
     id: int = 0
     width: float = 0.0  # stroke width, degrees of latitude
@@ -153,6 +155,7 @@ def _build(local, cc: str, items: list[Item]) -> dict:
         raise HTTPException(422, f"No local outline for {cc}.")
     shapes: dict[str, object] = {}
     extras: dict[str, str] = {}
+    slots: dict[str, int] = {}
     for it in items:
         if it.op == "fill" or (it.op == "erase" and not it.points):
             units = _units(local, cc, it.level)
@@ -173,6 +176,7 @@ def _build(local, cc: str, items: list[Item]) -> dict:
         name = it.name.strip()
         if not name:
             continue
+        slots.setdefault(name, it.slot)
         if it.extra:
             extras[name] = it.extra
         for k in shapes:
@@ -185,7 +189,7 @@ def _build(local, cc: str, items: list[Item]) -> dict:
         if g is not None:
             names.append(n)
             geoms.append(g)
-            colors.append(COLORS[i % len(COLORS)])
+            colors.append(COLORS[slots.get(n, i) % len(COLORS)])
     return {
         "type": "FeatureCollection",
         "features": [

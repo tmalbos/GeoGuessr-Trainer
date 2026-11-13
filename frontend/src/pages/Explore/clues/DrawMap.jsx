@@ -13,7 +13,7 @@ const DRAG_PX = 4;
 
 const ico = { width: 19, height: 19, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 2, strokeLinecap: "round", strokeLinejoin: "round", "aria-hidden": true };
 const TOOLS = [
-  ["fill", "Fill a subdivision (click a painted area to rename it)", <svg key="f" {...ico}><path d="M5 11l7-7 8 8-7 7z" /><path d="M5 11l8 8" /><path d="M20 17c0 1.5-1 2.5-1 2.5s-1-1-1-2.5a1 1 0 0 1 2 0z" /></svg>],
+  ["fill", "Fill a subdivision", <svg key="f" {...ico}><path d="M5 11l7-7 8 8-7 7z" /><path d="M5 11l8 8" /><path d="M20 17c0 1.5-1 2.5-1 2.5s-1-1-1-2.5a1 1 0 0 1 2 0z" /></svg>],
   ["paint", "Freeform paint", <svg key="p" {...ico}><path d="M18 3l3 3-9 9-3-3z" /><path d="M9 12c-3 0-4 2-4 4s-1 3-2 4c3 1 8 0 8-5" /></svg>],
   ["erase", "Eraser (hold Shift and click to erase a whole subdivision)", <svg key="e" {...ico}><path d="M4 16l9-9 6 6-6 6H8z" /><path d="M8 20h12" /></svg>],
 ];
@@ -41,22 +41,6 @@ const zoomView = (v, px, py, f, H) => {
   return clampView({ w, x: px - (px - v.x) * k, y: py - (py - v.y) * k }, H);
 };
 const pathOf = (pts) => `M${(pts.length === 1 ? [pts[0], pts[0]] : pts).map((p) => `${p[0].toFixed(1)} ${p[1].toFixed(1)}`).join("L")}`;
-
-// The category prompt, shown where the user clicked.
-function NamePop({ left, top, initial, listId, onOk, onCancel }) {
-  const [v, setV] = useState(initial);
-  const ref = useRef(null);
-  useEffect(() => { ref.current?.focus(); ref.current?.select(); }, []);
-  return <div className="dm-pop" style={{ left, top }}>
-    <input type="text" ref={ref} list={listId} value={v} placeholder="Category name" aria-label="Category name"
-      onChange={(e) => setV(e.target.value)}
-      onKeyDown={(e) => {
-        if (e.key === "Enter") { e.preventDefault(); onOk(v); }
-        else if (e.key === "Escape") { e.stopPropagation(); onCancel(); }
-      }} />
-    <button type="button" className="btn" onClick={() => onOk(v)}>OK</button>
-  </div>;
-}
 
 const MAX_PX = 640;
 
@@ -96,8 +80,9 @@ function CategoryImage({ name, value, onChange }) {
 }
 
 /** Draw a regional clue as colored categories on its country. Fill = the subdivision you click (level chosen on the map's top-left);
- *  paint = freeform strokes clipped to the outline. Clicking the map asks for the category name where you clicked; clicking an
- *  already painted area (Fill tool) renames it. Wheel zooms; drag pans (Fill tool), middle / right button pans with any tool.
+ *  paint = freeform strokes clipped to the outline. Everything you draw goes into the selected category (a color slot, named
+ *  "Unnamed N" until renamed in the bar under the toolbar). Shift + wheel cycles through the used colors and one new one
+ *  (kept only once something is painted with it). Wheel zooms; drag pans (Fill tool), middle / right button pans with any tool.
  *  The server builds the colored polygons from the list of actions; the result is staged through `stage` and handed to `onResult`
  *  (null when nothing is drawn). `trailing` goes at the end of the toolbar row (the Import | Draw switch). */
 export default function DrawMap({ cc, stage, onResult, trailing, showNames }) {
@@ -111,13 +96,15 @@ export default function DrawMap({ cc, stage, onResult, trailing, showNames }) {
   const [items, setItems] = useState([]);
   const [shown, setShown] = useState([]);
   const [live, setLive] = useState(null);
-  const [pop, setPop] = useState(null);
-  const [last, setLast] = useState("");
+  const [picked, setSel] = useState(0); // color slot the user picked (see `sel` below)
+  const [custom, setCustom] = useState({}); // slot -> name given by the user
+  const [palette, setPalette] = useState([]); // colors from the server, slot i uses palette[i % length]
   const [view, setView] = useState({ x: 0, y: 0, w: W });
   const [busy, setBusy] = useState(false);
   const [images, setImages] = useState({});
-  const [cat, setCat] = useState("");
   const wrap = useRef(null);
+  const shiftAt = useRef(0);
+  const cycle = useRef({ options: [0], sel: 0 });
   const svg = useRef(null);
   const drag = useRef(null);
   const had = useRef(false);
@@ -125,6 +112,8 @@ export default function DrawMap({ cc, stage, onResult, trailing, showNames }) {
   stageRef.current = stage;
   const resultRef = useRef(onResult);
   resultRef.current = onResult;
+  const nameOf = (s) => custom[s]?.trim() || `Unnamed ${s + 1}`;
+  const colorOf = (s) => (palette.length ? palette[s % palette.length] : "#8b98a8");
 
   useEffect(() => {
     let off = false;
@@ -141,6 +130,7 @@ export default function DrawMap({ cc, stage, onResult, trailing, showNames }) {
     api(`/clues/${cc}/draw/units?level=${level}`).then((d) => {
       if (off) return;
       setNLevels(d.levels);
+      setPalette(d.colors ?? []);
       setUnits(d.units);
     }).catch((e) => !off && setErr(errorText(e)));
     return () => { off = true; };
@@ -156,7 +146,10 @@ export default function DrawMap({ cc, stage, onResult, trailing, showNames }) {
     setBusy(true); setErr("");
     const t = setTimeout(async () => {
       try {
-        const sent = items.map((i, k) => (images[i.name] && items.findIndex((x) => x.name === i.name) === k ? { ...i, extra: images[i.name] } : i));
+        const sent = items.map((i, k) => {
+          const first = items.findIndex((x) => x.slot === i.slot && x.op !== "erase") === k;
+          return { ...i, name: i.op === "erase" ? "" : nameOf(i.slot), ...(first && images[i.slot] ? { extra: images[i.slot] } : {}) };
+        });
         const fc = await api(`/clues/${cc}/draw/build`, { method: "POST", body: { items: sent } });
         if (stale) return;
         setShown(fc.features);
@@ -168,7 +161,7 @@ export default function DrawMap({ cc, stage, onResult, trailing, showNames }) {
       } catch (e) { if (!stale) setErr(errorText(e)); } finally { if (!stale) setBusy(false); }
     }, 150);
     return () => { stale = true; clearTimeout(t); };
-  }, [items, images, cc]);
+  }, [items, images, custom, cc]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const proj = useMemo(() => { const bb = base && bboxOf(base); return bb ? makeProjection(bb) : null; }, [base]);
   const landD = useMemo(() => (proj ? shapes(base, proj.fwd).polys : ""), [proj, base]);
@@ -196,6 +189,16 @@ export default function DrawMap({ cc, stage, onResult, trailing, showNames }) {
     if (!el || !proj) return undefined;
     const onWheel = (e) => {
       e.preventDefault();
+      if (e.shiftKey) { // cycle through the used colors plus one new one; both directions wrap around
+        const d = e.deltaY || e.deltaX;
+        const now = performance.now();
+        if (d && now - shiftAt.current > 120) {
+          shiftAt.current = now;
+          const { options, sel: at } = cycle.current;
+          if (options.length > 1) setSel(options[(options.indexOf(at) + (d > 0 ? 1 : -1) + options.length) % options.length]);
+        }
+        return;
+      }
       const m = el.getScreenCTM();
       if (!m) return;
       const p = new DOMPoint(e.clientX, e.clientY).matrixTransform(m.inverse());
@@ -207,8 +210,13 @@ export default function DrawMap({ cc, stage, onResult, trailing, showNames }) {
   }, [proj]);
 
   const painting = tool !== "fill";
-  const listId = `dm-names-${cc}`;
-  const names = [...new Set(items.map((i) => i.name).filter(Boolean))];
+  const used = [...new Set(items.filter((i) => i.op !== "erase").map((i) => i.slot))].sort((a, b) => a - b);
+  let pending = 0; // the new, unsaved category: the first slot nobody painted with yet
+  while (used.includes(pending)) pending += 1;
+  const options = [...used, pending];
+  const sel = options.includes(picked) ? picked : pending;
+  cycle.current = { options, sel };
+  const dup = used.some((s) => s !== sel && nameOf(s) === nameOf(sel));
 
   const toSvg = (e) => {
     const m = svg.current.getScreenCTM();
@@ -216,13 +224,8 @@ export default function DrawMap({ cc, stage, onResult, trailing, showNames }) {
     const p = new DOMPoint(e.clientX, e.clientY).matrixTransform(m.inverse());
     return [p.x, p.y];
   };
-  const openPop = (e, p) => {
-    const r = wrap.current.getBoundingClientRect();
-    setPop({ ...p, x: e.clientX - r.left, y: e.clientY - r.top });
-  };
 
   const down = (e) => {
-    if (pop) setPop(null);
     const alt = e.button === 1 || e.button === 2;
     if (alt || (tool === "fill" && e.button === 0)) {
       if (alt) { e.preventDefault(); e.currentTarget.setPointerCapture(e.pointerId); }
@@ -263,37 +266,19 @@ export default function DrawMap({ cc, stage, onResult, trailing, showNames }) {
     d.pts.push(p);
     setLive([...d.pts]);
   };
-  const up = (e) => {
+  const up = () => {
     const d = drag.current;
     drag.current = null;
     if (!d || d.kind !== "draw") return;
     setLive(null);
     // The brush is a screen size: zoomed in, the same brush covers less of the map.
     const item = { op: tool === "erase" ? "erase" : "stroke", width: (size * view.w) / W / proj.s, points: d.pts.map(proj.inv) };
-    if (tool === "erase") setItems((it) => [...it, { ...item, name: "" }]);
-    else openPop(e, { item, name: last });
-  };
-
-  const ok = (text) => {
-    const n = text.trim();
-    if (!n) return;
-    if (pop.rename != null) {
-      if (n !== pop.rename) {
-        setItems((it) => it.map((i) => (i.name === pop.rename ? { ...i, name: n } : i)));
-        setImages(({ [pop.rename]: img, ...rest }) => (img && !rest[n] ? { ...rest, [n]: img } : rest));
-        setCat((c) => (c === pop.rename ? n : c));
-      }
-    } else setItems((it) => [...it, { ...pop.item, name: n }]);
-    setLast(n);
-    setPop(null);
+    setItems((it) => [...it, tool === "erase" ? item : { ...item, slot: sel }]);
   };
 
   const setImage = (n, uri) => setImages(({ [n]: _gone, ...rest }) => (uri ? { ...rest, [n]: uri } : rest));
-  const sel = names.includes(cat) ? cat : names[0] ?? "";
 
   const unit = (view.w / W) * size;
-  const pend = proj && pop?.item?.points ? { d: pathOf(pop.item.points.map(proj.fwd)), w: pop.item.width * proj.s } : null;
-  const popLeft = pop ? Math.max(0, Math.min(pop.x, (wrap.current?.clientWidth ?? 0) - 260)) : 0;
 
   return <>
     <div className="dm" ref={wrap}>
@@ -308,17 +293,13 @@ export default function DrawMap({ cc, stage, onResult, trailing, showNames }) {
           <path className="cl-r" d={landD} fillRule="evenodd" />
           {unitPaths.map((u) => <path key={u.id} data-id={u.id} className={`dm-unit ${tool === "fill" ? "click" : ""}`} d={u.d} fillRule="evenodd"
             style={tool === "fill" ? undefined : { pointerEvents: "none" }}
-            onClick={tool === "fill" ? (e) => openPop(e, { item: { op: "fill", level, id: u.id }, name: last }) : undefined}><title>{u.name}</title></path>)}
-          {shownPaths.map((p) => <path key={p.name} className={`dm-res ${tool === "fill" ? "click" : ""}`} d={p.d} fillRule="evenodd"
-            style={{ fill: p.color, pointerEvents: tool === "fill" ? undefined : "none" }}
-            onClick={tool === "fill" ? (e) => openPop(e, { rename: p.name, name: p.name }) : undefined}><title>{p.name}</title></path>)}
+            onClick={tool === "fill" ? () => setItems((it) => [...it, { op: "fill", level, id: u.id, slot: sel }]) : undefined}><title>{u.name}</title></path>)}
+          {shownPaths.map((p) => <path key={p.name} className="dm-res" d={p.d} fillRule="evenodd"
+            style={{ fill: p.color, pointerEvents: "none" }}><title>{p.name}</title></path>)}
           {labels.map((l) => <AreaName key={l.name} spot={l.spot} />)}
-          {pend && <path d={pend.d} fill="none" strokeLinecap="round" strokeLinejoin="round" strokeWidth={pend.w} stroke="#ffffff" strokeOpacity=".5" style={{ pointerEvents: "none" }} />}
           {live && <path d={pathOf(live)} fill="none" strokeLinecap="round" strokeLinejoin="round" strokeWidth={unit}
             stroke={tool === "erase" ? "#ff7357" : "#ffffff"} strokeOpacity=".5" style={{ pointerEvents: "none" }} />}
         </svg>
-        {pop && <NamePop key={`${pop.x}-${pop.y}`} left={popLeft} top={pop.y + 8} initial={pop.name} listId={listId} onOk={ok} onCancel={() => setPop(null)} />}
-        <datalist id={listId}>{names.map((n) => <option key={n} value={n} />)}</datalist>
       </> : err ? <p className="err">{err}</p> : <p className="muted">Loading map…</p>}
     </div>
     <div className="ed-tools dm-tools" role="toolbar" aria-label="Draw tools">
@@ -331,12 +312,19 @@ export default function DrawMap({ cc, stage, onResult, trailing, showNames }) {
       <span className={`dm-status ${err && proj ? "err" : "muted"}`}>{proj && err ? err : busy ? "Saving…" : ""}</span>
       {trailing}
     </div>
-    {names.length > 0 && <div className="dm-cats">
-      <div className="clue-chips" role="group" aria-label="Category image">
-        {names.map((n) => <button key={n} type="button" className={`fchip ${n === sel ? "on" : ""}`} aria-pressed={n === sel}
-          onClick={() => setCat(n)}>{n}{images[n] && <span aria-hidden="true"> 🖼️</span>}</button>)}
+    {proj && <div className="dm-cats">
+      <div className="dm-catbar">
+        <i className="dm-sw" style={{ background: colorOf(sel) }} />
+        <input type="text" value={custom[sel] ?? ""} placeholder={`Unnamed ${sel + 1}`} aria-label="Category name"
+          onChange={(e) => setCustom((c) => ({ ...c, [sel]: e.target.value }))} />
+        <span className="muted">Shift + scroll to change color</span>
+        {dup && <span className="err">Another category has this name: they will merge.</span>}
       </div>
-      <CategoryImage key={sel} name={sel} value={images[sel]} onChange={setImage} />
+      {used.length > 0 && <div className="clue-chips" role="group" aria-label="Categories">
+        {used.map((s) => <button key={s} type="button" className={`fchip ${s === sel ? "on" : ""}`} aria-pressed={s === sel}
+          onClick={() => setSel(s)}><i className="dm-sw" style={{ background: colorOf(s) }} />{nameOf(s)}{images[s] && <span aria-hidden="true"> 🖼️</span>}</button>)}
+      </div>}
+      {used.includes(sel) && <CategoryImage key={sel} name={sel} value={images[sel]} onChange={setImage} />}
     </div>}
   </>;
 }
