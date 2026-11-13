@@ -71,6 +71,55 @@ function splitPins(g, total, project) {
   return { rest, pins: small.map((i) => ({ at: centre(g.geometries[i], project), shade: g.shades?.[i] ?? 0 })) };
 }
 
+// ── Area names ──
+// A name is printed on its area only where it fits: NAME_PX is the text height on screen, and the text must fit
+// inside the area's own shape (not just its box) around the spot where it is put. Anywhere else the name is still
+// there as the hover tooltip, and clicking the area shows it under the clue text.
+const NAME_PX = 12;
+
+// Horizontal stretches [x0, x1] that lie inside a polygon (all its rings, even-odd) at height y.
+function spansAt(rings, y) {
+  const xs = [];
+  for (const r of rings) {
+    for (let i = 0; i < r.length; i++) {
+      const [x1, y1] = r[i];
+      const [x2, y2] = r[(i + 1) % r.length];
+      if ((y1 <= y) !== (y2 <= y)) xs.push(x1 + ((y - y1) / (y2 - y1)) * (x2 - x1));
+    }
+  }
+  xs.sort((a, b) => a - b);
+  const out = [];
+  for (let i = 0; i + 1 < xs.length; i += 2) out.push([xs[i], xs[i + 1]]);
+  return out;
+}
+
+/** Where to print `name` on an area (lon/lat Polygon / MultiPolygon), in map units, or null when it doesn't fit.
+ *  Looks for the widest stretch of the biggest piece and checks the text box fits there, a bit above and below too. */
+function nameSpot(geom, name, project, size) {
+  const polys = geom.type === "MultiPolygon" ? geom.coordinates : geom.type === "Polygon" ? [geom.coordinates] : [];
+  let big = null;
+  let bigArea = 0;
+  for (const p of polys) {
+    const a = ringArea(p[0], project);
+    if (a > bigArea) { big = p; bigArea = a; }
+  }
+  if (!big) return null;
+  const rings = big.map((r) => r.map(project));
+  let top = Infinity;
+  let bottom = -Infinity;
+  for (const [, y] of rings[0]) { top = Math.min(top, y); bottom = Math.max(bottom, y); }
+  const need = name.length * size * 0.62 + size * 0.5;
+  if (bottom - top < size * 1.2) return null;
+  let best = null;
+  for (let k = 1; k <= 11; k++) {
+    const y = top + ((bottom - top) * k) / 12;
+    for (const [a, b] of spansAt(rings, y)) if (b - a >= need && (!best || b - a > best.len)) best = { y, len: b - a, x: (a + b) / 2 };
+  }
+  if (!best) return null;
+  const fits = [-0.5, 0.5].every((d) => spansAt(rings, best.y + d * size).some(([a, b]) => a <= best.x - need / 2 && b >= best.x + need / 2));
+  return fits ? { x: best.x, y: best.y } : null;
+}
+
 // Pin drawn with its tip at (0, 0), about 46 map units tall. The big transparent circle makes it easy to click.
 function Pin({ at: [x, y], className = "cl-poly", style, children, ...rest }) {
   return <g className={className} style={style} transform={`translate(${x.toFixed(1)} ${y.toFixed(1)}) scale(1.5)`} {...rest}>
@@ -86,14 +135,28 @@ function Pin({ at: [x, y], className = "cl-poly", style, children, ...rest }) {
  *  polygon. With `onStain(id)` each one can be clicked (or Enter / Space) to switch it off and on; an inactive stain is
  *  drawn grey, faint and dashed. A stain smaller than 2% of the country is drawn as a pin (see above).
  *  align="right": the country is drawn against the right edge of the box (used by the overlay on a clue photo). */
-export default function RegionPreview({ cc, layers, stains, onStain, onArea, selected, style, align, label = "Map of the country with the region painted on it" }) {
+export default function RegionPreview({ cc, layers, stains, onStain, onArea, selected, showNames, style, align, label = "Map of the country with the region painted on it" }) {
   const [base, setBase] = useState(undefined); // undefined = loading, null = not available
   const [stainColor, setStainColor] = useState(null);
+  const [svgEl, setSvgEl] = useState(null);
+  const [scale, setScale] = useState(0); // screen px per map unit: names are sized and fitted in real px
   useEffect(() => {
     let off = false;
     loadStainColor().then((c) => !off && setStainColor(c));
     return () => { off = true; };
   }, [cc]);
+  useEffect(() => {
+    if (!svgEl || typeof ResizeObserver !== "function") return undefined;
+    const read = () => {
+      const r = svgEl.getBoundingClientRect();
+      const vb = svgEl.viewBox.baseVal;
+      if (r.width && vb.width) setScale(Math.round(Math.min(r.width / vb.width, r.height / vb.height) * 1000) / 1000);
+    };
+    read();
+    const ro = new ResizeObserver(read);
+    ro.observe(svgEl);
+    return () => ro.disconnect();
+  }, [svgEl]);
   useEffect(() => {
     let off = false;
     setBase(undefined);
@@ -127,7 +190,7 @@ export default function RegionPreview({ cc, layers, stains, onStain, onArea, sel
   const pinned = new Set(smallStains.length <= MAX_PINS ? smallStains.map((s) => s.id) : []);
   const stainTop = Math.max(0, ...(stains ?? []).map((s) => s.shade ?? 0));
 
-  return <svg className="cl-svg" style={{ ...style, "--stain": stainColor ?? undefined, "--stain-dark": stainColor ? darken(stainColor) : undefined }} viewBox={`0 0 ${W} ${H}`} role="img" aria-label={label}
+  return <svg ref={setSvgEl} className="cl-svg" style={{ ...style, "--stain": stainColor ?? undefined, "--stain-dark": stainColor ? darken(stainColor) : undefined }} viewBox={`0 0 ${W} ${H}`} role="img" aria-label={label}
     preserveAspectRatio={align === "right" ? "xMaxYMid meet" : undefined}>
     {land && <path className="cl-r" d={land} fillRule="evenodd" />}
     {borders && <path d={borders} fill="none" stroke="#8b98a8" strokeWidth=".8" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />}
@@ -155,7 +218,7 @@ export default function RegionPreview({ cc, layers, stains, onStain, onArea, sel
     {areaLayers.flatMap((g) => g.geometries.map((geom, i) => {
       const name = g.names?.[i] ?? "";
       const extra = g.extras?.[i] ?? "";
-      const click = !!onArea && !!extra;
+      const click = !!onArea && !!(name || extra);
       const act = click ? {
         role: "button", tabIndex: 0, "aria-label": name,
         onClick: () => onArea({ name, extra }),
@@ -163,6 +226,13 @@ export default function RegionPreview({ cc, layers, stains, onStain, onArea, sel
       } : {};
       return <path key={`${name}-${i}`} className={`cl-area ${click ? "click" : ""} ${selected === name ? "sel" : ""}`}
         d={shapes(geom, project).polys} fillRule="evenodd" style={{ fill: g.colors[i] }} {...act}><title>{name}</title></path>;
+    }))}
+    {showNames && scale > 0 && areaLayers.flatMap((g) => g.geometries.map((geom, i) => {
+      const name = g.names?.[i];
+      const size = NAME_PX / scale;
+      const spot = name ? nameSpot(geom, name, project, size) : null;
+      return spot && <text key={`name-${name}-${i}`} className="cl-area-name" x={spot.x.toFixed(1)} y={spot.y.toFixed(1)}
+        fontSize={size} strokeWidth={size * 0.3}>{name}</text>;
     }))}
     {(stains ?? []).map((s) => {
       const toggle = () => onStain?.(s.id);

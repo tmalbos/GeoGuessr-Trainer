@@ -67,7 +67,7 @@ LEGACY_TAGS = {"Topography": "Landscape"}  # tags of packs made before the renam
 # The fields of a clue that travel in a pack (files are handled apart; overlay / score / medal are rebuilt).
 KEEP = (
     "id", "scope", "info", "tags", "frequency", "ease", "reliability", "blur",
-    "max_height", "source", "relations", "relation_notes", "deck",
+    "max_height", "source", "relations", "relation_notes", "deck", "show_names",
 )  # fmt: skip
 
 

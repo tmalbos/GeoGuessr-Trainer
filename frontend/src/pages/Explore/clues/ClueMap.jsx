@@ -57,7 +57,7 @@ export default function ClueMap({ cc, clue, align, onArea, selected }) {
 
   if (hasGeo) {
     if (!kinds.every((k) => geo[k])) return <p className="muted">Loading map…</p>;
-    return <RegionPreview cc={cc} layers={kinds.map((k) => geo[k])} align={align} onArea={onArea} selected={selected} />;
+    return <RegionPreview cc={cc} layers={kinds.map((k) => geo[k])} align={align} onArea={onArea} selected={selected} showNames={!!clue.show_names} />;
   }
 
   if (!map) return <p className="muted">Loading map…</p>;

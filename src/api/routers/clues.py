@@ -585,6 +585,7 @@ class ClueBody(BaseModel):
     max_height: int | None = Field(
         None, ge=100, le=2000
     )  # px cap for the image on the card (only kept with an image)
+    show_names: bool = False  # drawn regional clue: print the area names on the map where they fit
     source: str = ""  # link to where the information came from (optional)
     relations: list[
         RelationIn
@@ -969,6 +970,7 @@ def add_clue(cc: str, body: ClueBody, request: Request):
                 "relations": rels or None,
                 "relation_notes": notes or None,
                 "deck": deck,
+                "show_names": True if body.show_names else None,
                 **names,
             }
             entry = {k: v for k, v in entry.items() if v is not None}
@@ -1151,6 +1153,7 @@ def update_clue(cc: str, clue_id: str, body: ClueBody, request: Request):
                 "relations": rels or None,
                 "relation_notes": notes or None,
                 "deck": deck_store.use(body.deck) if body.deck.strip() else old.get("deck"),
+                "show_names": True if body.show_names else None,
                 **kept,
                 **names,
             }

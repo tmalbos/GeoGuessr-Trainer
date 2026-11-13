@@ -130,6 +130,7 @@ export default function ClueCard({ cc, clue, editing, onDelete, onEdit, dragging
   const [unfolded, setUnfolded] = useState(false); // a collapsed clue the user clicked open
   useEffect(() => { setUnfolded(false); }, [collapsed]);
   const toggleOpen = (c) => setOpen((o) => (o.includes(c) ? o.filter((x) => x !== c) : [...o, c]));
+  const pickArea = (a) => setPick((p) => (p?.name === a.name ? null : a)); // click again to close
   const loc = clue.tags.find((t) => LOCATION_TAGS.includes(t));
   const cat = clue.tags.find((t) => GENERAL_TAGS.includes(t));
   const idsOf = (c) => (clue.relations ?? []).filter((r) => r.type !== "group" && r.cc === c).map((r) => r.id);
@@ -149,10 +150,10 @@ export default function ClueCard({ cc, clue, editing, onDelete, onEdit, dragging
     {editing && <span className="clue-grip" draggable title="Drag to reorder" aria-label="Drag to reorder"
       onDragStart={onGrab} onDragEnd={onRelease}><Grip /></span>}
     {!editing && clue.scope === "nat" && <AnkiExport cc={cc} clue={clue} />}
-    <Media cc={cc} clue={clue} onArea={setPick} selected={pick?.name}><Badges clue={clue} /></Media>
+    <Media cc={cc} clue={clue} onArea={pickArea} selected={pick?.name}><Badges clue={clue} /></Media>
     {shown.map((c) => <RelatedMedia key={c} cc={c} ids={idsOf(c)} name={nameOf(c)} onClose={() => toggleOpen(c)} />)}
     <div className={`clue-body ${editing ? "has-tools" : ""}`}>
-      {pick && <AreaInfo pick={pick} onClose={() => setPick(null)} />}
+      {pick?.extra && <AreaInfo pick={pick} onClose={() => setPick(null)} />}
       <div className="clue-tags">
         {showTags && loc && <LocationChip t={loc} />}
         {showTags && cat && <CategoryChip t={cat} />}
@@ -162,6 +163,7 @@ export default function ClueCard({ cc, clue, editing, onDelete, onEdit, dragging
         </div>}
       </div>
       <p className="clue-info"><RichText text={clue.info} /></p>
+      {pick && !pick.extra && <p className="clue-note"><b>NOTE:</b> {pick.name}</p>}
       <RelationLine type="same_as" clue={clue} open={shown} nameOf={nameOf} onToggle={toggleOpen} />
       <RelationLine type="similar_to" clue={clue} open={shown} nameOf={nameOf} onToggle={toggleOpen} />
     </div>

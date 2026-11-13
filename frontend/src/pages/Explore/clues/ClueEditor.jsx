@@ -106,6 +106,7 @@ export default function ClueEditor({ cc, name, clue, prefill, onClose, onSaved, 
   }, []);
   const [blur, setBlur] = useState(!!clue?.blur);
   const [maxH, setMaxH] = useState(clue?.max_height ?? null); // px cap for the image on the card
+  const [showNames, setShowNames] = useState(!!clue?.show_names); // drawn areas: print their names on the map
   const [img, setImg] = useState({ has: !!clue?.image, sig: ":0" }); // reported by ClueImage
   // The media slot: an image (handled by ClueImage), or an SVG / CSV / geometry staged here.
   const [media, setMedia] = useState(() => initialMedia(clue));
@@ -140,6 +141,8 @@ export default function ClueEditor({ cc, name, clue, prefill, onClose, onSaved, 
   const isImage = mainKind === "image";
   const showArea = scope === "reg" && isImage; // a photo needs a region; an SVG/CSV/geometry is its own
   const drawing = scope === "reg" && tab === "draw";
+  // named, colored areas (drawn here, or a stored drawn clue): they can show their names on the map
+  const namedAreas = scope === "reg" && !isImage && (drawing || (media.upload ? !!media.upload.geojson?.colors : mainKind === "geometry" && !!clue?.polygons));
   const modeToggle = scope === "reg" && (tab === "draw" || !isImage)
     ? <div className="ed-mode" role="group" aria-label="Region source">
         {[["import", "Import"], ["draw", "Draw"]].map(([k, l]) =>
@@ -169,7 +172,7 @@ export default function ClueEditor({ cc, name, clue, prefill, onClose, onSaved, 
   };
 
   // Only ratings set by hand count as "changes": the automatic ones alone shouldn't make a fresh form look dirty.
-  const snapshot = () => JSON.stringify([scope, info, general, location, RATINGS.map(([k]) => (manual[k] ? rating[k] : null)), blur, maxH,
+  const snapshot = () => JSON.stringify([scope, info, general, location, RATINGS.map(([k]) => (manual[k] ? rating[k] : null)), blur, maxH, showNames,
     img.sig, source, relations, notes, mainKind, media.upload?.token ?? "", area.kind, area.upload?.token ?? ""]);
   const initial = useRef(snapshot());
   const dirty = snapshot() !== initial.current;
@@ -362,6 +365,7 @@ export default function ClueEditor({ cc, name, clue, prefill, onClose, onSaved, 
     return {
         scope, info, tags: [location, general], deck, blur: isImage && blur,
       max_height: isImage ? maxH : null,
+      show_names: !isImage && showNames,
       frequency: num(rating.frequency), ease: num(rating.ease), reliability: num(rating.reliability),
       source: source.trim(),
       relations,
@@ -450,6 +454,8 @@ export default function ClueEditor({ cc, name, clue, prefill, onClose, onSaved, 
             blur={blur} onBlur={setBlur} maxH={maxH} onMaxH={setMaxH} trailing={modeToggle}
             onState={(h, sig) => setImg((p) => (p.has === h && p.sig === sig ? p : { has: h, sig }))} />}
           {mediaErr && <p className="err">{mediaErr}</p>}
+          {namedAreas && <label className="chk-row"><input type="checkbox" checked={showNames} onChange={(e) => setShowNames(e.target.checked)} />
+            Show category names on the map</label>}
           {/* A photo can't say which region it is: the region is mandatory in that case. It is drawn on the photo above. */}
           {showArea && <AreaPicker cc={cc} value={area.upload} current={areaCurrent} onChange={takeArea} stage={stageInput}
             initialPicture={prefill?.areaFile} overlayEl={ovEl} clue={clue} loading={!!prefill?.pending} />}
