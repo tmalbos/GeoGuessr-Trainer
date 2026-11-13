@@ -36,14 +36,14 @@ function GeoThumb({ gj }) {
 }
 
 /** `cc` = the clue's country: a geometry is then drawn on the country instead of floating alone. */
-export function Preview({ kind, v, cc }) {
+export function Preview({ kind, v, cc, showNames }) {
   let stats = `${kb(v.bytes_in)} → ${kb(v.bytes_out)}`;
   if (kind === "image" || kind === "svg") stats = kind === "image" ? `${v.width}×${v.height} · ${stats}` : stats;
   else if (kind === "csv") stats = `${v.row_count} rows · ${stats}`;
   else stats = `${v.kind} · ${v.features.toLocaleString()} features · ${v.vertices_before.toLocaleString()} → ${v.vertices_after.toLocaleString()} vertices · ${stats}`;
   return <div className="fp-prev">
     {(kind === "image" || kind === "svg") && <img className="fp-img" src={stagedUrl(v.token, kind)} alt="Loaded file preview" />}
-    {v.geojson && (cc ? <RegionPreview cc={cc} layers={[v.geojson]} /> : <GeoThumb gj={v.geojson} />)}
+    {v.geojson && (cc ? <RegionPreview cc={cc} layers={[v.geojson]} showNames={showNames} /> : <GeoThumb gj={v.geojson} />)}
     {kind === "csv" && <div className="fp-csv"><table><tbody>
       {v.rows.slice(0, 6).map((r, i) => <tr key={i}>{r.slice(0, 5).map((c, j) => i ? <td key={j}>{c}</td> : <th key={j}>{c}</th>)}</tr>)}
     </tbody></table></div>}

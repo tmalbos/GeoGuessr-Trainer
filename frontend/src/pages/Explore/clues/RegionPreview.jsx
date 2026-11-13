@@ -72,10 +72,15 @@ function splitPins(g, total, project) {
 }
 
 // ── Area names ──
-// A name is printed on its area only where it fits: NAME_PX is the text height on screen, and the text must fit
-// inside the area's own shape (not just its box) around the spot where it is put. Anywhere else the name is still
-// there as the hover tooltip, and clicking the area shows it under the clue text.
-const NAME_PX = 12;
+// A name is printed on its area only where it fits: NAME_PX is the text height on screen. It is tried at full size,
+// then split in two lines (names with spaces), then a bit smaller, on any of the area's biggest pieces, and the text
+// box must lie inside that piece's own shape. Anywhere else the name is still there as the hover tooltip, and
+// clicking the area shows it under the clue text.
+export const NAME_PX = 12;
+const NAME_SCALES = [1, 0.85, 0.7];
+const CHAR_W = 0.58; // width of a bold character, in text heights
+const MAX_PIECES = 4;
+const SPOT_STEPS = 20;
 
 // Horizontal stretches [x0, x1] that lie inside a polygon (all its rings, even-odd) at height y.
 function spansAt(rings, y) {
@@ -93,31 +98,101 @@ function spansAt(rings, y) {
   return out;
 }
 
-/** Where to print `name` on an area (lon/lat Polygon / MultiPolygon), in map units, or null when it doesn't fit.
- *  Looks for the widest stretch of the biggest piece and checks the text box fits there, a bit above and below too. */
-function nameSpot(geom, name, project, size) {
+// Stretches of x that are inside the polygon at every one of the heights `ys`.
+function commonSpans(rings, ys) {
+  let acc = spansAt(rings, ys[0]);
+  for (let k = 1; k < ys.length && acc.length; k++) {
+    const next = spansAt(rings, ys[k]);
+    const out = [];
+    for (const [a, b] of acc) {
+      for (const [c, d] of next) {
+        const lo = Math.max(a, c);
+        const hi = Math.min(b, d);
+        if (hi > lo) out.push([lo, hi]);
+      }
+    }
+    acc = out;
+  }
+  return acc;
+}
+
+// Two-line version of a name: split at the space closest to the middle (null when it has none).
+function splitName(name) {
+  let cut = -1;
+  for (let i = 0; i < name.length; i++) {
+    if (name[i] === " " && (cut < 0 || Math.abs(i - name.length / 2) < Math.abs(cut - name.length / 2))) cut = i;
+  }
+  return cut > 0 ? [name.slice(0, cut), name.slice(cut + 1)] : null;
+}
+
+// The biggest pieces of an area (lon/lat Polygon / MultiPolygon): projected rings and their extent.
+function pieces(geom, project) {
   const polys = geom.type === "MultiPolygon" ? geom.coordinates : geom.type === "Polygon" ? [geom.coordinates] : [];
-  let big = null;
-  let bigArea = 0;
-  for (const p of polys) {
-    const a = ringArea(p[0], project);
-    if (a > bigArea) { big = p; bigArea = a; }
+  return polys
+    .map((p) => ({ p, a: ringArea(p[0], project) }))
+    .sort((x, y) => y.a - x.a)
+    .slice(0, MAX_PIECES)
+    .map(({ p }) => {
+      const rings = p.map((r) => r.map(project));
+      let top = Infinity;
+      let bottom = -Infinity;
+      let left = Infinity;
+      let right = -Infinity;
+      for (const [x, y] of rings[0]) { top = Math.min(top, y); bottom = Math.max(bottom, y); left = Math.min(left, x); right = Math.max(right, x); }
+      return { rings, top, bottom, width: right - left };
+    });
+}
+
+/** Where to print `name` on an area, in map units: { x, y, size, lines } (the text is centred on x, y), or null when it
+ *  doesn't fit anywhere. `px` = text size in map units. For each way of writing it (big to small, one line then two)
+ *  every height of every piece is tried; the box must be inside the shape, and the roomiest, most central spot wins. */
+export function nameSpot(geom, name, project, px) {
+  const parts = pieces(geom, project);
+  const two = splitName(name);
+  for (const k of NAME_SCALES) {
+    const size = px * k;
+    for (const lines of two ? [[name], two] : [[name]]) {
+      const w = Math.max(...lines.map((t) => t.length)) * size * CHAR_W + size * 0.3;
+      const hh = size * (0.4 + 0.55 * (lines.length - 1));
+      let best = null;
+      for (const { rings, top, bottom, width } of parts) {
+        if (width < w || bottom - top < hh * 2) continue;
+        for (let s = 1; s < SPOT_STEPS; s++) {
+          const y = top + ((bottom - top) * s) / SPOT_STEPS;
+          for (const [a, b] of commonSpans(rings, [y - hh, y - hh / 2, y, y + hh / 2, y + hh])) {
+            if (b - a < w) continue;
+            const score = Math.min((b - a) / w, 2) - (0.3 * Math.abs(y - (top + bottom) / 2)) / (bottom - top);
+            if (!best || score > best.score) best = { score, x: (a + b) / 2, y };
+          }
+        }
+      }
+      if (best) return { x: best.x, y: best.y, size, lines };
+    }
   }
-  if (!big) return null;
-  const rings = big.map((r) => r.map(project));
-  let top = Infinity;
-  let bottom = -Infinity;
-  for (const [, y] of rings[0]) { top = Math.min(top, y); bottom = Math.max(bottom, y); }
-  const need = name.length * size * 0.62 + size * 0.5;
-  if (bottom - top < size * 1.2) return null;
-  let best = null;
-  for (let k = 1; k <= 11; k++) {
-    const y = top + ((bottom - top) * k) / 12;
-    for (const [a, b] of spansAt(rings, y)) if (b - a >= need && (!best || b - a > best.len)) best = { y, len: b - a, x: (a + b) / 2 };
+  return null;
+}
+
+// nameSpot is the slow part and the map re-renders often: remember its answer per shape and size.
+// `sig` says which projection `project` is.
+const SPOTS = new WeakMap();
+export function areaNameSpot(geom, name, project, px, sig) {
+  let seen = SPOTS.get(geom);
+  if (!seen) { seen = new Map(); SPOTS.set(geom, seen); }
+  const key = `${name}|${px.toFixed(2)}|${sig}`;
+  if (!seen.has(key)) {
+    if (seen.size > 60) seen.clear();
+    seen.set(key, nameSpot(geom, name, project, px));
   }
-  if (!best) return null;
-  const fits = [-0.5, 0.5].every((d) => spansAt(rings, best.y + d * size).some(([a, b]) => a <= best.x - need / 2 && b >= best.x + need / 2));
-  return fits ? { x: best.x, y: best.y } : null;
+  return seen.get(key);
+}
+
+/** The name written at its spot (one <tspan> per line). */
+export function AreaName({ spot }) {
+  const x = spot.x.toFixed(1);
+  const gap = spot.size * 1.1;
+  return <text className="cl-area-name" x={x} y={spot.y.toFixed(1)} fontSize={spot.size} strokeWidth={spot.size * 0.3}>
+    {spot.lines.map((t, i) => <tspan key={i} x={x} dy={i === 0 ? (-(spot.lines.length - 1) * gap) / 2 : gap}>{t}</tspan>)}
+  </text>;
 }
 
 // Pin drawn with its tip at (0, 0), about 46 map units tall. The big transparent circle makes it easy to click.
@@ -227,12 +302,12 @@ export default function RegionPreview({ cc, layers, stains, onStain, onArea, sel
       return <path key={`${name}-${i}`} className={`cl-area ${click ? "click" : ""} ${selected === name ? "sel" : ""}`}
         d={shapes(geom, project).polys} fillRule="evenodd" style={{ fill: g.colors[i] }} {...act}><title>{name}</title></path>;
     }))}
+    {selected && areaLayers.flatMap((g) => g.geometries.map((geom, i) => (g.names?.[i] === selected
+      ? <path key={`ring-${selected}-${i}`} className="cl-area-ring" d={shapes(geom, project).polys} fillRule="evenodd" /> : null)))}
     {showNames && scale > 0 && areaLayers.flatMap((g) => g.geometries.map((geom, i) => {
       const name = g.names?.[i];
-      const size = NAME_PX / scale;
-      const spot = name ? nameSpot(geom, name, project, size) : null;
-      return spot && <text key={`name-${name}-${i}`} className="cl-area-name" x={spot.x.toFixed(1)} y={spot.y.toFixed(1)}
-        fontSize={size} strokeWidth={size * 0.3}>{name}</text>;
+      const spot = name ? areaNameSpot(geom, name, project, NAME_PX / scale, `${bb.join()}|${W}|${H}|${align}`) : null;
+      return spot && <AreaName key={`name-${name}-${i}`} spot={spot} />;
     }))}
     {(stains ?? []).map((s) => {
       const toggle = () => onStain?.(s.id);

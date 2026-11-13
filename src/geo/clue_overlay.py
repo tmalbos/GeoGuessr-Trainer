@@ -26,7 +26,7 @@ import shapely
 
 WIDTH = 1000  # map units across the country's width (same as the live preview)
 PAD = 6  # margin around the drawing, map units
-MAX_PIN_SHARE = 0.001
+MAX_PIN_SHARE = 0.00071
 MAX_PINS = 12
 PIN_D = "M0 0C-3 -9 -15 -18 -15 -30A15 15 0 1 1 15 -30C15 -18 3 -9 0 0Z"
 PIN_HALF_W = 30

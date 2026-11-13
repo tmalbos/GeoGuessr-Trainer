@@ -106,7 +106,7 @@ export default function ClueEditor({ cc, name, clue, prefill, onClose, onSaved, 
   }, []);
   const [blur, setBlur] = useState(!!clue?.blur);
   const [maxH, setMaxH] = useState(clue?.max_height ?? null); // px cap for the image on the card
-  const [showNames, setShowNames] = useState(!!clue?.show_names); // drawn areas: print their names on the map
+  const [showNames, setShowNames] = useState(clue?.show_names !== false); // drawn areas: print their names on the map (on by default)
   const [img, setImg] = useState({ has: !!clue?.image, sig: ":0" }); // reported by ClueImage
   // The media slot: an image (handled by ClueImage), or an SVG / CSV / geometry staged here.
   const [media, setMedia] = useState(() => initialMedia(clue));
@@ -365,7 +365,7 @@ export default function ClueEditor({ cc, name, clue, prefill, onClose, onSaved, 
     return {
         scope, info, tags: [location, general], deck, blur: isImage && blur,
       max_height: isImage ? maxH : null,
-      show_names: !isImage && showNames,
+      show_names: isImage || showNames,
       frequency: num(rating.frequency), ease: num(rating.ease), reliability: num(rating.reliability),
       source: source.trim(),
       relations,
@@ -408,10 +408,10 @@ export default function ClueEditor({ cc, name, clue, prefill, onClose, onSaved, 
   // What the media box shows when it is not a picture. A stored CSV / geometry is drawn on its country.
   const mediaPreview = media.kind && media.kind !== "image"
     ? media.upload
-      ? <Preview kind={media.kind} v={media.upload} cc={cc} />
+      ? <Preview kind={media.kind} v={media.upload} cc={cc} showNames={showNames} />
       : media.kind === "svg"
         ? <img className="ed-media-img" src={fileUrl(cc, clue?.svg, clue?.rev)} alt="" />
-        : clue ? <div className="clue-full"><ClueMap cc={cc} clue={clue} /></div> : undefined
+        : clue ? <div className="clue-full"><ClueMap cc={cc} clue={{ ...clue, show_names: showNames }} /></div> : undefined
     : undefined;
 
   // The region a stored photo already has. It is drawn on the photo (AreaPicker), so the slot only names it.
@@ -447,7 +447,7 @@ export default function ClueEditor({ cc, name, clue, prefill, onClose, onSaved, 
       {/* Same grid as the clue card: media on the left, body on the right. */}
       <div className="clue ed-clue">
         <div className="ed-left" ref={colRef}>
-          {drawing ? <DrawMap cc={cc} stage={stageInput} onResult={takeDrawn} trailing={modeToggle} /> : <ClueImage ref={imgApi} current={imageGone ? null : clue?.image ? fileUrl(cc, clue.image, clue.rev) : null} colRef={colRef} overlay={badges}
+          {drawing ? <DrawMap cc={cc} stage={stageInput} onResult={takeDrawn} trailing={modeToggle} showNames={showNames} /> : <ClueImage ref={imgApi} current={imageGone ? null : clue?.image ? fileUrl(cc, clue.image, clue.rev) : null} colRef={colRef} overlay={badges}
             preview={mediaPreview} incoming={incoming}
             regionSlot={showArea} onOverlay={setOvEl} loading={mediaBusy || (!!prefill?.pending && !mainKind)}
             onOtherFile={(f) => takeMedia({ file: f })} onOtherText={(t) => takeMedia({ text: t })} onRemove={removeMedia}

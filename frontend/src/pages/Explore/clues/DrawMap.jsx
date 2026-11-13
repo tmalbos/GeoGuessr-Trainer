@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { api, errorText } from "../../../lib/api.js";
 import { bboxOf, shapes } from "./geoDraw.js";
 import { discardStaged, loadImage, stagedUrl } from "./imageTools.js";
+import { AreaName, NAME_PX, areaNameSpot } from "./RegionPreview.jsx";
 import ClueImage from "./ClueImage.jsx";
 import "./draw.css";
 
@@ -99,7 +100,7 @@ function CategoryImage({ name, value, onChange }) {
  *  already painted area (Fill tool) renames it. Wheel zooms; drag pans (Fill tool), middle / right button pans with any tool.
  *  The server builds the colored polygons from the list of actions; the result is staged through `stage` and handed to `onResult`
  *  (null when nothing is drawn). `trailing` goes at the end of the toolbar row (the Import | Draw switch). */
-export default function DrawMap({ cc, stage, onResult, trailing }) {
+export default function DrawMap({ cc, stage, onResult, trailing, showNames }) {
   const [base, setBase] = useState(null);
   const [err, setErr] = useState("");
   const [level, setLevel] = useState(0);
@@ -173,6 +174,21 @@ export default function DrawMap({ cc, stage, onResult, trailing }) {
   const landD = useMemo(() => (proj ? shapes(base, proj.fwd).polys : ""), [proj, base]);
   const unitPaths = useMemo(() => (proj && units ? units.map((u) => ({ id: u.id, name: u.name, d: shapes(u.geometry, proj.fwd).polys })) : []), [proj, units]);
   const shownPaths = useMemo(() => (proj ? shown.map((f) => ({ name: f.properties.name, color: f.properties.color, d: shapes(f.geometry, proj.fwd).polys })) : []), [proj, shown]);
+  // Names on the drawn areas (the "Show category names" setting): printed where they fit, so zooming in adds more.
+  const [svgW, setSvgW] = useState(0);
+  useEffect(() => {
+    const el = svg.current;
+    if (!el || typeof ResizeObserver !== "function") return undefined;
+    const read = () => setSvgW(el.getBoundingClientRect().width);
+    read();
+    const ro = new ResizeObserver(read);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [proj]);
+  const nameScale = svgW ? Math.round((svgW / view.w) * 1000) / 1000 : 0;
+  const labels = useMemo(() => (showNames && proj && nameScale > 0
+    ? shown.map((f) => ({ name: f.properties.name, spot: areaNameSpot(f.geometry, f.properties.name, proj.fwd, NAME_PX / nameScale, `${proj.H}|${proj.s}`) })).filter((l) => l.spot)
+    : []), [showNames, proj, shown, nameScale]);
 
   // Wheel zoom around the cursor (needs a non-passive listener to stop the page from scrolling).
   useEffect(() => {
@@ -290,6 +306,7 @@ export default function DrawMap({ cc, stage, onResult, trailing }) {
           {shownPaths.map((p) => <path key={p.name} className={`dm-res ${tool === "fill" ? "click" : ""}`} d={p.d} fillRule="evenodd"
             style={{ fill: p.color, pointerEvents: tool === "fill" ? undefined : "none" }}
             onClick={tool === "fill" ? (e) => openPop(e, { rename: p.name, name: p.name }) : undefined}><title>{p.name}</title></path>)}
+          {labels.map((l) => <AreaName key={l.name} spot={l.spot} />)}
           {pend && <path d={pend.d} fill="none" strokeLinecap="round" strokeLinejoin="round" strokeWidth={pend.w} stroke="#ffffff" strokeOpacity=".5" style={{ pointerEvents: "none" }} />}
           {live && <path d={pathOf(live)} fill="none" strokeLinecap="round" strokeLinejoin="round" strokeWidth={unit}
             stroke={tool === "erase" ? "#ff7357" : "#ffffff"} strokeOpacity=".5" style={{ pointerEvents: "none" }} />}
