@@ -30,6 +30,7 @@ export const isPathLike = (t) => /^("?)([a-zA-Z]:[\\/]|\/|\\\\)/.test(String(t).
 const NUM = String.raw`-?\d+(?:\.\d+)?`;
 const num = (v) => (v == null || v === "" || Number.isNaN(Number(v)) ? null : Number(v));
 const ASPECT = 16 / 9; // keep equal to PHOTO_ASPECT in src/geo/map_providers.py
+const PANO_ID = /^[A-Za-z0-9_-]{10,200}$/;
 
 // Google Maps URLs carry a HORIZONTAL fov; /api/streetview/photo wants the vertical one.
 const verticalFov = (h) => (2 * Math.atan(Math.tan((h * Math.PI) / 360) / ASPECT) * 180) / Math.PI;
@@ -80,12 +81,16 @@ export function parseStreetView(text) {
   if (q.has("pitch")) pitch = num(q.get("pitch"));
   if (q.has("fov")) fov = num(q.get("fov"));
 
+  const rawPano = (q.get("pano") ?? "").trim();
+  const pano = PANO_ID.test(rawPano) ? rawPano : null;
+
   return {
     lat,
     lng,
     heading: heading ?? 0,
     pitch: Math.max(-90, Math.min(90, pitch ?? 0)),
     fov: fov == null ? null : Math.max(10, Math.min(120, verticalFov(fov))),
+    pano,
   };
 }
 
@@ -106,6 +111,7 @@ export async function resolveStreetView(text) {
 export async function streetViewShot(view) {
   const params = new URLSearchParams({ lat: view.lat, lng: view.lng, heading: view.heading, pitch: view.pitch });
   if (view.fov != null) params.set("fov", view.fov);
+  if (view.pano != null) params.set("pano", view.pano);
   const r = await fetch(`/api/streetview/photo?${params}`);
   if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || r.statusText);
   const blob = await r.blob();

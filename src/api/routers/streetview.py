@@ -70,6 +70,7 @@ async def streetview_photo(
     heading: float = 0,
     pitch: float = 0,
     fov: float = 90,
+    pano: str | None = None,
 ):
     """`fov` is the vertical field of view in degrees (clamped to 10..90)."""
     client = get_ctx(request).http_client
@@ -83,6 +84,7 @@ async def streetview_photo(
         round(heading % 360, 1),
         round(pitch, 1),
         round(fov),
+        pano or "",
     )
     data = _PHOTOS.get(key)
     hit = data is not None
@@ -90,7 +92,7 @@ async def streetview_photo(
         _PHOTOS.move_to_end(key)
     else:
         try:
-            data = await mp.fetch_photo(client, lat, lng, heading, pitch, fov)
+            data = await mp.fetch_photo(client, lat, lng, heading, pitch, fov, pano)
         except mp.PhotoUnavailableError as e:
             raise HTTPException(
                 404, "Street View photos aren't set up. Pick a source in Settings."

@@ -33,7 +33,9 @@ GOOGLE_TILE_URL = "https://tile.googleapis.com/v1/2dtiles/{z}/{x}/{y}"
 GOOGLE_STREETVIEW_URL = "https://maps.googleapis.com/maps/api/streetview"
 PHOTO_ASPECT = 16 / 9  # keep equal to ASPECT in frontend StreetPhoto.jsx
 
-PhotoFetch = Callable[[httpx.AsyncClient, float, float, float, float, float], Awaitable[bytes]]
+PhotoFetch = Callable[
+    [httpx.AsyncClient, float, float, float, float, float, str | None], Awaitable[bytes]
+]
 
 
 class NoCoverageError(Exception):
@@ -131,18 +133,25 @@ async def google_tile_template(client: httpx.AsyncClient) -> str | None:
 
 
 async def _google_photo(
-    client: httpx.AsyncClient, lat: float, lng: float, heading: float, pitch: float, fov: float
+    client: httpx.AsyncClient,
+    lat: float,
+    lng: float,
+    heading: float,
+    pitch: float,
+    fov: float,
+    pano: str | None = None,
 ) -> bytes:
     key = google_key()
     if not key:
         raise PhotoUnavailableError
     # The Static API takes the HORIZONTAL fov; the app's views carry the vertical one.
     hfov = math.degrees(2 * math.atan(math.tan(math.radians(fov) / 2) * PHOTO_ASPECT))
+    target = {"pano": pano} if pano else {"location": f"{lat},{lng}"}
     r = await client.get(
         GOOGLE_STREETVIEW_URL,
         params={
             "size": "640x360",
-            "location": f"{lat},{lng}",
+            **target,
             "heading": heading,
             "pitch": pitch,
             "fov": round(min(120, max(10, hfov))),
@@ -159,13 +168,19 @@ async def _google_photo(
 
 
 async def fetch_photo(
-    client: httpx.AsyncClient, lat: float, lng: float, heading: float, pitch: float, fov: float
+    client: httpx.AsyncClient,
+    lat: float,
+    lng: float,
+    heading: float,
+    pitch: float,
+    fov: float,
+    pano: str | None = None,
 ) -> bytes:
     """A Street View photo from the selected provider."""
     choice = selected()
     if choice == "google":
-        return await _google_photo(client, lat, lng, heading, pitch, fov)
+        return await _google_photo(client, lat, lng, heading, pitch, fov, pano)
     local = local_providers().get(choice)
     if local is None:
         raise PhotoUnavailableError
-    return await local.photo(client, lat, lng, heading, pitch, fov)
+    return await local.photo(client, lat, lng, heading, pitch, fov, pano)
