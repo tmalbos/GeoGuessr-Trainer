@@ -218,7 +218,7 @@ export default function DrawMap({ cc, stage, onResult, trailing, showNames, stor
         if (d && now - shiftAt.current > 120) {
           shiftAt.current = now;
           const { options, sel: at } = cycle.current;
-          if (options.length > 1) setSel(options[(options.indexOf(at) + (d > 0 ? 1 : -1) + options.length) % options.length]);
+          if (options.length > 1) setSel(options[(options.indexOf(at) + (d > 0 ? -1 : 1) + options.length) % options.length]);
         }
         return;
       }
