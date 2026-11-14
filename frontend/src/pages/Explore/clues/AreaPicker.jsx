@@ -6,6 +6,7 @@ import { discardStaged, stagePath, stagedUrl } from "./imageTools.js";
 import { resolveStreetView, streetViewShot } from "./mediaKinds.js";
 import ClueMap from "./ClueMap.jsx";
 import FilePicker from "./FilePicker.jsx";
+import ShadeDraw from "./ShadeDraw.jsx";
 import RegionPreview from "./RegionPreview.jsx";
 import fileUrl from "./fileUrl.js";
 import ShapeControls, { SHAPE_DEFAULTS } from "../../Technical/ShapeControls.jsx";
@@ -114,6 +115,7 @@ export default function AreaPicker({ cc, value, current, onChange, stage, initia
   const [mmErr, setMmErr] = useState("");
   const [warn, setWarn] = useState(false);  // tried to leave out the last stain
   const warnTimer = useRef(null);
+  const [mode, setMode] = useState("import"); // region source: import | draw
 
   const strip = (s) => String(s ?? "").trim().replace(/^"|"$/g, "");
 
@@ -345,10 +347,20 @@ export default function AreaPicker({ cc, value, current, onChange, stage, initia
     {loading && !pic && <StatusIcon kind="wait" />}
   </>;
 
+  const toggle = <div className="ed-mode" role="group" aria-label="Region source" style={{ marginLeft: count ? 8 : "auto" }}>
+    {[["import", "Import"], ["draw", "Draw"]].map(([k, l]) =>
+      <button key={k} type="button" aria-pressed={mode === k} className={mode === k ? "on" : ""} onClick={() => setMode(k)}>{l}</button>)}
+  </div>;
+
   return <div className="ar">
-    <FilePicker kind="geometry" label="Region" hint={HINT} accept={ACCEPT} value={value} current={current}
-      onChange={onChange} stage={stageArea} onImage={takePicture} cc={cc} preview={note} inside={inside}
-      extra={count && <span className="muted" style={{ marginLeft: "auto" }}>{count}</span>} />
+    {mode === "draw"
+      ? <div className="fp">
+          <div className="fp-head"><b>Region</b>{toggle}</div>
+          <ShadeDraw cc={cc} stage={stage} onResult={onChange} />
+        </div>
+      : <FilePicker kind="geometry" label="Region" hint={HINT} accept={ACCEPT} value={value} current={current}
+          onChange={onChange} stage={stageArea} onImage={takePicture} cc={cc} preview={note} inside={inside}
+          extra={<>{count && <span className="muted" style={{ marginLeft: "auto" }}>{count}</span>}{toggle}</>} />}
     {overlayEl && overlayNode && createPortal(overlayNode, overlayEl)}
   </div>;
 }
