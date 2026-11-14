@@ -49,6 +49,7 @@ from xml.etree import ElementTree as ET
 import geopandas as gpd
 import numpy as np
 import pandas as pd
+import pyarrow.parquet as pq
 import shapely
 import yaml
 from fastapi import APIRouter, HTTPException, Request
@@ -917,6 +918,13 @@ def list_clues(cc: str):
             p = CLUES_DIR / cc / c["csv"]
             if p.is_file():
                 c["csv_rows"] = list(csv.reader(io.StringIO(p.read_text(encoding="utf-8"))))
+        if c.get(
+            "polygons"
+        ):  # drawn areas (name + color columns): the editor opens them straight in Draw
+            with contextlib.suppress(Exception):
+                c["drawn"] = {"name", "color"} <= set(
+                    pq.read_schema(CLUES_DIR / cc / c["polygons"]).names
+                )
         if c.get("image") or c.get("svg") or c.get("overlay"):
             # rev (the file's mtime) busts the browser cache for ?v=: a file overwritten in place
             # keeps its name, so without this the card could show the old picture after an update.

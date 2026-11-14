@@ -88,7 +88,7 @@ export default function ClueEditor({ cc, name, clue, prefill, onClose, onSaved, 
   const [genAuto, setGenAuto] = useState(false); // the category was guessed from the text
   const [menu, setMenu] = useState(null); // null | "cat" | "loc"
   const [skipOpen, setSkipOpen] = useState(false); // the "Skip to <section>" dropdown
-  const [tab, setTab] = useState("import"); // regional media slot: import | draw
+  const [tab, setTab] = useState(clue?.drawn ? "draw" : "import"); // regional media slot: import | draw
   const [rating, setRating] = useState(() => Object.fromEntries(RATINGS.map(([k]) => [k, clue?.[k] != null ? String(clue[k]) : ""])));
   // manual[k] = the user set this rating by hand, so the automation leaves it alone. An existing clue is all manual.
   const [manual, setManual] = useState(() => Object.fromEntries(RATINGS.map(([k]) => [k, !!clue])));
