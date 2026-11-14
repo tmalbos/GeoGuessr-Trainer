@@ -13,4 +13,5 @@
 **Ascension**: OSM extract for ADM0 (06-11-2026)
 **Australia**: OSM extract for ADM0 and ADM1 (28-10-2026). Missing ADM2
 **Austria**: OSM extract for ADM0 through ADM3 (28-10-2026)
+**Azerbaijan**: https://data.humdata.org/dataset/whosonfirst-data-admin-aze for ADM0 and ADM1 (13-11-2026). Missing ADM2 and ADM3
 **United Arab Emirates**: https://data.humdata.org/dataset/cod-em-are for ADM0 and ADM1 (06-11-2026). Missing ADM2 and ADM3
