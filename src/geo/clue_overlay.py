@@ -43,9 +43,6 @@ def recolour(svg: str, fill: str) -> str:
     """The overlay with its stains painted in `fill` (the outline and borders keep their colours)."""
     if fill.lower() == STAIN_FILL:
         return svg
-    r, g, b = (int(fill[i : i + 2], 16) for i in (1, 3, 5))
-    stroke = "#" + "".join(f"{round(v * 0.55):02x}" for v in (r, g, b))
-    svg = svg.replace(f'stroke="{STAIN_STROKE}"', f'stroke="{stroke}"')
     return svg.replace(STAIN_FILL, fill)
 
 

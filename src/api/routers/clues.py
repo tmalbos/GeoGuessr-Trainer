@@ -234,12 +234,17 @@ def _asset(cc: str, name: str) -> Path:
 
 
 def _next_num(folder: Path, scope: str, general: str) -> int:
-    """Next free number for this scope + category. One clue uses ONE number for all of its files."""
+    """Lowest free number for this scope + category (gaps left by deleted clues are reused).
+    One clue uses ONE number for all of its files.
+    """
     key = "".join(general.split()).lower()
     prefix = f"{scope}_{key}_"
     pat = re.compile(re.escape(prefix) + r"(\d{5})\..+")
-    nums = [int(m.group(1)) for p in folder.glob(prefix + "*") if (m := pat.fullmatch(p.name))]
-    return max(nums, default=-1) + 1
+    used = {int(m.group(1)) for p in folder.glob(prefix + "*") if (m := pat.fullmatch(p.name))}
+    num = 0
+    while num in used:
+        num += 1
+    return num
 
 
 def _next_name(folder: Path, scope: str, general: str, suffix: str, num: int | None = None) -> str:

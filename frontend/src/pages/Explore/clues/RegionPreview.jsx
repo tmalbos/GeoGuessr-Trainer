@@ -15,7 +15,6 @@ const loadBase = (cc) => {
 
 // Regional stains are painted in the colour picked in Settings (default: red).
 const loadStainColor = () => api("/settings").then((s) => s.stain_color || "#c8283a").catch(() => "#c8283a");
-const darken = (hex) => `#${[1, 3, 5].map((i) => Math.round(parseInt(hex.slice(i, i + 2), 16) * 0.55).toString(16).padStart(2, "0")).join("")}`;
 const lighten = (hex, k) => `#${[1, 3, 5].map((i) => Math.round(parseInt(hex.slice(i, i + 2), 16) + (255 - parseInt(hex.slice(i, i + 2), 16)) * k).toString(16).padStart(2, "0")).join("")}`;
 
 // A layer may carry `shades` (one number per geometry, 0 = the main tone, higher = rarer = lighter).
@@ -210,7 +209,7 @@ function Pin({ at: [x, y], className = "cl-poly", style, children, ...rest }) {
  *  polygon. With `onStain(id)` each one can be clicked (or Enter / Space) to switch it off and on; an inactive stain is
  *  drawn grey, faint and dashed. A stain smaller than 2% of the country is drawn as a pin (see above).
  *  align="right": the country is drawn against the right edge of the box (used by the overlay on a clue photo). */
-export default function RegionPreview({ cc, layers, stains, onStain, onArea, selected, showNames, style, align, label = "Map of the country with the region painted on it" }) {
+export default function RegionPreview({ cc, layers, stains, onStain, onArea, selected, showNames, style, align, zoom, onZoom, pan, label = "Map of the country with the region painted on it" }) {
   const [base, setBase] = useState(undefined); // undefined = loading, null = not available
   const [stainColor, setStainColor] = useState(null);
   const [svgEl, setSvgEl] = useState(null);
@@ -232,7 +231,7 @@ export default function RegionPreview({ cc, layers, stains, onStain, onArea, sel
     const ro = new ResizeObserver(read);
     ro.observe(svgEl);
     return () => ro.disconnect();
-  }, [svgEl]);
+  }, [svgEl, zoom?.k]);
   useEffect(() => {
     let off = false;
     setBase(undefined);
@@ -266,7 +265,35 @@ export default function RegionPreview({ cc, layers, stains, onStain, onArea, sel
   const pinned = new Set(smallStains.length <= MAX_PINS ? smallStains.map((s) => s.id) : []);
   const stainTop = Math.max(0, ...(stains ?? []).map((s) => s.shade ?? 0));
 
-  return <svg ref={setSvgEl} className="cl-svg" style={{ ...style, "--stain": stainColor ?? undefined, "--stain-dark": stainColor ? darken(stainColor) : undefined }} viewBox={`0 0 ${W} ${H}`} role="img" aria-label={label}
+  // Zoom (see ZoomableRegion): the view is a 1/k window of the map centred on (fx, fy) and kept inside it.
+  // `pan` = a ref object shared with the wrapper: { drag, moved }. A drag never counts as a click on an area.
+  const zk = zoom?.k ?? 1;
+  const vw = W / zk;
+  const vh = H / zk;
+  const vx = Math.min(Math.max((zoom?.fx ?? 0.5) * W - vw / 2, 0), W - vw);
+  const vy = Math.min(Math.max((zoom?.fy ?? 0.5) * H - vh / 2, 0), H - vh);
+  const fire = (a) => { if (!pan?.current.moved) onArea?.(a); };
+  const panDown = (e) => {
+    if (!pan) return;
+    pan.current.moved = false;
+    if (e.button || zk <= 1) return;
+    pan.current.drag = { x: e.clientX, y: e.clientY, vx, vy };
+  };
+  const panMove = (e) => {
+    const d = pan?.current.drag;
+    if (!d || !scale) return;
+    const dx = e.clientX - d.x;
+    const dy = e.clientY - d.y;
+    if (!pan.current.moved && Math.hypot(dx, dy) < 4) return;
+    pan.current.moved = true;
+    const x = Math.min(Math.max(d.vx - dx / scale, 0), W - vw);
+    const y = Math.min(Math.max(d.vy - dy / scale, 0), H - vh);
+    onZoom?.({ k: zk, fx: (x + vw / 2) / W, fy: (y + vh / 2) / H });
+  };
+  const panEnd = () => { if (pan) pan.current.drag = null; };
+
+  return <svg ref={setSvgEl} className="cl-svg" style={{ ...style, "--stain": stainColor ?? undefined, touchAction: zk > 1 ? "none" : undefined }} viewBox={`${vx} ${vy} ${vw} ${vh}`} role="img" aria-label={label}
+    onPointerDown={panDown} onPointerMove={panMove} onPointerUp={panEnd} onPointerLeave={panEnd} onPointerCancel={panEnd}
     preserveAspectRatio={align === "right" ? "xMaxYMid meet" : undefined}>
     {land && <path className="cl-r" d={land} fillRule="evenodd" />}
     {borders && <path d={borders} fill="none" stroke="#8b98a8" strokeWidth=".8" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />}
@@ -297,13 +324,23 @@ export default function RegionPreview({ cc, layers, stains, onStain, onArea, sel
       const click = !!onArea && !!(name || extra);
       const act = click ? {
         role: "button", tabIndex: 0, "aria-label": name,
-        onClick: () => onArea({ name, extra }),
-        onKeyDown: (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onArea({ name, extra }); } },
+        onClick: () => fire({ name, extra }),
+        onKeyDown: (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); fire({ name, extra }); } },
       } : {};
       return <path key={`${name}-${i}`} className={`cl-area ${click ? "click" : ""} ${selected === name ? "sel" : ""}`}
         onMouseEnter={click ? () => setHoveredArea(name) : undefined}
         onMouseLeave={click ? () => setHoveredArea(null) : undefined}
         d={shapes(geom, project).polys} fillRule="evenodd" style={{ fill: g.colors[i] }} {...act}><title>{name}</title></path>;
+    }))}
+    {onArea && scale > 0 && areaLayers.flatMap((g) => g.geometries.map((geom, i) => {
+      const name = g.names?.[i] ?? "";
+      const extra = g.extras?.[i] ?? "";
+      // An area only a few screen px wide gets an invisible, wider click target on top (CSS .cl-area-hit).
+      if (!(name || extra) || Math.sqrt(polyArea(geom, project)) * scale >= 28) return null;
+      return <path key={`hit-${name}-${i}`} className="cl-area cl-area-hit" d={shapes(geom, project).polys} fillRule="evenodd"
+        onClick={() => fire({ name, extra })}
+        onMouseEnter={() => setHoveredArea(name)}
+        onMouseLeave={() => setHoveredArea(null)}><title>{name}</title></path>;
     }))}
     {selected && areaLayers.flatMap((g) => g.geometries.map((geom, i) => (g.names?.[i] === selected
       ? <path key={`ring-${selected}-${i}`} className="cl-area-ring" d={shapes(geom, project).polys} fillRule="evenodd" /> : null)))}
@@ -319,7 +356,7 @@ export default function RegionPreview({ cc, layers, stains, onStain, onArea, sel
       const name = s.label ?? s.id;
       const cls = `cl-poly cl-stain ${s.active ? "" : "off"}`;
       const tone = stainColor && s.active ? lighten(stainColor, 1 - shadeFactor(s.shade ?? 0, stainTop)) : null;
-      const paint = tone ? { fill: tone, stroke: darken(tone) } : null;
+      const paint = tone ? { fill: tone, stroke: tone } : null;
       const st = paint ?? undefined;
       const act = onStain ? {
         role: "button", tabIndex: 0, "aria-pressed": s.active, "aria-label": `${name}: ${s.active ? "included" : "left out"}`,

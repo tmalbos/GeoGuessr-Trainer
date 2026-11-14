@@ -2,6 +2,14 @@
 .cl-area { stroke: #0d1117; stroke-width: 1px; stroke-linejoin: round; vector-effect: non-scaling-stroke; fill-opacity: .92; }
 .cl-area.click { cursor: pointer; }
 .cl-area.sel { stroke: var(--sea-hi); stroke-width: 2px; fill-opacity: 1; }
+/* Invisible, wider click target laid over small areas (see RegionPreview) */
+.cl-area.cl-area-hit { fill: transparent; stroke: transparent; stroke-width: 18px; cursor: pointer; }
+/* Zoom buttons over a zoomable clue map (see ZoomableRegion) */
+.cl-zoomwrap { position: relative; }
+.cl-zoom { position: absolute; right: 8px; bottom: 8px; display: grid; gap: 6px; }
+.cl-zoom button { width: 30px; height: 30px; padding: 0; font-size: 18px; line-height: 1; cursor: pointer; background: var(--raise); border: 1px solid var(--line); border-radius: 6px; }
+.cl-zoom button:hover:not(:disabled) { border-color: var(--sea-hi); }
+.cl-zoom button:disabled { opacity: .4; cursor: default; }
 .cl-area.click:hover { fill-opacity: 1; }
 .cl-area:focus, .cl-area:focus-visible { outline: none; }
 .cl-area:focus-visible { stroke: var(--sea-hi); stroke-width: 2px; }
