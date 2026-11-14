@@ -43,6 +43,9 @@ PALETTE = [
 PALE = "#f6f4e4"  # the land color of the clue maps: used when the areas are not painted with different colors
 ADJ_TOL_DEG = 0.005  # areas closer than this (~500 m) count as neighbours
 MIN_DISTANCE = 40.0  # Lab distance a color should keep from its neighbours' colors
+SIMILAR = (
+    25.0  # on save, touching areas whose colors are closer than this (Lab distance) get recolored
+)
 
 
 def _rgb(h: str) -> list[float]:
@@ -69,15 +72,9 @@ COLORS = _spread_colors(40)
 _COLORS_LAB = np.array([_lab(_rgb(c)) for c in COLORS])
 
 
-def _distribute(geoms: list) -> list[str]:
-    """One color per geometry, chosen so touching areas get colors as far apart (Lab) as possible.
-
-    Greedy (most neighbours first), then a few passes that re-pick each area's color against its final neighbours.
-    Among equally good colors the least used one wins, so the colors spread out evenly.
-    """
+def _neighbours(geoms: list) -> list[set[int]]:
+    """For each geometry, the indexes of the ones that touch it (or are within ADJ_TOL_DEG)."""
     n = len(geoms)
-    if not n:
-        return []
     nbrs: list[set[int]] = [set() for _ in range(n)]
     if n > 1:
         arr = np.empty(n, dtype=object)
@@ -87,6 +84,19 @@ def _distribute(geoms: list) -> list[str]:
             if i != j:
                 nbrs[i].add(j)
                 nbrs[j].add(i)
+    return nbrs
+
+
+def _distribute(geoms: list) -> list[str]:
+    """One color per geometry, chosen so touching areas get colors as far apart (Lab) as possible.
+
+    Greedy (most neighbours first), then a few passes that re-pick each area's color against its final neighbours.
+    Among equally good colors the least used one wins, so the colors spread out evenly.
+    """
+    n = len(geoms)
+    if not n:
+        return []
+    nbrs = _neighbours(geoms)
     chosen = [-1] * n
     used = np.zeros(len(COLORS))
     order = sorted(range(n), key=lambda k: (-len(nbrs[k]), k))
@@ -108,6 +118,17 @@ def _distribute(geoms: list) -> list[str]:
     return [COLORS[c] for c in chosen]
 
 
+def _clash(geoms: list, colors: list[str]) -> bool:
+    """True when two touching areas have colors closer than SIMILAR (Lab distance)."""
+    labs = [_lab(_rgb(c)) for c in colors]
+    near = _neighbours(geoms)
+    return any(
+        float(np.linalg.norm(labs[i] - labs[j])) < SIMILAR
+        for i in range(len(geoms))
+        for j in near[i]
+    )
+
+
 def restandardize(path) -> None:
     """Recompute the colors of a drawn-areas file (name + color columns) so touching areas never look alike.
 
@@ -124,9 +145,12 @@ def restandardize(path) -> None:
     keys = gdf["name"].astype(str)
     names = list(dict.fromkeys(keys))
     geoms = [shapely.union_all(gdf.geometry[keys == n].to_numpy()) for n in names]
-    colors = keys.map(dict(zip(names, _distribute(geoms), strict=True)))
-    if (colors == gdf["color"].astype(str)).all():
+    have = [gdf["color"].astype(str)[keys == n].iloc[0] for n in names]
+    if not _clash(
+        geoms, have
+    ):  # touching areas already look different: keep the colors as they are
         return
+    colors = keys.map(dict(zip(names, _distribute(geoms), strict=True)))
     gdf["color"] = colors
     gdf.to_parquet(path, compression="zstd")
 
@@ -267,7 +291,10 @@ def _build(local, cc: str, items: list[Item], colored: bool = True) -> dict:
         if g is not None:
             names.append(n)
             geoms.append(g)
-    colors = _distribute(geoms) if colored else [PALE] * len(geoms)
+    if colored:
+        colors = [COLORS[slots.get(n, 0) % len(COLORS)] for n in names]
+    else:
+        colors = [PALE] * len(geoms)
     return {
         "type": "FeatureCollection",
         "features": [

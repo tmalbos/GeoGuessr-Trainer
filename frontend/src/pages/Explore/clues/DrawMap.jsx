@@ -148,13 +148,15 @@ export default function DrawMap({ cc, stage, onResult, trailing, showNames, stor
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(r.statusText))))
       .then((g) => {
         if (off || !g.names) return;
-        const parts = new Map();
+        const names = [...new Set(g.names)]; // each saved category takes a color slot, in the order it was saved
+        const parts = names.map(() => []);
         g.geometries.forEach((geom, i) => {
           const polys = geom.type === "Polygon" ? [geom.coordinates] : geom.type === "MultiPolygon" ? geom.coordinates : [];
-          parts.set(g.names[i], [...(parts.get(g.names[i]) ?? []), ...polys]);
+          parts[names.indexOf(g.names[i])].push(...polys);
         });
-        setItems([...parts].map(([name, coordinates]) => ({ op: "shape", name, geometry: { type: "MultiPolygon", coordinates } })));
-        setImages(Object.fromEntries((g.extras ?? []).map((x, i) => [g.names[i], x]).filter(([, x]) => x.startsWith("data:image/"))));
+        setCustom(Object.fromEntries(names.map((n, slot) => [slot, n])));
+        setItems(parts.map((coordinates, slot) => ({ op: "shape", slot, geometry: { type: "MultiPolygon", coordinates } })));
+        setImages(Object.fromEntries((g.extras ?? []).map((x, i) => [names.indexOf(g.names[i]), x]).filter(([, x]) => x.startsWith("data:image/"))));
         setColored(g.colors.some((c) => c.toLowerCase() !== PALE));
       })
       .catch((e) => !off && setErr(errorText(e)));
