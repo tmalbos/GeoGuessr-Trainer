@@ -104,6 +104,8 @@ export default function DrawMap({ cc, stage, onResult, trailing, showNames, stor
   const [busy, setBusy] = useState(false);
   const [images, setImages] = useState({});
   const [colored, setColored] = useState(true);
+  const [colorOpen, setColorOpen] = useState(false);
+  const colorRef = useRef(null);
   const wrap = useRef(null);
   const shiftAt = useRef(0);
   const cycle = useRef({ options: [0], sel: 0 });
@@ -232,6 +234,15 @@ export default function DrawMap({ cc, stage, onResult, trailing, showNames, stor
     return () => el.removeEventListener("wheel", onWheel);
   }, [proj]);
 
+  useEffect(() => {
+    if (!colorOpen) return undefined;
+    const onDown = (e) => { if (colorRef.current && !colorRef.current.contains(e.target)) setColorOpen(false); };
+    const onKey = (e) => { if (e.key === "Escape") setColorOpen(false); };
+    document.addEventListener("pointerdown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => { document.removeEventListener("pointerdown", onDown); document.removeEventListener("keydown", onKey); };
+  }, [colorOpen]);
+
   const painting = tool !== "fill";
   const used = [...new Set(items.filter((i) => i.op !== "erase").map((i) => i.slot))].sort((a, b) => a - b);
   let pending = 0; // the new, unsaved category: the first slot nobody painted with yet
@@ -339,16 +350,19 @@ export default function DrawMap({ cc, stage, onResult, trailing, showNames, stor
       Paint the areas with different colors</label>
     {proj && <div className="dm-cats">
       <div className="dm-catbar">
-        <i className="dm-sw" style={{ background: colorOf(sel) }} />
+        <div className="dm-color" ref={colorRef}>
+          <button type="button" className="dm-color-btn" aria-haspopup="menu" aria-expanded={colorOpen} aria-label="Pick a color" title="Pick a color"
+            onClick={() => setColorOpen((o) => !o)}><i className="dm-sw" style={{ background: colorOf(sel) }} /></button>
+          {colorOpen && used.length > 0 && <div className="dm-menu" role="menu" aria-label="Colors">
+            {used.map((s) => <button key={s} type="button" role="menuitemradio" aria-checked={s === sel} className={`dm-menu-item ${s === sel ? "on" : ""}`}
+              onClick={() => { setSel(s); setColorOpen(false); }}><i className="dm-sw" style={{ background: colorOf(s) }} />{nameOf(s)}{images[s] && <span aria-hidden="true"> 🖼️</span>}</button>)}
+          </div>}
+        </div>
         <input type="text" value={custom[sel] ?? ""} placeholder={`Unnamed ${sel + 1}`} aria-label="Category name"
           onChange={(e) => setCustom((c) => ({ ...c, [sel]: e.target.value }))} />
         <span className="muted">Shift + scroll to change color</span>
         {dup && <span className="err">Another category has this name: they will merge.</span>}
       </div>
-      {used.length > 0 && <div className="clue-chips" role="group" aria-label="Categories">
-        {used.map((s) => <button key={s} type="button" className={`fchip ${s === sel ? "on" : ""}`} aria-pressed={s === sel}
-          onClick={() => setSel(s)}><i className="dm-sw" style={{ background: colorOf(s) }} />{nameOf(s)}{images[s] && <span aria-hidden="true"> 🖼️</span>}</button>)}
-      </div>}
       {used.includes(sel) && <CategoryImage key={sel} name={sel} value={images[sel]} onChange={setImage} />}
     </div>}
   </>;
