@@ -71,15 +71,25 @@ async def _card(request: Request, cc: str, clue_id: str, invert: bool) -> dict:
         "SELECT name FROM country WHERE code = $1", cc
     )
     country = row["name"] if row else cc
-    what = next((t for t in clue.get("tags", []) if t in GENERAL_TAGS), "clue").lower()
+    cat = next((t for t in clue.get("tags", []) if t in GENERAL_TAGS), "clue")
+    what = cat.lower()
+    c_tag, k_tag = (re.sub(r"\s+", "_", x.strip()) for x in (country, cat))
+    tags = [
+        "GeoGuessr",
+        f"Country::{c_tag}::National::{k_tag}",
+        "Scope::National",
+        f"Category::{k_tag}",
+    ]
     if invert:
         return {
+            "tags": tags,
             "cc": cc,
             "question": f"How is the {what} from {country}?",
             "answer": clue["info"],
             "image": None,
         }
     return {
+        "tags": tags,
         "cc": cc,
         "question": f"From which country is this {what}?",
         "answer": country,
@@ -106,6 +116,8 @@ class ExportBody(BaseModel):
     clue_id: str
     invert: bool = False
     deck: str = ""
+    question: str | None = None
+    answer: str | None = None
 
 
 @router.post("/anki/export")
@@ -119,14 +131,19 @@ async def anki_export(body: ExportBody, request: Request):
             raise HTTPException(422, "Couldn't find the note type in Anki.")  # noqa: TRY301
         model, front_field, back_field = found
         await anki.ensure_deck(deck)
-        front = html.escape(card["question"])
+        question = (body.question or "").strip() or card["question"]
+        answer = (body.answer or "").strip() if body.invert else ""
+        front = html.escape(question)
         if card["image"]:
             name = f"clue_{card['cc']}_{card['image']}"
             data = (CLUES_DIR / card["cc"] / card["image"]).read_bytes()
             await anki.store_media(name, base64.b64encode(data).decode())
             front += f'<br><img src="{name}">'
         await anki.add_note(
-            deck, model, {front_field: front, back_field: _rich(card["answer"])}, ["GeoGuessr"]
+            deck,
+            model,
+            {front_field: front, back_field: _rich(answer or card["answer"])},
+            card["tags"],
         )
     except AnkiNotRunningError as e:
         raise HTTPException(503, NOT_RUNNING) from e

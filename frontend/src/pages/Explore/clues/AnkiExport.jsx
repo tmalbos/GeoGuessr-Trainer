@@ -16,6 +16,8 @@ export default function AnkiExport({ cc, clue }) {
   const [open, setOpen] = useState(false);
   const [invert, setInvert] = useState(false);
   const [card, setCard] = useState(null);
+  const [q, setQ] = useState("");
+  const [a, setA] = useState("");
   const [decks, setDecks] = useState(null);
   const [deck, setDeck] = useState("");
   const [err, setErr] = useState("");
@@ -36,14 +38,14 @@ export default function AnkiExport({ cc, clue }) {
     if (!open) return undefined;
     let off = false;
     setCard(null);
-    api(`/anki/preview/${cc}/${clue.id}?invert=${invert}`).then((c) => !off && setCard(c)).catch((e) => !off && setErr(errorText(e)));
+    api(`/anki/preview/${cc}/${clue.id}?invert=${invert}`).then((c) => { if (!off) { setCard(c); setQ(c.question); setA(c.answer); } }).catch((e) => !off && setErr(errorText(e)));
     return () => { off = true; };
   }, [open, invert, cc, clue.id]);
 
   const send = async () => {
     setBusy(true); setErr("");
     try {
-      await api("/anki/export", { method: "POST", body: { cc, clue_id: clue.id, invert, deck } });
+      await api("/anki/export", { method: "POST", body: { cc, clue_id: clue.id, invert, deck, question: q, answer: invert ? a : undefined } });
       toast.push("Added to Anki", { kind: "ok" });
       setOpen(false);
     } catch (e) { setErr(errorText(e)); } finally { setBusy(false); }
@@ -60,10 +62,12 @@ export default function AnkiExport({ cc, clue }) {
         </select>
         <label className="anki-inv"><input type="checkbox" checked={invert} onChange={(e) => setInvert(e.target.checked)} /> Invert</label>
         {card && <div className="anki-prev">
-          <p><b>{card.question}</b></p>
+          <input value={q} aria-label="Question" onChange={(e) => setQ(e.target.value)} />
           {card.image && <img src={fileUrl(card.cc, card.image)} alt="" />}
           <hr />
-          <p><RichText text={card.answer} /></p>
+          {invert
+            ? <textarea value={a} aria-label="Answer" rows={4} onChange={(e) => setA(e.target.value)} />
+            : <p><RichText text={card.answer} /></p>}
         </div>}
         {err && <p className="err">{err}</p>}
         <div className="confirm-actions">
