@@ -66,7 +66,7 @@ REL_TYPES = {"same_as", "similar_to", "group"}
 LEGACY_TAGS = {"Topography": "Landscape"}  # tags of packs made before the rename
 # The fields of a clue that travel in a pack (files are handled apart; overlay / score / medal are rebuilt).
 KEEP = (
-    "id", "scope", "info", "tags", "frequency", "ease", "reliability", "blur",
+    "id", "scope", "info", "tags", "frequency", "ease", "reliability", "blur", "view",
     "max_height", "source", "relations", "relation_notes", "deck", "show_names",
 )  # fmt: skip
 

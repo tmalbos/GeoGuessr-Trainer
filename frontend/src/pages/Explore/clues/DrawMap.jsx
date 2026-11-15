@@ -57,7 +57,7 @@ async function toDataUri(url) {
 }
 
 // The same image slot a regional clue's photo uses, for one category. `value` = its stored data URI (or undefined).
-function CategoryImage({ name, value, onChange }) {
+function CategoryImage({ name, value, look, onChange, onLook }) {
   const ed = useRef(null);
   const col = useRef(null);
   const seq = useRef(0);
@@ -65,8 +65,10 @@ function CategoryImage({ name, value, onChange }) {
   valueRef.current = value;
   const [initial] = useState(value ?? null);
   const [gone, setGone] = useState(false);
-  const [blur, setBlur] = useState(false);
-  const [maxH, setMaxH] = useState(null);
+  const blur = !!look?.blur; // blur + height cap live in DrawMap, so they are saved with the area's image
+  const maxH = look?.maxH ?? null;
+  const setBlur = (b) => onLook(name, { blur: b });
+  const setMaxH = (h) => onLook(name, { maxH: h });
   const onState = (has, sig) => {
     const n = ++seq.current;
     if (!has) { if (valueRef.current) onChange(name, null); return; }
@@ -85,8 +87,10 @@ function CategoryImage({ name, value, onChange }) {
  *  "Unnamed N" until renamed in the bar under the toolbar). Shift + wheel cycles through the used colors and one new one
  *  (kept only once something is painted with it). Wheel zooms; drag pans (Fill tool), middle / right button pans with any tool.
  *  The server builds the colored polygons from the list of actions; the result is staged through `stage` and handed to `onResult`
- *  (null when nothing is drawn). `trailing` goes at the end of the toolbar row (the Import | Draw switch). */
-export default function DrawMap({ cc, stage, onResult, trailing, showNames, stored }) {
+ *  (null when nothing is drawn). `trailing` goes at the end of the toolbar row (the Import | Draw switch).
+ *  Lock (toolbar): remembers the zoom and position on screen as `{ k, fx, fy }` (see ZoomableRegion) and hands it to `onView`;
+ *  the card then opens on that framing instead of the whole country. `storedView` is the framing already locked (null = none). */
+export default function DrawMap({ cc, stage, onResult, trailing, showNames, stored, storedView, onView }) {
   const [base, setBase] = useState(null);
   const [err, setErr] = useState("");
   const [level, setLevel] = useState(0);
@@ -105,6 +109,9 @@ export default function DrawMap({ cc, stage, onResult, trailing, showNames, stor
   const [images, setImages] = useState({});
   const [colored, setColored] = useState(true);
   const [colorOpen, setColorOpen] = useState(false);
+  const [looks, setLooks] = useState({}); // color slot -> { blur, maxH } of that category's image
+  const [locked, setLocked] = useState(storedView ?? null); // { k, fx, fy }: the framing the card opens on
+  const viewApplied = useRef(false);
   const colorRef = useRef(null);
   const wrap = useRef(null);
   const shiftAt = useRef(0);
@@ -157,6 +164,7 @@ export default function DrawMap({ cc, stage, onResult, trailing, showNames, stor
         setCustom(Object.fromEntries(names.map((n, slot) => [slot, n])));
         setItems(parts.map((coordinates, slot) => ({ op: "shape", slot, geometry: { type: "MultiPolygon", coordinates } })));
         setImages(Object.fromEntries((g.extras ?? []).map((x, i) => [names.indexOf(g.names[i]), x]).filter(([, x]) => x.startsWith("data:image/"))));
+        setLooks(Object.fromEntries(g.names.map((n, i) => [names.indexOf(n), { blur: !!g.extra_blurs?.[i], maxH: g.extra_heights?.[i] || null }])));
         setColored(g.colors.some((c) => c.toLowerCase() !== PALE));
       })
       .catch((e) => !off && setErr(errorText(e)));
@@ -175,7 +183,8 @@ export default function DrawMap({ cc, stage, onResult, trailing, showNames, stor
       try {
         const sent = items.map((i, k) => {
           const first = items.findIndex((x) => x.slot === i.slot && x.op !== "erase") === k;
-          return { ...i, name: i.op === "erase" ? "" : nameOf(i.slot), ...(first && images[i.slot] ? { extra: images[i.slot] } : {}) };
+          const look = looks[i.slot];
+          return { ...i, name: i.op === "erase" ? "" : nameOf(i.slot), ...(first && images[i.slot] ? { extra: images[i.slot], extra_blur: !!look?.blur, extra_max_height: look?.maxH ?? null } : {}) };
         });
         const fc = await api(`/clues/${cc}/draw/build`, { method: "POST", body: { items: sent, colored } });
         if (stale) return;
@@ -188,7 +197,7 @@ export default function DrawMap({ cc, stage, onResult, trailing, showNames, stor
       } catch (e) { if (!stale) setErr(errorText(e)); } finally { if (!stale) setBusy(false); }
     }, 150);
     return () => { stale = true; clearTimeout(t); };
-  }, [items, images, custom, cc, colored]);
+  }, [items, images, looks, custom, cc, colored]);
 
   const proj = useMemo(() => { const bb = base && bboxOf(base); return bb ? makeProjection(bb) : null; }, [base]);
   const landD = useMemo(() => (proj ? shapes(base, proj.fwd).polys : ""), [proj, base]);
@@ -244,6 +253,31 @@ export default function DrawMap({ cc, stage, onResult, trailing, showNames, stor
     document.addEventListener("keydown", onKey);
     return () => { document.removeEventListener("pointerdown", onDown); document.removeEventListener("keydown", onKey); };
   }, [colorOpen]);
+
+  // A saved clue opens framed the way it was locked.
+  useEffect(() => {
+    if (!proj || !locked || viewApplied.current) return undefined;
+    viewApplied.current = true;
+    const w = W / locked.k;
+    setView(clampView({ w, x: locked.fx * W - w / 2, y: locked.fy * proj.H - (w * proj.H) / W / 2 }, proj.H));
+    return undefined;
+  }, [proj]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Lock = keep the zoom and position on screen right now: the card then opens on that framing, not on the whole country.
+  // Fractions of the map (same as ZoomableRegion), so they don't depend on the screen size.
+  const toggleLock = () => {
+    if (locked) { setLocked(null); onView?.(null); return; }
+    const next = {
+      k: Math.round((W / view.w) * 1000) / 1000,
+      fx: Math.round(((view.x + view.w / 2) / W) * 10000) / 10000,
+      fy: Math.round(((view.y + (view.w * proj.H) / W / 2) / proj.H) * 10000) / 10000,
+    };
+    setLocked(next);
+    onView?.(next);
+  };
+  const lockBox = locked && proj
+    ? clampView({ w: W / locked.k, x: locked.fx * W - W / locked.k / 2, y: locked.fy * proj.H - proj.H / locked.k / 2 }, proj.H)
+    : null;
 
   const painting = tool !== "fill";
   const used = [...new Set(items.filter((i) => i.op !== "erase").map((i) => i.slot))].sort((a, b) => a - b);
@@ -313,6 +347,7 @@ export default function DrawMap({ cc, stage, onResult, trailing, showNames, stor
   };
 
   const setImage = (n, uri) => setImages(({ [n]: _gone, ...rest }) => (uri ? { ...rest, [n]: uri } : rest));
+  const setLook = (n, patch) => setLooks((l) => ({ ...l, [n]: { ...l[n], ...patch } }));
 
   const unit = (view.w / W) * size;
 
@@ -333,6 +368,8 @@ export default function DrawMap({ cc, stage, onResult, trailing, showNames, stor
           {shownPaths.map((p) => <path key={p.name} className="dm-res" d={p.d} fillRule="evenodd"
             style={{ fill: p.color, pointerEvents: "none" }}><title>{p.name}</title></path>)}
           {labels.map((l) => <AreaName key={l.name} spot={l.spot} />)}
+          {lockBox && <rect x={lockBox.x} y={lockBox.y} width={lockBox.w} height={(lockBox.w * proj.H) / W} fill="none" stroke="#ffd04d"
+            strokeWidth="2" strokeDasharray="8 5" vectorEffect="non-scaling-stroke" style={{ pointerEvents: "none" }} />}
           {live && <path d={pathOf(live)} fill="none" strokeLinecap="round" strokeLinejoin="round" strokeWidth={unit}
             stroke={tool === "erase" ? "#ff7357" : "#ffffff"} strokeOpacity=".5" style={{ pointerEvents: "none" }} />}
         </svg>
@@ -344,7 +381,10 @@ export default function DrawMap({ cc, stage, onResult, trailing, showNames, stor
       {painting && <input type="range" min="4" max="80" value={size} aria-label="Brush size" title="Brush size" onChange={(e) => setSize(Number(e.target.value))} />}
       <i className="ed-sep" />
       <button type="button" className="ed-tool" aria-label="Undo" title="Undo" disabled={!items.length} onClick={() => setItems((it) => it.slice(0, -1))}>↶</button>
-      <button type="button" className="ed-tool" aria-label="Clear" title="Clear all" disabled={!items.length} onClick={() => { setItems([]); setImages({}); }}>×</button>
+      <button type="button" className="ed-tool" aria-label="Clear" title="Clear all" disabled={!items.length} onClick={() => { setItems([]); setImages({}); setLooks({}); }}>×</button>
+      <button type="button" className="ed-tool" aria-pressed={!!locked} aria-label={locked ? "Unlock view" : "Lock view"} disabled={!proj}
+        title={locked ? "Unlock view (the card shows the whole map)" : "Lock view: the card opens on the zoom and position on screen now"} onClick={toggleLock}>
+        <svg {...ico}><rect x="5" y="11" width="14" height="9" rx="2" /><path d={locked ? "M8 11V8a4 4 0 0 1 8 0v3" : "M8 11V8a4 4 0 0 1 7.5-2"} /></svg></button>
       <span className={`dm-status ${err && proj ? "err" : "muted"}`}>{proj && err ? err : busy ? "Saving…" : ""}</span>
       {trailing}
     </div>
@@ -365,7 +405,7 @@ export default function DrawMap({ cc, stage, onResult, trailing, showNames, stor
         <span className="muted">Shift + scroll to change color</span>
         {dup && <span className="err">Another category has this name: they will merge.</span>}
       </div>
-      {used.includes(sel) && <CategoryImage key={sel} name={sel} value={images[sel]} onChange={setImage} />}
+      {used.includes(sel) && <CategoryImage key={sel} name={sel} value={images[sel]} look={looks[sel]} onChange={setImage} onLook={setLook} />}
     </div>}
   </>;
 }

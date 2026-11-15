@@ -322,10 +322,11 @@ export default function RegionPreview({ cc, layers, stains, onStain, onArea, sel
       const name = g.names?.[i] ?? "";
       const extra = g.extras?.[i] ?? "";
       const click = !!onArea && !!(name || extra);
+      const look = { blur: !!g.extra_blurs?.[i], maxH: g.extra_heights?.[i] || null };
       const act = click ? {
         role: "button", tabIndex: 0, "aria-label": name,
-        onClick: () => fire({ name, extra }),
-        onKeyDown: (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); fire({ name, extra }); } },
+        onClick: () => fire({ name, extra, ...look }),
+        onKeyDown: (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); fire({ name, extra, ...look }); } },
       } : {};
       return <path key={`${name}-${i}`} className={`cl-area ${click ? "click" : ""} ${selected === name ? "sel" : ""}`}
         onMouseEnter={click ? () => setHoveredArea(name) : undefined}
@@ -338,7 +339,7 @@ export default function RegionPreview({ cc, layers, stains, onStain, onArea, sel
       // An area only a few screen px wide gets an invisible, wider click target on top (CSS .cl-area-hit).
       if (!(name || extra) || Math.sqrt(polyArea(geom, project)) * scale >= 28) return null;
       return <path key={`hit-${name}-${i}`} className="cl-area cl-area-hit" d={shapes(geom, project).polys} fillRule="evenodd"
-        onClick={() => fire({ name, extra })}
+        onClick={() => fire({ name, extra, blur: !!g.extra_blurs?.[i], maxH: g.extra_heights?.[i] || null })}
         onMouseEnter={() => setHoveredArea(name)}
         onMouseLeave={() => setHoveredArea(null)}><title>{name}</title></path>;
     }))}

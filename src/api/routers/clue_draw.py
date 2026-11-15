@@ -228,6 +228,8 @@ class Item(BaseModel):
     width: float = 0.0  # stroke width, degrees of latitude
     points: list[list[float]] = []  # stroke path, lon/lat
     extra: str = ""  # image (data URI) of the category; sent on its first item
+    extra_blur: bool = False  # blur that image on the card until hovered (sent with `extra`)
+    extra_max_height: int | None = None  # px cap for that image on the card (sent with `extra`)
     geometry: dict | None = (
         None  # shape: GeoJSON of an area of a saved drawing that is being edited
     )
@@ -252,6 +254,7 @@ def _build(local, cc: str, items: list[Item], colored: bool = True) -> dict:
         raise HTTPException(422, f"No local outline for {cc}.")
     shapes: dict[str, object] = {}
     extras: dict[str, str] = {}
+    looks: dict[str, tuple[bool, int | None]] = {}  # name -> (blur, max height) of its image
     slots: dict[str, int] = {}
     for it in items:
         if it.op == "shape":
@@ -281,6 +284,7 @@ def _build(local, cc: str, items: list[Item], colored: bool = True) -> dict:
         slots.setdefault(name, it.slot)
         if it.extra:
             extras[name] = it.extra
+            looks[name] = (it.extra_blur, it.extra_max_height)
         for k in shapes:
             if k != name:
                 shapes[k] = shapely.difference(shapes[k], geom)
@@ -300,7 +304,13 @@ def _build(local, cc: str, items: list[Item], colored: bool = True) -> dict:
         "features": [
             {
                 "type": "Feature",
-                "properties": {"name": n, "color": c, "extra": extras.get(n, "")},
+                "properties": {
+                    "name": n,
+                    "color": c,
+                    "extra": extras.get(n, ""),
+                    "extra_blur": looks.get(n, (False, None))[0],
+                    "extra_max_height": looks.get(n, (False, None))[1],
+                },
                 "geometry": json.loads(shapely.to_geojson(g)),
             }
             for n, c, g in zip(names, colors, geoms, strict=True)

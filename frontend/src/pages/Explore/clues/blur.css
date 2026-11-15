@@ -9,6 +9,13 @@
 .clue-media img.clue-blur:focus-visible { filter: none; transform: none; clip-path: inset(0); }
 @media (prefers-reduced-motion: reduce) { .clue-media img.clue-blur { transition: none; } }
 
+/* The image of a clicked area (it sits in the text column, outside .clue-media): same blur, same hover reveal. */
+.area-info { --clue-blur: 24px; }
+.area-info img.clue-blur { filter: blur(var(--clue-blur)); transform: scale(1.08); clip-path: inset(3.704%); transition: filter .2s ease, transform .2s ease, clip-path .2s ease; cursor: pointer; }
+.area-info img.clue-blur:hover,
+.area-info img.clue-blur:focus-visible { filter: none; transform: none; clip-path: inset(0); }
+@media (prefers-reduced-motion: reduce) { .area-info img.clue-blur { transition: none; } }
+
 /* Checkbox row in the clue editor */
 .chk-row { display: flex; align-items: center; gap: 8px; margin: 12px 0 0; font-weight: 400; cursor: pointer; }
 .chk-row input { width: auto; max-width: none; padding: 0; }

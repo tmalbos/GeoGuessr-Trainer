@@ -5,9 +5,10 @@ const MAX_K = 16;
 const STEP = 1.6;
 
 /** RegionPreview with + / − buttons and drag-to-pan (once zoomed in). Same props as RegionPreview.
- *  The zoom is a window of 1/k of the map centred on (fx, fy), both as fractions of the map. */
-export default function ZoomableRegion(props) {
-  const [zoom, setZoom] = useState({ k: 1, fx: 0.5, fy: 0.5 });
+ *  The zoom is a window of 1/k of the map centred on (fx, fy), both as fractions of the map.
+ *  `initial` = the window it starts on (a clue's locked view); without it, the whole map. */
+export default function ZoomableRegion({ initial, ...props }) {
+  const [zoom, setZoom] = useState(initial ?? { k: 1, fx: 0.5, fy: 0.5 });
   const pan = useRef({ drag: null, moved: false });
   const by = (f) => setZoom((z) => {
     const k = Math.min(MAX_K, Math.max(1, z.k * f));

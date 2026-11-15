@@ -107,6 +107,7 @@ export default function ClueEditor({ cc, name, clue, prefill, onClose, onSaved, 
   const [blur, setBlur] = useState(!!clue?.blur);
   const [maxH, setMaxH] = useState(clue?.max_height ?? null); // px cap for the image on the card
   const [showNames, setShowNames] = useState(clue?.show_names !== false); // drawn areas: print their names on the map (on by default)
+  const [view, setView] = useState(clue?.view ?? null); // drawn areas: the zoom / pan the card opens on (null = the whole country)
   const [img, setImg] = useState({ has: !!clue?.image, sig: ":0" }); // reported by ClueImage
   // The media slot: an image (handled by ClueImage), or an SVG / CSV / geometry staged here.
   const [media, setMedia] = useState(() => initialMedia(clue));
@@ -173,7 +174,7 @@ export default function ClueEditor({ cc, name, clue, prefill, onClose, onSaved, 
 
   // Only ratings set by hand count as "changes": the automatic ones alone shouldn't make a fresh form look dirty.
   const snapshot = () => JSON.stringify([scope, info, general, location, RATINGS.map(([k]) => (manual[k] ? rating[k] : null)), blur, maxH, showNames,
-    img.sig, source, relations, notes, mainKind, media.upload?.token ?? "", area.kind, area.upload?.token ?? ""]);
+    view, img.sig, source, relations, notes, mainKind, media.upload?.token ?? "", area.kind, area.upload?.token ?? ""]);
   const initial = useRef(snapshot());
   const dirty = snapshot() !== initial.current;
   const requestClose = () => (dirty ? setConfirm(true) : onClose());
@@ -366,6 +367,7 @@ export default function ClueEditor({ cc, name, clue, prefill, onClose, onSaved, 
         scope, info, tags: [location, general], deck, blur: isImage && blur,
       max_height: isImage ? maxH : null,
       show_names: isImage || showNames,
+      view: drawing ? view : null,
       frequency: num(rating.frequency), ease: num(rating.ease), reliability: num(rating.reliability),
       source: source.trim(),
       relations,
@@ -447,7 +449,7 @@ export default function ClueEditor({ cc, name, clue, prefill, onClose, onSaved, 
       {/* Same grid as the clue card: media on the left, body on the right. */}
       <div className="clue ed-clue">
         <div className="ed-left" ref={colRef}>
-          {drawing ? <DrawMap cc={cc} stage={stageInput} onResult={takeDrawn} trailing={modeToggle} showNames={showNames} stored={clue?.polygons ?? null} /> : <ClueImage ref={imgApi} current={imageGone ? null : clue?.image ? fileUrl(cc, clue.image, clue.rev) : null} colRef={colRef} overlay={badges}
+          {drawing ? <DrawMap cc={cc} stage={stageInput} onResult={takeDrawn} trailing={modeToggle} showNames={showNames} stored={clue?.polygons ?? null} storedView={view} onView={setView} /> : <ClueImage ref={imgApi} current={imageGone ? null : clue?.image ? fileUrl(cc, clue.image, clue.rev) : null} colRef={colRef} overlay={badges}
             preview={mediaPreview} incoming={incoming}
             regionSlot={showArea} onOverlay={setOvEl} loading={mediaBusy || (!!prefill?.pending && !mainKind)}
             onOtherFile={(f) => takeMedia({ file: f })} onOtherText={(t) => takeMedia({ text: t })} onRemove={removeMedia}

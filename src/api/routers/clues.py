@@ -289,6 +289,8 @@ def _to_geojson(
     names: np.ndarray | None = None,
     colors: np.ndarray | None = None,
     extras: np.ndarray | None = None,
+    blurs: np.ndarray | None = None,
+    heights: np.ndarray | None = None,
 ) -> dict:
     """GeometryCollection for the browser. When `shades` (one per geometry) has anything above 0 it is sent
     along as `shades`, in the same order as `geometries`.
@@ -302,6 +304,8 @@ def _to_geojson(
             names, colors = names[::step], colors[::step]
         if extras is not None:
             extras = extras[::step]
+        if blurs is not None:
+            blurs, heights = blurs[::step], heights[::step]
     g = shapely.set_precision(geoms, PREVIEW_PRECISION)
     keep = ~shapely.is_empty(g)
     g = g[keep]
@@ -314,6 +318,9 @@ def _to_geojson(
     if names is not None:
         out["names"] = [str(v) for v in names[keep]]
         out["colors"] = [str(v) for v in colors[keep]]
+    if blurs is not None:
+        out["extra_blurs"] = [bool(v) for v in blurs[keep]]
+        out["extra_heights"] = [int(v) for v in heights[keep]]
     if extras is not None:
         out["extras"] = [str(v) for v in extras[keep]]
     return out
@@ -498,6 +505,14 @@ def _process_geo(data: bytes, suffix: str, token: str) -> tuple[str, dict]:
         cols["color"] = gdf["color"].astype(str).to_numpy()[rows]
         if "extra" in gdf.columns:
             cols["extra"] = gdf["extra"].fillna("").astype(str).to_numpy()[rows]
+        if {"extra_blur", "extra_max_height"} <= set(gdf.columns):
+            cols["extra_blur"] = gdf["extra_blur"].fillna(False).astype(bool).to_numpy()[rows]
+            cols["extra_max_height"] = (
+                pd.to_numeric(gdf["extra_max_height"], errors="coerce")
+                .fillna(0)
+                .astype(int)
+                .to_numpy()[rows]
+            )
     gpd.GeoDataFrame(cols, geometry=parts, crs=4326).to_parquet(out, compression="zstd")
     return kind, {
         "kind": kind,
@@ -514,6 +529,8 @@ def _process_geo(data: bytes, suffix: str, token: str) -> tuple[str, dict]:
             cols.get("name"),
             cols.get("color"),
             cols.get("extra"),
+            cols.get("extra_blur"),
+            cols.get("extra_max_height"),
         ),
         "stats": region_stats(parts, shades, kind),  # pre-fills the ratings of a new clue
     }
@@ -604,6 +621,16 @@ class NoteIn(BaseModel):
     text: str = ""
 
 
+class ViewIn(BaseModel):
+    """The zoom / pan a drawn regional clue opens on (same meaning as in ZoomableRegion.jsx): a window of 1/k of
+    the map centred on (fx, fy), both as fractions of the map.
+    """
+
+    k: float = Field(ge=1, le=80)
+    fx: float = Field(ge=0, le=1)
+    fy: float = Field(ge=0, le=1)
+
+
 class ClueBody(BaseModel):
     scope: Literal["nat", "reg"]
     info: str
@@ -616,6 +643,9 @@ class ClueBody(BaseModel):
         None, ge=100, le=2000
     )  # px cap for the image on the card (only kept with an image)
     show_names: bool = True  # drawn regional clue: print the area names on the map where they fit (False = hide them)
+    view: ViewIn | None = (
+        None  # drawn regional clue: zoom / pan the card opens on (None = the whole country)
+    )
     source: str = ""  # link to where the information came from (optional)
     relations: list[
         RelationIn
@@ -970,6 +1000,11 @@ def clue_geo(cc: str, name: str):
         if {"name", "color"} <= set(gdf.columns)
         else {}
     )
+    if named and {"extra_blur", "extra_max_height"} <= set(gdf.columns):
+        named["blurs"] = gdf["extra_blur"].fillna(False).astype(bool).to_numpy()
+        named["heights"] = (
+            pd.to_numeric(gdf["extra_max_height"], errors="coerce").fillna(0).astype(int).to_numpy()
+        )
     if named and "extra" in gdf.columns:
         named["extras"] = gdf["extra"].fillna("").astype(str).to_numpy()
     return _to_geojson(gdf.geometry.to_numpy(), shades=_shades_of(gdf), **named)
@@ -1012,6 +1047,7 @@ def add_clue(cc: str, body: ClueBody, request: Request):
                 "relation_notes": notes or None,
                 "deck": deck,
                 "show_names": None if body.show_names else False,
+                "view": body.view.model_dump() if body.view and body.scope == "reg" else None,
                 **names,
             }
             entry = {k: v for k, v in entry.items() if v is not None}
@@ -1200,6 +1236,7 @@ def update_clue(cc: str, clue_id: str, body: ClueBody, request: Request):
                 "relation_notes": notes or None,
                 "deck": deck_store.use(body.deck) if body.deck.strip() else old.get("deck"),
                 "show_names": None if body.show_names else False,
+                "view": body.view.model_dump() if body.view and body.scope == "reg" else None,
                 **kept,
                 **names,
             }
