@@ -18,7 +18,7 @@ Relations: a clue has `relations: [{type, cc, id}]` (same_as | similar_to | grou
          Removing a link only removes that link.
          `relation_notes: {same_as|similar_to: {verb, text}}` is the sentence the card shows.
          `max_height`: px cap for the clue image on the card (only kept when the clue has an image).
-Shades:  a polygons file may carry a `shade` column (0 = the main tone, 1..4 = lighter = rarer part of the region).
+Shades:  a polygons file may carry a `shade` column (0 = the main tone, 1..3 = lighter = rarer part of the region).
          The geo preview / GET /clues/{CC}/geo/{file} then adds a `shades` list next to the geometries.
 Stats:   staging a geometry file also returns `stats` (see src/geo/region_stats.py): the editor uses them to
          pre-fill the ratings of a new clue.
@@ -95,7 +95,7 @@ PREVIEW_PRECISION = 1e-5  # ~1 m, only for the GeoJSON sent to the browser
 IMAGE_MAX_PX = 1600
 IMAGE_QUALITY = 88
 PREVIEW_MAX_FEATURES = 5000
-MAX_SHADE = 4
+MAX_SHADE = 3  # 4 shades in total (0 = main tone); keep equal to SHADES - 1 in ShadeDraw.jsx
 
 URL_RE = re.compile(r"https?://\S+", re.IGNORECASE)
 
@@ -960,11 +960,12 @@ def list_clues(cc: str):
                 c["drawn"] = {"name", "color"} <= set(
                     pq.read_schema(CLUES_DIR / cc / c["polygons"]).names
                 )
-        if c.get("image") or c.get("svg") or c.get("overlay"):
+        if any(c.get(k) for k in ("image", "svg", "overlay", "polygons", "lines", "points")):
             # rev (the file's mtime) busts the browser cache for ?v=: a file overwritten in place
             # keeps its name, so without this the card could show the old picture after an update.
+            # Geometry files count too: a drawn clue has no image, and its colors live in the parquet.
             rev = 0
-            for kind in ("image", "svg", "overlay"):
+            for kind in ("image", "svg", "overlay", "polygons", "lines", "points"):
                 p = CLUES_DIR / cc / c[kind] if c.get(kind) else None
                 if p and p.is_file():
                     rev = max(rev, p.stat().st_mtime_ns)

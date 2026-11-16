@@ -1,9 +1,11 @@
 // Turns GeoJSON (lon/lat) into SVG path data. No dependencies.
 const f = (n) => n.toFixed(1);
 
-/** How strong a shade is drawn, 1 (the main tone, shade 0) down to about 0.35 (the lightest, shade `top`).
- *  Shade = how rare that part of a region is: higher = rarer = lighter. Multiply by the base opacity. */
-export const shadeFactor = (shade, top) => (top > 0 ? 1 - 0.45 * (shade / top) : 1);
+/** How strong a shade is drawn: fixed per shade (0 = the main tone ... 3 = the lightest), never relative to the other
+ *  shades a clue has. Shade = how rare that part of a region is: higher = rarer = lighter. Multiply by the base opacity.
+ *  Keep equal to SHADE_FACTORS in src/geo/clue_overlay.py. */
+const SHADE_FACTORS = [1, 0.7, 0.5, 0.35];
+export const shadeFactor = (shade) => SHADE_FACTORS[Math.max(0, Math.min(SHADE_FACTORS.length - 1, Math.round(shade) || 0))];
 
 function walk(g, fn) {
   if (!g) return;

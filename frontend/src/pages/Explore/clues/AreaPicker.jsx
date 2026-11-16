@@ -48,7 +48,7 @@ const withShades = (feats) => {
   const order = feats.map((f, i) => [i, lum(f.properties?.hex ?? f.properties?.color)])
     .sort((a, b) => a[1] - b[1] || a[0] - b[0]);
   const shades = new Array(feats.length);
-  order.forEach(([i], rank) => { shades[i] = Math.min(4, rank); });
+  order.forEach(([i], rank) => { shades[i] = Math.min(3, rank); });
   return feats.map((f, i) => ({ ...f, properties: { ...f.properties, shade: shades[i] } }));
 };
 

@@ -4,6 +4,7 @@ import { bboxOf, shapes } from "./geoDraw.js";
 import { discardStaged, loadImage, stagedUrl } from "./imageTools.js";
 import { AreaName, NAME_PX, areaNameSpot } from "./RegionPreview.jsx";
 import ClueImage from "./ClueImage.jsx";
+import { createPortal } from "react-dom";
 import "./draw.css";
 
 const W = 1000;
@@ -90,7 +91,7 @@ function CategoryImage({ name, value, look, onChange, onLook }) {
  *  (null when nothing is drawn). `trailing` goes at the end of the toolbar row (the Import | Draw switch).
  *  Lock (toolbar): remembers the zoom and position on screen as `{ k, fx, fy }` (see ZoomableRegion) and hands it to `onView`;
  *  the card then opens on that framing instead of the whole country. `storedView` is the framing already locked (null = none). */
-export default function DrawMap({ cc, stage, onResult, trailing, showNames, stored, storedView, onView }) {
+export default function DrawMap({ cc, stage, onResult, trailing, optionsEl, showNames, stored, storedView, onView }) {
   const [base, setBase] = useState(null);
   const [err, setErr] = useState("");
   const [level, setLevel] = useState(0);
@@ -388,12 +389,12 @@ export default function DrawMap({ cc, stage, onResult, trailing, showNames, stor
       <span className={`dm-status ${err && proj ? "err" : "muted"}`}>{proj && err ? err : busy ? "Saving…" : ""}</span>
       {trailing}
     </div>
-    <label className="chk-row"><input type="checkbox" checked={colored} onChange={(e) => setColored(e.target.checked)} />
-      Paint the areas with different colors</label>
+    {optionsEl && createPortal(<label className="chk-row"><input type="checkbox" checked={colored} onChange={(e) => setColored(e.target.checked)} />
+      Paint the areas with different colors</label>, optionsEl)}
     {proj && <div className="dm-cats">
       <div className="dm-catbar">
         <div className="dm-color" ref={colorRef}>
-          <button type="button" className="dm-color-btn" aria-haspopup="menu" aria-expanded={colorOpen} aria-label="Pick a color" title="Pick a color"
+          <button type="button" className={`dm-color-btn ${used.length > 0 ? "has-menu" : ""}`} aria-haspopup="menu" aria-expanded={colorOpen} aria-label="Pick a color" title="Pick a color"
             onClick={() => setColorOpen((o) => !o)}><i className="dm-sw" style={{ background: colorOf(sel) }} /></button>
           {colorOpen && used.length > 0 && <div className="dm-menu" role="menu" aria-label="Colors">
             {used.map((s) => <button key={s} type="button" role="menuitemradio" aria-checked={s === sel} className={`dm-menu-item ${s === sel ? "on" : ""}`}

@@ -114,6 +114,7 @@ export default function ClueEditor({ cc, name, clue, prefill, onClose, onSaved, 
   // The region of a photo: required whenever the media is an image (same SVG / CSV / geometry kinds).
   const [area, setArea] = useState(() => initialArea(clue));
   const [ovEl, setOvEl] = useState(null); // the map box on the photo, where the region is drawn
+  const [chkEl, setChkEl] = useState(null); // slot next to "Show category names" where Draw puts its own checkbox
   const [incoming, setIncoming] = useState(prefill?.image ?? null); // a staged image to hand to ClueImage
   const [imageGone, setImageGone] = useState(false);
   const [mediaErr, setMediaErr] = useState(prefill?.mediaError ?? "");
@@ -449,15 +450,18 @@ export default function ClueEditor({ cc, name, clue, prefill, onClose, onSaved, 
       {/* Same grid as the clue card: media on the left, body on the right. */}
       <div className="clue ed-clue">
         <div className="ed-left" ref={colRef}>
-          {drawing ? <DrawMap cc={cc} stage={stageInput} onResult={takeDrawn} trailing={modeToggle} showNames={showNames} stored={clue?.polygons ?? null} storedView={view} onView={setView} /> : <ClueImage ref={imgApi} current={imageGone ? null : clue?.image ? fileUrl(cc, clue.image, clue.rev) : null} colRef={colRef} overlay={badges}
+          {drawing ? <DrawMap cc={cc} stage={stageInput} onResult={takeDrawn} trailing={modeToggle} optionsEl={chkEl} showNames={showNames} stored={clue?.polygons ?? null} storedView={view} onView={setView} /> : <ClueImage ref={imgApi} current={imageGone ? null : clue?.image ? fileUrl(cc, clue.image, clue.rev) : null} colRef={colRef} overlay={badges}
             preview={mediaPreview} incoming={incoming}
             regionSlot={showArea} onOverlay={setOvEl} loading={mediaBusy || (!!prefill?.pending && !mainKind)}
             onOtherFile={(f) => takeMedia({ file: f })} onOtherText={(t) => takeMedia({ text: t })} onRemove={removeMedia}
             blur={blur} onBlur={setBlur} maxH={maxH} onMaxH={setMaxH} trailing={modeToggle}
             onState={(h, sig) => setImg((p) => (p.has === h && p.sig === sig ? p : { has: h, sig }))} />}
           {mediaErr && <p className="err">{mediaErr}</p>}
-          {namedAreas && <label className="chk-row"><input type="checkbox" checked={showNames} onChange={(e) => setShowNames(e.target.checked)} />
-            Show category names on the map</label>}
+          {namedAreas && <div className="chk-line">
+            <label className="chk-row"><input type="checkbox" checked={showNames} onChange={(e) => setShowNames(e.target.checked)} />
+              Show category names on the map</label>
+            <span ref={setChkEl} />
+          </div>}
           {/* A photo can't say which region it is: the region is mandatory in that case. It is drawn on the photo above. */}
           {showArea && <AreaPicker cc={cc} value={area.upload} current={areaCurrent} onChange={takeArea} stage={stageInput}
             initialPicture={prefill?.areaFile} overlayEl={ovEl} clue={clue} loading={!!prefill?.pending} />}

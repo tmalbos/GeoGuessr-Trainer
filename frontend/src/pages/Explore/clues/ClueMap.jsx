@@ -41,13 +41,13 @@ export default function ClueMap({ cc, clue, align, onArea, selected }) {
     if (overlay) return () => { off = true; };
     if (!hasGeo) loadCountryMap(cc).then((d) => !off && setMap(d)).catch((e) => !off && setErr(e.message));
     for (const k of kinds) {
-      fetch(`/api/clues/${cc}/geo/${clue[k]}`)
+      fetch(`/api/clues/${cc}/geo/${clue[k]}${clue.rev ? `?v=${clue.rev}` : ""}`)
         .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`${clue[k]}: HTTP ${r.status}`))))
         .then((g) => !off && setGeo((p) => ({ ...p, [k]: g })))
         .catch((e) => !off && setErr(e.message));
     }
     return () => { off = true; };
-  }, [cc, clue.id, overlay]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [cc, clue.id, clue.rev, overlay]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (overlay) {
     return <img className={`cl-overlay-img ${align === "right" ? "right" : ""}`} src={fileUrl(cc, overlay, clue.rev)}

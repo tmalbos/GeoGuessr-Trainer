@@ -8,8 +8,7 @@ const W = 1000;
 const PAD = 6;
 const MAX_ZOOM = 80;
 const DRAG_PX = 4;
-const SHADES = 5; // keep equal to MAX_SHADE + 1 in src/api/routers/clues.py
-const TOP = SHADES - 1;
+const SHADES = 4; // keep equal to MAX_SHADE + 1 in src/api/routers/clues.py
 const DEFAULT_COLOR = "#c8283a";
 
 const ico = { width: 19, height: 19, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 2, strokeLinecap: "round", strokeLinejoin: "round", "aria-hidden": true };
@@ -42,7 +41,7 @@ const zoomView = (v, px, py, f, H) => {
   return clampView({ w, x: px - (px - v.x) * k, y: py - (py - v.y) * k }, H);
 };
 const pathOf = (pts) => `M${(pts.length === 1 ? [pts[0], pts[0]] : pts).map((p) => `${p[0].toFixed(1)} ${p[1].toFixed(1)}`).join("L")}`;
-const alpha = (shade, top) => 0.85 * shadeFactor(shade, top);
+const alpha = (shade) => 0.85 * shadeFactor(shade);
 
 /** Draw a regional clue's area on top of its country, in fixed shades of the stain colour (Settings).
  *  Shade 1 is the main tone, the next ones are lighter (= rarer). Fill = click a subdivision, paint = freeform strokes,
@@ -128,7 +127,6 @@ export default function ShadeDraw({ cc, stage, onResult }) {
   const landD = useMemo(() => (proj ? shapes(base, proj.fwd).polys : ""), [proj, base]);
   const unitPaths = useMemo(() => (proj && units ? units.map((u) => ({ id: u.id, name: u.name, d: shapes(u.geometry, proj.fwd).polys })) : []), [proj, units]);
   const shownPaths = useMemo(() => (proj ? shown.map((f, i) => ({ key: i, shade: f.properties.shade, d: shapes(f.geometry, proj.fwd).polys })) : []), [proj, shown]);
-  const top = Math.max(0, ...shown.map((f) => f.properties.shade)); // same rule the card uses
 
   // Wheel zooms around the cursor; Shift + wheel cycles the shade.
   useEffect(() => {
@@ -141,7 +139,7 @@ export default function ShadeDraw({ cc, stage, onResult }) {
         const now = performance.now();
         if (d && now - shiftAt.current > 120) {
           shiftAt.current = now;
-          setSel((s) => (s + (d > 0 ? 1 : -1) + SHADES) % SHADES);
+          setSel((s) => (s + (d > 0 ? -1 : 1) + SHADES) % SHADES);
         }
         return;
       }
@@ -232,7 +230,7 @@ export default function ShadeDraw({ cc, stage, onResult }) {
             style={tool === "fill" ? undefined : { pointerEvents: "none" }}
             onClick={tool === "fill" ? () => setItems((it) => [...it, { op: "fill", level, id: u.id, slot: sel }]) : undefined}><title>{u.name}</title></path>)}
           {shownPaths.map((p) => <path key={p.key} className="dm-res" d={p.d} fillRule="evenodd"
-            style={{ fill: color, fillOpacity: alpha(p.shade, top), pointerEvents: "none" }} />)}
+            style={{ fill: color, fillOpacity: alpha(p.shade), pointerEvents: "none" }} />)}
           {live && <path d={pathOf(live)} fill="none" strokeLinecap="round" strokeLinejoin="round" strokeWidth={unit}
             stroke={tool === "erase" ? "#ff7357" : "#ffffff"} strokeOpacity=".5" style={{ pointerEvents: "none" }} />}
         </svg>
@@ -250,7 +248,7 @@ export default function ShadeDraw({ cc, stage, onResult }) {
     {proj && <div className="dm-cats">
       <div className="clue-chips" role="group" aria-label="Shade">
         {Array.from({ length: SHADES }, (_, s) => <button key={s} type="button" className={`fchip ${s === sel ? "on" : ""}`} aria-pressed={s === sel}
-          onClick={() => setSel(s)}><i className="dm-sw" style={{ background: color, opacity: alpha(s, TOP) }} />Shade {s + 1}</button>)}
+          onClick={() => setSel(s)}><i className="dm-sw" style={{ background: color, opacity: alpha(s) }} />Shade {s + 1}</button>)}
       </div>
       <span className="muted">Shift + scroll to change shade. Lighter = rarer.</span>
     </div>}

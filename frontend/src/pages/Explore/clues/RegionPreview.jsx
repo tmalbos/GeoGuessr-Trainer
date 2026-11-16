@@ -263,7 +263,6 @@ export default function RegionPreview({ cc, layers, stains, onStain, onArea, sel
   const split = plain.map((g) => splitPins(g, total, project));
   const smallStains = (stains ?? []).filter((s) => isSmall(s.geometry, total, project));
   const pinned = new Set(smallStains.length <= MAX_PINS ? smallStains.map((s) => s.id) : []);
-  const stainTop = Math.max(0, ...(stains ?? []).map((s) => s.shade ?? 0));
 
   // Zoom (see ZoomableRegion): the view is a 1/k window of the map centred on (fx, fy) and kept inside it.
   // `pan` = a ref object shared with the wrapper: { drag, moved }. A drag never counts as a click on an area.
@@ -300,12 +299,10 @@ export default function RegionPreview({ cc, layers, stains, onStain, onArea, sel
     {split.map(({ rest, pins }, i) => {
       const s = shapes(rest, project);
       const parts = tiers(rest);
-      const top = parts ? Math.max(...parts.map(([v]) => v)) : 0;
-      const pinTop = Math.max(0, ...pins.map((p) => p.shade));
       return <g key={i}>
         {parts
           ? parts.map(([v, part]) => {
-            const op = 0.85 * shadeFactor(v, top);
+            const op = 0.85 * shadeFactor(v);
             return <path key={v} className="cl-poly" d={shapes(part, project).polys} fillRule="evenodd"
               style={v ? { fillOpacity: op, strokeOpacity: op } : undefined} />;
           })
@@ -313,7 +310,7 @@ export default function RegionPreview({ cc, layers, stains, onStain, onArea, sel
         <path className="cl-line" d={s.lines} fill="none" />
         {s.pts.map(([x, y], j) => <circle key={j} className="cl-pt" cx={x} cy={y} r="5" />)}
         {pins.map((p, j) => {
-          const op = p.shade ? 0.85 * shadeFactor(p.shade, pinTop) : null;
+          const op = p.shade ? 0.85 * shadeFactor(p.shade) : null;
           return <Pin key={`pin-${j}`} at={p.at} style={op != null ? { fillOpacity: op, strokeOpacity: op } : undefined} />;
         })}
       </g>;
@@ -356,7 +353,7 @@ export default function RegionPreview({ cc, layers, stains, onStain, onArea, sel
       const toggle = () => onStain?.(s.id);
       const name = s.label ?? s.id;
       const cls = `cl-poly cl-stain ${s.active ? "" : "off"}`;
-      const tone = stainColor && s.active ? lighten(stainColor, 1 - shadeFactor(s.shade ?? 0, stainTop)) : null;
+      const tone = stainColor && s.active ? lighten(stainColor, 1 - shadeFactor(s.shade ?? 0)) : null;
       const paint = tone ? { fill: tone, stroke: tone } : null;
       const st = paint ?? undefined;
       const act = onStain ? {

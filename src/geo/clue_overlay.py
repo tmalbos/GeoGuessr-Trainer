@@ -46,9 +46,17 @@ def recolour(svg: str, fill: str) -> str:
     return svg.replace(STAIN_FILL, fill)
 
 
-def shade_factor(shade: float, top: float) -> float:
-    """1 for the main tone (shade 0) down to about 0.35 for the lightest (shade `top`)."""
-    return 1 - 0.65 * (shade / top) if top > 0 else 1.0
+SHADE_FACTORS = (
+    1.0,
+    0.7,
+    0.5,
+    0.35,
+)  # fixed per shade; keep equal to SHADE_FACTORS in frontend geoDraw.js
+
+
+def shade_factor(shade: float) -> float:
+    """Fixed strength of a shade: 1 for the main tone (shade 0) down to 0.35 for the lightest (shade 3)."""
+    return SHADE_FACTORS[max(0, min(int(shade), len(SHADE_FACTORS) - 1))]
 
 
 def _walk(g):
@@ -173,7 +181,6 @@ def render_overlay(
             tiers = sorted(
                 set(rest_shades), reverse=True
             )  # lightest first: the main tone ends up on top
-            top = max(tiers)
             for v in tiers:
                 d = _shapes(
                     shapely.GeometryCollection(
@@ -181,7 +188,7 @@ def render_overlay(
                     )
                 )[0]
                 if d:
-                    op = 0.85 * shade_factor(v, top) if v else None
+                    op = 0.85 * shade_factor(v) if v else None
                     # POLY already has a fill-opacity: a second one makes the SVG invalid (broken image).
                     poly = POLY if op is None else POLY.replace(' fill-opacity=".85"', "")
                     parts.append(f'<path d="{d}" {poly}{_opacity(op)} {NSS} fill-rule="evenodd"/>')
@@ -198,9 +205,8 @@ def render_overlay(
                 f'<circle cx="{x:.1f}" cy="{y:.1f}" r="5" fill="#c8283a" stroke="#fff" stroke-width="1" {NSS}/>'
             )
 
-        pin_top = max([0, *(v for _, v in pins)])
         for (x, y), v in pins:
-            op = 0.85 * shade_factor(v, pin_top) if v else None
+            op = 0.85 * shade_factor(v) if v else None
             parts.append(
                 f'<g transform="translate({x:.1f} {y:.1f})" fill="#c8283a" '
                 f'stroke="#c8283a" stroke-width="1"{_opacity(op) or ' fill-opacity=".85"'}>'

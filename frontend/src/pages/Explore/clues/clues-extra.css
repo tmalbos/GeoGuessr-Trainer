@@ -71,6 +71,10 @@
 /* ── Image box: the Blur checkbox sits in its top-right corner ── */
 .fp-head .chk-row { margin: 0 0 0 auto; }
 
+/* ── Draw editor: the two checkboxes share one line; their text shrinks with the column to keep them on it ── */
+.chk-line { container-type: inline-size; display: flex; flex-wrap: nowrap; align-items: center; gap: 4px 20px; margin-top: 12px; }
+.chk-line .chk-row { margin: 0; white-space: nowrap; font-size: clamp(10px, 2.9cqw, 15px); }
+
 /* ── Selection outline inside the editor: blue, not red ── */
 .modal-back :focus-visible, .cp.editing :focus-visible { outline-color: var(--sea-hi); }
 
