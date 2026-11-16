@@ -113,7 +113,7 @@ class StainParams(BaseModel):
         14.61, ge=1.0, le=60.0
     )  # CIEDE2000 distance under which colours are one stain
     expansion_px: int = Field(5, ge=0, le=20)  # pixel layers the stains grow into undefined pixels
-    max_classes: int = Field(4, ge=1, le=14)  # stains kept besides the base map
+    max_classes: int = Field(3, ge=1, le=14)  # stains kept besides the base map
 
 
 @router.post("/technical/stain/upload")

@@ -28,6 +28,9 @@ WIDTH = 1000  # map units across the country's width (same as the live preview)
 PAD = 6  # margin around the drawing, map units
 MAX_PIN_SHARE = 0.00071
 MAX_PINS = 12
+NEAR_UNITS = (
+    40  # a small polygon this close (map units) to a bigger one is drawn as a shape, not a pin
+)
 PIN_D = "M0 0C-3 -9 -15 -18 -15 -30A15 15 0 1 1 15 -30C15 -18 3 -9 0 0Z"
 PIN_HALF_W = 30
 PIN_H = 50
@@ -93,6 +96,23 @@ def _shapes(geom) -> tuple[str, str, list[tuple[float, float]]]:
 def _centre(poly) -> tuple[float, float]:
     x0, y0, x1, y1 = poly.exterior.bounds
     return (x0 + x1) / 2, (y0 + y1) / 2
+
+
+def _alone(geoms: list, small: list[int]) -> list[int]:
+    """The small polygons that are NOT near a bigger polygon (distance between bounding boxes)."""
+    gone = set(small)
+    bigger = [i for i, g in enumerate(geoms) if i not in gone and g.geom_type == "Polygon"]
+    if not small or not bigger:
+        return small
+    b = shapely.bounds(np.array([geoms[i] for i in bigger], dtype=object))
+    out = []
+    for i in small:
+        x0, y0, x1, y1 = shapely.bounds(geoms[i])
+        dx = np.maximum(np.maximum(b[:, 0] - x1, x0 - b[:, 2]), 0)
+        dy = np.maximum(np.maximum(b[:, 1] - y1, y0 - b[:, 3]), 0)
+        if float(np.hypot(dx, dy).min()) > NEAR_UNITS:
+            out.append(i)
+    return out
 
 
 def _opacity(op: float | None) -> str:
@@ -164,6 +184,7 @@ def render_overlay(
             i for i, g in enumerate(pg)
             if g.geom_type == "Polygon" and total > 0 and g.area / total <= MAX_PIN_SHARE
         ]  # fmt: skip
+        small = _alone(pg, small)
         pins: list[tuple[tuple[float, float], int]] = []
         if 0 < len(small) <= MAX_PINS:
             pins = [(_centre(pg[i]), int(sh[i])) for i in small]

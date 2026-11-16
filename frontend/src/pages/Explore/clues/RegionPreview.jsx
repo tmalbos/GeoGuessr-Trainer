@@ -58,10 +58,30 @@ const centre = (g, project) => {
 };
 const isSmall = (g, total, project) => g?.type === "Polygon" && total > 0 && polyArea(g, project) / total <= MAX_PIN_SHARE;
 
+// A small polygon within NEAR_UNITS of a bigger one is drawn as a normal shape, not a pin (keep equal to NEAR_UNITS in src/geo/clue_overlay.py).
+// Distance = gap between bounding boxes. `small` = indices of the small polygons in `geoms`; returns the ones that stay pins.
+const NEAR_UNITS = 40;
+const boxOf = (g, project) => {
+  const p = g.coordinates[0].map(project);
+  const xs = p.map((c) => c[0]);
+  const ys = p.map((c) => c[1]);
+  return [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)];
+};
+function aloneSmall(geoms, small, project) {
+  const gone = new Set(small);
+  const bigger = geoms.map((g, i) => (gone.has(i) || g?.type !== "Polygon" ? null : boxOf(g, project))).filter(Boolean);
+  if (!bigger.length) return small;
+  return small.filter((i) => {
+    const a = boxOf(geoms[i], project);
+    return bigger.every((b) => Math.hypot(Math.max(b[0] - a[2], a[0] - b[2], 0), Math.max(b[1] - a[3], a[1] - b[3], 0)) > NEAR_UNITS);
+  });
+}
+
 /** A layer -> { rest: the layer without its small polygons, pins: [{ at: [x, y], shade }] }. */
 function splitPins(g, total, project) {
   if (g.type !== "GeometryCollection" || !total) return { rest: g, pins: [] };
-  const small = g.geometries.map((x, i) => (isSmall(x, total, project) ? i : -1)).filter((i) => i >= 0);
+  const tiny = g.geometries.map((x, i) => (isSmall(x, total, project) ? i : -1)).filter((i) => i >= 0);
+  const small = aloneSmall(g.geometries, tiny, project);
   if (!small.length || small.length > MAX_PINS) return { rest: g, pins: [] };
   const gone = new Set(small);
   const keep = (_, i) => !gone.has(i);
@@ -261,7 +281,9 @@ export default function RegionPreview({ cc, layers, stains, onStain, onArea, sel
   const plain = layers.filter((g) => !g.colors);
   const areaLayers = layers.filter((g) => g.colors); // named, colored areas (see areas.css)
   const split = plain.map((g) => splitPins(g, total, project));
-  const smallStains = (stains ?? []).filter((s) => isSmall(s.geometry, total, project));
+  const stainGeoms = (stains ?? []).map((s) => s.geometry);
+  const tinyStains = stainGeoms.map((g, i) => (isSmall(g, total, project) ? i : -1)).filter((i) => i >= 0);
+  const smallStains = aloneSmall(stainGeoms, tinyStains, project).map((i) => stains[i]);
   const pinned = new Set(smallStains.length <= MAX_PINS ? smallStains.map((s) => s.id) : []);
 
   // Zoom (see ZoomableRegion): the view is a 1/k window of the map centred on (fx, fy) and kept inside it.

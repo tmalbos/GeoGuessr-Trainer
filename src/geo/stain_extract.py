@@ -175,7 +175,7 @@ CHANCE_SHIFT_MIN, CHANCE_SHIFT_MAX = 4.0, 12.0  # ...limited to this range (px)
 
 # Colours / labels
 DELTA_E = 14.61  # CIEDE2000 distance under which two colours are the same stain (UI slider)
-MAX_CLASSES = 4  # stains kept besides the base map (UI slider)
+MAX_CLASSES = 3  # stains kept besides the base map (UI slider)
 EXPAND_PX = 2  # pixel layers the stains grow into undefined pixels (UI slider)
 SCOPE_PX = 0  # px beyond the fitted outline whose pixels are read (constant, not in the UI)
 PIN_MARGIN_PX = (
@@ -226,7 +226,7 @@ COLOR_TIERS = [
     ("inner_border", "#869696", 14.61, True, 3),
     ("outer_border", "#6D706D", 14.61, False, 1),
     ("water", "dynamic", 0.0, False, 1),
-    ("coastline", "#2077A2", 14.61, False, 3),
+    ("coastline", "#2077A2", 15.0, False, 3),
     ("base", "dynamic", 10.0, False, -1),
     ("stain", "dynamic", None, False, 0),
     ("undefined", "dynamic", 0.0, False, 2),
