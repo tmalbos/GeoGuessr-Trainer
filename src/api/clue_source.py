@@ -15,10 +15,12 @@ import shapely
 
 from src.analysis.report_actions import area_km2
 from src.api.routers.clues import CLUES_DIR, _load  # noqa: PLC2701
+from src.geo.csv_areas import AreasError, build_areas, read_rows
 
 logger = logging.getLogger("uvicorn.error")
 
 _SHAPES: dict[tuple, tuple | None] = {}
+_PIECES: dict[tuple, list[tuple]] = {}
 
 
 def _norm(s) -> str:
@@ -54,6 +56,53 @@ class ClueSource:
             ok = geom is not None and not geom.is_empty
             _SHAPES[key] = (geom, area_km2(geom)) if ok else None
         return _SHAPES[key]
+
+    def pieces(self, cc: str, clue: dict) -> list[tuple]:
+        """[(geometry, area km²)] of every separate area of a regional clue.
+
+        A map-only clue (drawn areas, or a CSV of named groups) holds several named areas, each one
+        a different answer, so they are NOT merged. Any other clue is a single piece (see shape).
+        """
+        cc = cc.strip().upper()
+        name = clue.get("polygons") or clue.get("csv")
+        if not name:
+            return []
+        path = CLUES_DIR / cc / name
+        try:
+            stamp = path.stat().st_mtime_ns
+        except OSError:
+            return []
+        key = (cc, name, stamp)
+        if key not in _PIECES:
+            try:
+                out = self._named(cc, path, bool(clue.get("polygons")))
+            except Exception:
+                logger.exception("Could not read the areas of clue %s/%s", cc, clue.get("id"))
+                out = []
+            if not out:
+                one = self.shape(cc, clue)
+                out = [one] if one else []
+            _PIECES[key] = out
+        return _PIECES[key]
+
+    def _named(self, cc: str, path, is_polygons: bool) -> list[tuple]:
+        """One (geometry, area) per named area; [] when the clue has no named areas."""
+        if is_polygons:
+            gdf = gpd.read_parquet(path)
+            if "name" not in gdf.columns:
+                return []
+            names = gdf["name"].fillna("").astype(str)
+            geoms = [
+                shapely.union_all(shapely.make_valid(sub.geometry.to_numpy()))
+                for _, sub in gdf.groupby(names, sort=True)
+            ]
+        else:
+            layer = self._local._admin_layer(cc)  # noqa: SLF001
+            try:
+                geoms = build_areas(read_rows(path.read_bytes()), layer, path.parent)[3]
+            except AreasError:
+                return []
+        return [(g, area_km2(g)) for g in geoms if not g.is_empty]
 
     @staticmethod
     def _polygons(path):

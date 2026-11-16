@@ -131,15 +131,17 @@ def regional_clues(src, cc: str, area_type: str, real_pt, guess_pt) -> list[dict
     for c in src.clues(cc):
         if c.get("scope") != "reg" or not _loc_ok(c, area_type):
             continue
-        shape = src.shape(cc, c)
-        if not shape:
-            continue
-        geom, area = shape
-        has_real, has_guess = geom.intersects(real_pt), geom.intersects(guess_pt)
-        if has_real and not has_guess:
-            good.append((c, area))
-        elif has_guess and not has_real:
-            fallback.append((c, area))
+        # A map-only clue has several areas: each one is judged on its own, not merged.
+        # The clue counts once: as "good" if any area has the real spot without the guess, else as a fallback.
+        is_fallback = False
+        for geom, area in src.pieces(cc, c):
+            has_real, has_guess = geom.intersects(real_pt), geom.intersects(guess_pt)
+            if has_real and not has_guess:
+                good.append((c, area))
+                break
+            if has_guess and not has_real and not is_fallback:
+                fallback.append((c, area))
+                is_fallback = True
     return _rank_regional(good or fallback)
 
 
@@ -149,9 +151,12 @@ def regional_clues_within(src, cc: str, area_type: str, real_pt, max_area: float
     for c in src.clues(cc):
         if c.get("scope") != "reg" or not _loc_ok(c, area_type):
             continue
-        shape = src.shape(cc, c)
-        if shape and shape[1] <= max_area and shape[0].intersects(real_pt):
-            pool.append((c, shape[1]))
+        piece = next(
+            ((g, a) for g, a in src.pieces(cc, c) if a <= max_area and g.intersects(real_pt)),
+            None,
+        )
+        if piece:
+            pool.append((c, piece[1]))
     return _rank_regional(pool)
 
 
