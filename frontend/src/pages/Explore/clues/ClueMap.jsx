@@ -58,10 +58,10 @@ export default function ClueMap({ cc, clue, align, onArea, selected }) {
 
   if (hasGeo) {
     if (!kinds.every((k) => geo[k])) return <p className="muted">Loading map…</p>;
-    const Preview = onArea ? ZoomableRegion : RegionPreview; // map-only clues with clickable areas get zoom
-    // A locked view (drawn clues) is where the card opens: the zoomable map starts there, the static one stays there.
+    const Preview = onArea && !clue.view ? ZoomableRegion : RegionPreview; // map-only clues with clickable areas get zoom, unless the view is locked
+    // A locked view (drawn clues) is fixed: the map stays there (areas are still clickable, but no zoom / pan).
     return <Preview cc={cc} layers={kinds.map((k) => geo[k])} align={align} onArea={onArea} selected={selected} showNames={clue.show_names !== false}
-      {...(clue.view ? (onArea ? { initial: clue.view } : { zoom: clue.view }) : {})} />;
+      {...(clue.view ? { zoom: clue.view } : {})} />;
   }
 
   if (!map) return <p className="muted">Loading map…</p>;

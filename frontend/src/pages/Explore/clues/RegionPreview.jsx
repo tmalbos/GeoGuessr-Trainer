@@ -215,8 +215,8 @@ export function AreaName({ spot }) {
 }
 
 // Pin drawn with its tip at (0, 0), about 46 map units tall. The big transparent circle makes it easy to click.
-function Pin({ at: [x, y], className = "cl-poly", style, children, ...rest }) {
-  return <g className={className} style={style} transform={`translate(${x.toFixed(1)} ${y.toFixed(1)}) scale(1.5)`} {...rest}>
+function Pin({ at: [x, y], className = "cl-poly", style, children, size = 1.5, ...rest }) {
+  return <g className={className} style={style} transform={`translate(${x.toFixed(1)} ${y.toFixed(1)}) scale(${size})`} {...rest}>
     <circle cy="-26" r="24" fill="transparent" stroke="none" />
     <path d="M0 0C-3 -9 -15 -18 -15 -30A15 15 0 1 1 15 -30C15 -18 3 -9 0 0Z" vectorEffect="non-scaling-stroke" />
     <circle cy="-30" r="5.5" fill="#fff" stroke="none" />
@@ -333,7 +333,7 @@ export default function RegionPreview({ cc, layers, stains, onStain, onArea, sel
         {s.pts.map(([x, y], j) => <circle key={j} className="cl-pt" cx={x} cy={y} r="5" />)}
         {pins.map((p, j) => {
           const op = p.shade ? 0.85 * shadeFactor(p.shade) : null;
-          return <Pin key={`pin-${j}`} at={p.at} style={op != null ? { fillOpacity: op, strokeOpacity: op } : undefined} />;
+          return <Pin key={`pin-${j}`} at={p.at} size={1.5 / zk} style={op != null ? { fillOpacity: op, strokeOpacity: op } : undefined} />;
         })}
       </g>;
     })}
@@ -384,7 +384,7 @@ export default function RegionPreview({ cc, layers, stains, onStain, onArea, sel
         onKeyDown: (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggle(); } },
       } : {};
       const tip = onStain && <title>{name} · click to {s.active ? "leave it out" : "include it"}</title>;
-      if (pinned.has(s.id)) return <Pin key={s.id} at={centre(s.geometry, project)} className={cls} style={st} {...act}>{tip}</Pin>;
+      if (pinned.has(s.id)) return <Pin key={s.id} at={centre(s.geometry, project)} size={1.5 / zk} className={cls} style={st} {...act}>{tip}</Pin>;
       return <path key={s.id} className={cls} d={shapes(s.geometry, project).polys} fillRule="evenodd" style={st} {...act}>{tip}</path>;
     })}
   </svg>;
