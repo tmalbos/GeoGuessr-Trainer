@@ -14,6 +14,7 @@ import RichEditor from "./RichEditor.jsx";
 import { MAPMAKING_FILE, autoRatings } from "./autoRatings.js";
 import { guessCategory } from "./autoTags.js";
 import { useCountries } from "./countries.js";
+import { useDrawBusy } from "./drawBusy.js";
 import fileUrl from "./fileUrl.js";
 import { discardStaged, stageFile, stagePath } from "./imageTools.js";
 import { kindOfFile, kindOfName, resolveStreetView, streetViewShot } from "./mediaKinds.js";
@@ -80,6 +81,7 @@ const Tag = ({ t, kind, on, caret, onClick, ...rest }) =>
  *  Each rating is independent. Editing an existing clue never touches its ratings. */
 export default function ClueEditor({ cc, name, clue, prefill, onClose, onSaved, onSkip, skipTo }) {
   const { nameOf } = useCountries();
+  const drawBusy = useDrawBusy(); // a drawing is still being built: saving now would lose its last changes
   const [scope, setScope] = useState(clue?.scope ?? prefill?.scope ?? "nat");
   const [info, setInfo] = useState(clue?.info ?? prefill?.info ?? "");
   const [location, setLocation] = useState(clue?.tags?.find((t) => LOCATION_TAGS.includes(t)) ?? prefill?.location ?? "");
@@ -346,6 +348,7 @@ export default function ClueEditor({ cc, name, clue, prefill, onClose, onSaved, 
   if (showArea && !area.kind) problems.push("Add the region for the photo: an SVG map, a CSV, a geometry file or a picture of the map.");
   if (source.trim() && !URL_OK.test(source.trim())) problems.push("The source must be a link starting with http:// or https://.");
   for (const t of NOTE_TYPES) if (present(t) && !note(t).text.trim()) problems.push(`Finish the "${REL_LABEL[t]}" sentence.`);
+  if (drawBusy) problems.push("The drawing is still being saved. Wait a moment.");
 
   const payload = (imageToken) => {
     const num = (v) => (v === "" ? null : Number(v));

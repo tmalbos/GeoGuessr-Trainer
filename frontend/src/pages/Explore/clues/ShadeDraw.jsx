@@ -2,6 +2,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { api, errorText } from "../../../lib/api.js";
 import { bboxOf, shadeFactor, shapes } from "./geoDraw.js";
 import { discardStaged } from "./imageTools.js";
+import PaintedLayer, { Units } from "./PaintedLayer.jsx";
+import { setDrawBusy } from "./drawBusy.js";
 import "./draw.css";
 
 const W = 1000;
@@ -57,7 +59,6 @@ export default function ShadeDraw({ cc, stage, onResult, storedView, onView }) {
   const [tool, setTool] = useState("fill");
   const [size, setSize] = useState(24);
   const [items, setItems] = useState([]);
-  const [shown, setShown] = useState([]);
   const [live, setLive] = useState(null);
   const [sel, setSel] = useState(0);
   const [color, setColor] = useState(DEFAULT_COLOR);
@@ -97,38 +98,45 @@ export default function ShadeDraw({ cc, stage, onResult, storedView, onView }) {
 
   useEffect(() => {
     if (!items.length) {
-      if (had.current) { had.current = false; setShown([]); resultRef.current(null); }
+      setBusy(false);
+      if (had.current) { had.current = false; resultRef.current(null); }
       return undefined;
     }
     had.current = true;
     let stale = false;
+    const ac = new AbortController();
     setBusy(true); setErr("");
     const t = setTimeout(async () => {
       try {
         // One "category" per shade (named s0..s4); the server keeps them disjoint, a later item wins.
-        const sent = items.map((i) => ({ ...i, name: i.op === "erase" ? "" : `s${i.slot}` }));
-        const fc = await api(`/clues/${cc}/draw/build`, { method: "POST", body: { items: sent, colored: false } });
+        const sent = items.map(({ d: _d, w: _w, ...i }) => ({ ...i, name: i.op === "erase" ? "" : `s${i.slot}` }));
+        const fc = await api(`/clues/${cc}/draw/build`, { method: "POST", body: { items: sent, colored: false }, signal: ac.signal });
         if (stale) return;
         const features = fc.features.map((f) => ({
           type: "Feature",
           properties: { shade: Number(f.properties.name.slice(1)) },
           geometry: f.geometry,
         }));
-        setShown(features);
         if (!features.length) { resultRef.current(null); return; }
         const file = new File([JSON.stringify({ type: "FeatureCollection", features })], "shades.geojson", { type: "application/geo+json" });
         const up = await stageRef.current({ file });
         if (stale) { discardStaged(up?.token); return; }
         resultRef.current(up);
       } catch (e) { if (!stale) setErr(errorText(e)); } finally { if (!stale) setBusy(false); }
-    }, 150);
-    return () => { stale = true; clearTimeout(t); };
+    }, 600);
+    return () => { stale = true; clearTimeout(t); ac.abort(); };
   }, [items, cc]);
+  useEffect(() => { setDrawBusy(busy); }, [busy]);
+  useEffect(() => () => setDrawBusy(false), []);
 
   const proj = useMemo(() => { const bb = base && bboxOf(base); return bb ? makeProjection(bb) : null; }, [base]);
   const landD = useMemo(() => (proj ? shapes(base, proj.fwd).polys : ""), [proj, base]);
   const unitPaths = useMemo(() => (proj && units ? units.map((u) => ({ id: u.id, name: u.name, d: shapes(u.geometry, proj.fwd).polys })) : []), [proj, units]);
-  const shownPaths = useMemo(() => (proj ? shown.map((f, i) => ({ key: i, shade: f.properties.shade, d: shapes(f.geometry, proj.fwd).polys })) : []), [proj, shown]);
+  // Shades are drawn opaque (the colour mixed into the land colour), so overlapping strokes look the same as the server result.
+  const fillOf = useMemo(() => (s) => `color-mix(in srgb, ${color} ${Math.round(alpha(s) * 100)}%, #f6f4e4)`, [color]);
+  const pickRef = useRef(null);
+  pickRef.current = (u) => setItems((it) => [...it, { op: "fill", level, id: u.id, slot: sel, d: u.d }]);
+  const onPick = useMemo(() => (u) => pickRef.current(u), []);
 
   // Wheel zooms around the cursor; Shift + wheel cycles the shade.
   useEffect(() => {
@@ -200,7 +208,7 @@ export default function ShadeDraw({ cc, stage, onResult, storedView, onView }) {
     if (tool === "erase" && e.shiftKey) {
       const pt = new DOMPoint(p[0], p[1]);
       const hit = [...svg.current.querySelectorAll(".dm-unit")].find((u) => u.isPointInFill(pt));
-      if (hit) setItems((it) => [...it, { op: "erase", name: "", level, id: Number(hit.dataset.id) }]);
+      if (hit) setItems((it) => [...it, { op: "erase", name: "", level, id: Number(hit.dataset.id), d: hit.getAttribute("d") }]);
       return;
     }
     e.currentTarget.setPointerCapture(e.pointerId);
@@ -234,7 +242,7 @@ export default function ShadeDraw({ cc, stage, onResult, storedView, onView }) {
     if (!d || d.kind !== "draw") return;
     setLive(null);
     // The brush is a screen size: zoomed in, the same brush covers less of the map.
-    const item = { op: tool === "erase" ? "erase" : "stroke", width: (size * view.w) / W / proj.s, points: d.pts.map(proj.inv) };
+    const item = { op: tool === "erase" ? "erase" : "stroke", width: (size * view.w) / W / proj.s, points: d.pts.map(proj.inv), w: (size * view.w) / W, d: pathOf(d.pts) };
     setItems((it) => [...it, tool === "erase" ? item : { ...item, slot: sel }]);
   };
 
@@ -251,11 +259,8 @@ export default function ShadeDraw({ cc, stage, onResult, storedView, onView }) {
           style={{ cursor: painting ? "crosshair" : undefined }} onContextMenu={(e) => e.preventDefault()}
           onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={up}>
           <path className="cl-r" d={landD} fillRule="evenodd" />
-          {unitPaths.map((u) => <path key={u.id} data-id={u.id} className={`dm-unit ${tool === "fill" ? "click" : ""}`} d={u.d} fillRule="evenodd"
-            style={tool === "fill" ? undefined : { pointerEvents: "none" }}
-            onClick={tool === "fill" ? () => setItems((it) => [...it, { op: "fill", level, id: u.id, slot: sel }]) : undefined}><title>{u.name}</title></path>)}
-          {shownPaths.map((p) => <path key={p.key} className="dm-res" d={p.d} fillRule="evenodd"
-            style={{ fill: color, fillOpacity: alpha(p.shade), pointerEvents: "none" }} />)}
+          <Units paths={unitPaths} click={tool === "fill"} onPick={onPick} />
+          <PaintedLayer items={items} fwd={proj.fwd} H={proj.H} land={landD} fillOf={fillOf} />
           {lockBox && <rect x={lockBox.x} y={lockBox.y} width={lockBox.w} height={(lockBox.w * proj.H) / W} fill="none" stroke="#ffd04d"
             strokeWidth="2" strokeDasharray="8 5" vectorEffect="non-scaling-stroke" style={{ pointerEvents: "none" }} />}
           {live && <path d={pathOf(live)} fill="none" strokeLinecap="round" strokeLinejoin="round" strokeWidth={unit}

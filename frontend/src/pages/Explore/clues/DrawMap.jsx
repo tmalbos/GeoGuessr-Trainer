@@ -4,6 +4,8 @@ import { bboxOf, shapes } from "./geoDraw.js";
 import { discardStaged, loadImage, stagedUrl } from "./imageTools.js";
 import { AreaName, NAME_PX, areaNameSpot } from "./RegionPreview.jsx";
 import ClueImage from "./ClueImage.jsx";
+import PaintedLayer, { Units } from "./PaintedLayer.jsx";
+import { setDrawBusy } from "./drawBusy.js";
 import { createPortal } from "react-dom";
 import { streetViewAvailable } from "../../../lib/mapProviders.js";
 import { stageFile } from "./imageTools.js";
@@ -189,20 +191,22 @@ export default function DrawMap({ cc, stage, onResult, trailing, optionsEl, show
 
   useEffect(() => {
     if (!items.length) {
+      setBusy(false);
       if (had.current) { had.current = false; setShown([]); resultRef.current(null); }
       return undefined;
     }
     had.current = true;
     let stale = false;
+    const ac = new AbortController();
     setBusy(true); setErr("");
     const t = setTimeout(async () => {
       try {
-        const sent = items.map((i, k) => {
+        const sent = items.map(({ d: _d, w: _w, ...i }, k) => {
           const first = items.findIndex((x) => x.slot === i.slot && x.op !== "erase") === k;
           const look = looks[i.slot];
           return { ...i, name: i.op === "erase" ? "" : nameOf(i.slot), ...(first && images[i.slot] ? { extra: images[i.slot], extra_blur: !!look?.blur, extra_max_height: look?.maxH ?? null } : {}) };
         });
-        const fc = await api(`/clues/${cc}/draw/build`, { method: "POST", body: { items: sent, colored } });
+        const fc = await api(`/clues/${cc}/draw/build`, { method: "POST", body: { items: sent, colored }, signal: ac.signal });
         if (stale) return;
         setShown(fc.features);
         if (!fc.features.length) { resultRef.current(null); return; }
@@ -211,14 +215,16 @@ export default function DrawMap({ cc, stage, onResult, trailing, optionsEl, show
         if (stale) { discardStaged(up?.token); return; }
         resultRef.current(up);
       } catch (e) { if (!stale) setErr(errorText(e)); } finally { if (!stale) setBusy(false); }
-    }, 150);
-    return () => { stale = true; clearTimeout(t); };
+    }, 600);
+    return () => { stale = true; clearTimeout(t); ac.abort(); };
   }, [items, images, looks, custom, cc, colored]);
+  useEffect(() => { setDrawBusy(busy); }, [busy]);
+  useEffect(() => () => setDrawBusy(false), []);
 
   const proj = useMemo(() => { const bb = base && bboxOf(base); return bb ? makeProjection(bb) : null; }, [base]);
   const landD = useMemo(() => (proj ? shapes(base, proj.fwd).polys : ""), [proj, base]);
   const unitPaths = useMemo(() => (proj && units ? units.map((u) => ({ id: u.id, name: u.name, d: shapes(u.geometry, proj.fwd).polys })) : []), [proj, units]);
-  const shownPaths = useMemo(() => (proj ? shown.map((f) => ({ name: f.properties.name, color: f.properties.color, d: shapes(f.geometry, proj.fwd).polys })) : []), [proj, shown]);
+  const fillOf = useMemo(() => (colored ? (s) => (palette.length ? palette[s % palette.length] : "#8b98a8") : () => PALE), [colored, palette]);
   // Names on the drawn areas (the "Show category names" setting): printed where they fit, so zooming in adds more.
   const [svgW, setSvgW] = useState(0);
   useEffect(() => {
@@ -303,6 +309,9 @@ export default function DrawMap({ cc, stage, onResult, trailing, optionsEl, show
   const sel = options.includes(picked) ? picked : pending;
   cycle.current = { options, sel };
   const dup = used.some((s) => s !== sel && nameOf(s) === nameOf(sel));
+  const pickRef = useRef(null);
+  pickRef.current = (u) => setItems((it) => [...it, { op: "fill", level, id: u.id, slot: sel, d: u.d }]);
+  const onPick = useMemo(() => (u) => pickRef.current(u), []);
 
   const toSvg = (e) => {
     const m = svg.current.getScreenCTM();
@@ -324,7 +333,7 @@ export default function DrawMap({ cc, stage, onResult, trailing, optionsEl, show
     if (tool === "erase" && e.shiftKey) {
       const pt = new DOMPoint(p[0], p[1]);
       const hit = [...svg.current.querySelectorAll(".dm-unit")].find((u) => u.isPointInFill(pt));
-      if (hit) setItems((it) => [...it, { op: "erase", name: "", level, id: Number(hit.dataset.id) }]);
+      if (hit) setItems((it) => [...it, { op: "erase", name: "", level, id: Number(hit.dataset.id), d: hit.getAttribute("d") }]);
       return;
     }
     e.currentTarget.setPointerCapture(e.pointerId);
@@ -358,7 +367,7 @@ export default function DrawMap({ cc, stage, onResult, trailing, optionsEl, show
     if (!d || d.kind !== "draw") return;
     setLive(null);
     // The brush is a screen size: zoomed in, the same brush covers less of the map.
-    const item = { op: tool === "erase" ? "erase" : "stroke", width: (size * view.w) / W / proj.s, points: d.pts.map(proj.inv) };
+    const item = { op: tool === "erase" ? "erase" : "stroke", width: (size * view.w) / W / proj.s, points: d.pts.map(proj.inv), w: (size * view.w) / W, d: pathOf(d.pts) };
     setItems((it) => [...it, tool === "erase" ? item : { ...item, slot: sel }]);
   };
 
@@ -378,11 +387,8 @@ export default function DrawMap({ cc, stage, onResult, trailing, optionsEl, show
           style={{ cursor: painting ? "crosshair" : undefined }} onContextMenu={(e) => e.preventDefault()}
           onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={up}>
           <path className="cl-r" d={landD} fillRule="evenodd" />
-          {unitPaths.map((u) => <path key={u.id} data-id={u.id} className={`dm-unit ${tool === "fill" ? "click" : ""}`} d={u.d} fillRule="evenodd"
-            style={tool === "fill" ? undefined : { pointerEvents: "none" }}
-            onClick={tool === "fill" ? () => setItems((it) => [...it, { op: "fill", level, id: u.id, slot: sel }]) : undefined}><title>{u.name}</title></path>)}
-          {shownPaths.map((p) => <path key={p.name} className="dm-res" d={p.d} fillRule="evenodd"
-            style={{ fill: p.color, pointerEvents: "none" }}><title>{p.name}</title></path>)}
+          <Units paths={unitPaths} click={tool === "fill"} onPick={onPick} />
+          <PaintedLayer items={items} fwd={proj.fwd} H={proj.H} land={landD} fillOf={fillOf} />
           {labels.map((l) => <AreaName key={l.name} spot={l.spot} />)}
           {lockBox && <rect x={lockBox.x} y={lockBox.y} width={lockBox.w} height={(lockBox.w * proj.H) / W} fill="none" stroke="#ffd04d"
             strokeWidth="2" strokeDasharray="8 5" vectorEffect="non-scaling-stroke" style={{ pointerEvents: "none" }} />}

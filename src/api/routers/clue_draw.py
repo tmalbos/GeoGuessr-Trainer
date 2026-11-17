@@ -263,7 +263,7 @@ def _build(local, cc: str, items: list[Item], colored: bool = True) -> dict:
             units = _units(local, cc, it.level)
             if not 0 <= it.id < len(units):
                 continue
-            geom = shapely.intersection(units[it.id][1], outline)
+            geom = units[it.id][1]
         else:
             pts = [p for p in it.points if len(p) >= 2]
             if not pts:
