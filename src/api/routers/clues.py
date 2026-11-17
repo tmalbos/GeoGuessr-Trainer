@@ -90,7 +90,6 @@ STAGE_KINDS = ("image", "svg", "csv", "geometry")
 
 NOTE_TYPES = ("same_as", "similar_to")  # relations that carry a sentence
 
-SIMPLIFY_TOL_DEG = 0.0005  # ~55 m. Lower = more faithful, bigger files.
 PREVIEW_PRECISION = 1e-5  # ~1 m, only for the GeoJSON sent to the browser
 IMAGE_MAX_PX = 1600
 IMAGE_QUALITY = 88
@@ -441,22 +440,6 @@ def _read_geo(data: bytes, suffix: str) -> gpd.GeoDataFrame:
         tmp.unlink(missing_ok=True)
 
 
-def _simplify_polygons(parts: np.ndarray) -> np.ndarray:
-    """Coverage simplification keeps shared borders identical, so neighbours leave no gaps/slivers.
-    Falls back to per-polygon topology-preserving simplification (older shapely, overlapping input).
-    """
-    try:
-        if not shapely.coverage_is_valid(parts).all():
-            msg = "not a clean coverage"
-            raise ValueError(msg)  # noqa: TRY301
-        out = shapely.coverage_simplify(parts, SIMPLIFY_TOL_DEG)
-    except Exception:  # noqa: BLE001
-        out = shapely.simplify(parts, SIMPLIFY_TOL_DEG, preserve_topology=True)
-    # Never lose a feature: if simplifying emptied or broke one, keep the original.
-    bad = shapely.is_empty(out) | ~shapely.is_valid(out)
-    return np.where(bad, parts, out)
-
-
 def _process_geo(data: bytes, suffix: str, token: str) -> tuple[str, dict]:
     gdf = _read_geo(data, suffix)
     gdf = gdf.set_crs(4326) if gdf.crs is None else gdf.to_crs(4326)
@@ -488,10 +471,6 @@ def _process_geo(data: bytes, suffix: str, token: str) -> tuple[str, dict]:
     parts, shades = parts[keep], shades[keep]
 
     before = _vertices(parts)
-    if kind == "polygons":
-        parts = _simplify_polygons(parts)
-    elif kind == "lines":
-        parts = shapely.simplify(parts, SIMPLIFY_TOL_DEG, preserve_topology=True)
     keep = ~shapely.is_empty(parts)
     parts, shades = parts[keep], shades[keep]
     rows, shades = shades[:, 1], shades[:, 0]

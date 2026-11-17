@@ -23,7 +23,7 @@ from src.api.deps import get_ctx
 from src.api.routers.clues import _cc  # noqa: PLC2701
 from src.api.routers.stain import _outline  # noqa: PLC2701
 from src.geo.csv_areas import _lab, level_columns  # noqa: PLC2701
-from src.geo.simplify import _polygonal, simplify_coverage, tolerance  # noqa: PLC2701
+from src.geo.simplify import _polygonal  # noqa: PLC2701
 
 router = APIRouter()
 
@@ -194,10 +194,7 @@ def _units(local, cc: str, level: int) -> list[tuple[str, object]]:
             if g is not None:
                 names.append(str(label).strip(" ·") or "—")
                 geoms.append(g)
-        out = []
-        if geoms:
-            bounds = shapely.total_bounds(np.array(geoms, dtype=object))
-            out = list(zip(names, simplify_coverage(geoms, tolerance(bounds)), strict=True))
+        out = list(zip(names, geoms, strict=True))
     _UNITS[key] = out
     return out
 

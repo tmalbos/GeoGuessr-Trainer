@@ -23,8 +23,6 @@ import shapely
 from PIL import Image, ImageOps
 from shapely import STRtree
 
-from src.geo.simplify import simplify_coverage, tolerance
-
 LEVEL_COLUMNS = ("state", "subregion", "city")
 IMAGE_EXT = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".avif", ".tif", ".tiff"}
 EXTRA_MAX_PX = 640
@@ -245,7 +243,4 @@ def build_areas(rows: list[list[str]], layer, base_dir: Path | None = None):
     if not geoms:
         msg = "No areas could be built from that CSV"
         raise AreasError(msg)
-    geoms = list(
-        simplify_coverage(geoms, tolerance(shapely.total_bounds(np.array(geoms, dtype=object))))
-    )
     return names, assign_colors(geoms), keep_extra, geoms
