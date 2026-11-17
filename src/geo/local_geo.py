@@ -5,16 +5,18 @@ Layout under data/geo/ (built with scripts/convert_geo.py):
     urban.parquet                   geometry
   and, once per resolution ({res} = full / high / medium / low / minimal), under data/geo/{res}/:
     countries.parquet               code, name, geometry = the country OUTLINE (only countries with admin data)
-    admin/{CC}.parquet              state, [subregion], city, country_km2, geometry (lazy-loaded)
+    admin/{CC}.parquet              admin1..N (raw levels), country_km2, geometry (lazy-loaded)
     borders/{CC}.parquet            one row: the first-level borders as lines (geometry may be empty)
 Everything is already simplified at that resolution: nothing here dissolves or simplifies at runtime.
 """
 
+import re
 import threading
 from pathlib import Path
 
 import geopandas as gpd
 import numpy as np
+import pandas as pd
 from shapely.geometry import Point, box
 
 RESOLUTIONS = ("full", "high", "medium", "low", "minimal")
@@ -51,6 +53,27 @@ def _hit_idx(gdf, point, tol: float) -> int | None:
 
 def _s(value) -> str | None:
     return value if isinstance(value, str) and value else None
+
+
+def _with_names(gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
+    """Add state / subregion / city (in memory only) from the stored admin1..N levels.
+
+    state = admin1. city = the finest level, filled from coarser ones where empty.
+    subregion = admin2, only for countries whose finest level is 3 or deeper.
+    """
+    levels = sorted(
+        (c for c in gdf.columns if re.fullmatch(r"admin\d+", c)), key=lambda c: int(c[5:])
+    )
+    if not levels and "state" in gdf.columns:  # a layer not rebuilt yet
+        return gdf
+    city = pd.Series([None] * len(gdf), index=gdf.index, dtype=object)
+    for c in reversed(levels):
+        city = city.fillna(gdf[c])
+    gdf["state"] = gdf["admin1"] if "admin1" in gdf.columns else None
+    gdf["city"] = city
+    if levels and int(levels[-1][5:]) >= 3 and "admin2" in gdf.columns:
+        gdf["subregion"] = gdf["admin2"]
+    return gdf
 
 
 def area_types(lats, lons, urban_gdf) -> list[str]:
@@ -117,7 +140,7 @@ class LocalGeo:
             if code not in self._admin:
                 path = self.dir / "admin" / f"{code}.parquet"
                 if path.exists():
-                    gdf = gpd.read_parquet(path)
+                    gdf = _with_names(gpd.read_parquet(path))
                     _ = gdf.sindex
                     self._admin[code] = gdf
                 else:

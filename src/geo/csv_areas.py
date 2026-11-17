@@ -34,6 +34,31 @@ MIN_DISTANCE = 40.0  # Lab distance a color should keep from its neighbours' col
 ABS_PATH = re.compile(r'^"?([a-zA-Z]:[\\/]|/|\\\\)')
 
 
+def level_columns(layer) -> list[str]:
+    """The admin level columns of a layer, coarsest first, only the ones that really are a level.
+
+    Files built by scripts/convert_geo.py carry admin1..adminN (one per level, no fallback fill).
+    Older files only have state / subregion / city, where city repeats a coarser level when the
+    country has fewer levels: a column that is empty or identical to the previous one is not a level.
+    """
+    if layer is None:
+        return []
+    cols = sorted(
+        (c for c in layer.columns if re.fullmatch(r"admin\d+", c)), key=lambda c: int(c[5:])
+    )
+    if not cols:
+        cols = [c for c in LEVEL_COLUMNS if c in layer.columns]
+    out: list[str] = []
+    prev = None
+    for c in cols:
+        vals = layer[c].fillna("").astype(str).str.strip()
+        if not vals.ne("").any() or (prev is not None and vals.equals(prev)):
+            continue
+        out.append(c)
+        prev = vals
+    return out
+
+
 class AreasError(Exception):
     """A problem in the CSV the user can fix (shown as a 422)."""
 
@@ -157,7 +182,7 @@ def read_rows(data: bytes) -> list[list[str]]:
 
 def build_areas(rows: list[list[str]], layer, base_dir: Path | None = None):
     """-> (names, colors, extras, geometries): one entry per group, geometries in lon/lat."""
-    cols = [c for c in LEVEL_COLUMNS if layer is not None and c in layer.columns]
+    cols = level_columns(layer)
     if not cols:
         msg = "This country has no subdivisions in the local data."
         raise AreasError(msg)

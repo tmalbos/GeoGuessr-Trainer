@@ -22,7 +22,7 @@ from starlette.concurrency import run_in_threadpool
 from src.api.deps import get_ctx
 from src.api.routers.clues import _cc  # noqa: PLC2701
 from src.api.routers.stain import _outline  # noqa: PLC2701
-from src.geo.csv_areas import LEVEL_COLUMNS, _lab  # noqa: PLC2701
+from src.geo.csv_areas import _lab, level_columns  # noqa: PLC2701
 from src.geo.simplify import _polygonal, simplify_coverage, tolerance  # noqa: PLC2701
 
 router = APIRouter()
@@ -167,7 +167,7 @@ def _local(request: Request):
 
 def _layer(local, cc: str):
     layer = local._admin_layer(cc)  # noqa: SLF001
-    cols = [c for c in LEVEL_COLUMNS if layer is not None and c in layer.columns]
+    cols = level_columns(layer)
     return layer, cols
 
 
