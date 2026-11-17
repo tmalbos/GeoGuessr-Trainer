@@ -15,6 +15,8 @@ export default function AnkiExport({ cc, clue }) {
   const toast = useToast();
   const [open, setOpen] = useState(false);
   const [invert, setInvert] = useState(false);
+  const [highlight, setHighlight] = useState(false);
+  const reg = clue.scope === "reg";
   const [card, setCard] = useState(null);
   const [q, setQ] = useState("");
   const [a, setA] = useState("");
@@ -45,7 +47,7 @@ export default function AnkiExport({ cc, clue }) {
   const send = async () => {
     setBusy(true); setErr("");
     try {
-      await api("/anki/export", { method: "POST", body: { cc, clue_id: clue.id, invert, deck, question: q, answer: invert ? a : undefined } });
+      await api("/anki/export", { method: "POST", body: { cc, clue_id: clue.id, invert, highlight, deck, question: q, answer: invert || reg ? a : undefined } });
       toast.push("Added to Anki", { kind: "ok" });
       setOpen(false);
     } catch (e) { setErr(errorText(e)); } finally { setBusy(false); }
@@ -60,12 +62,15 @@ export default function AnkiExport({ cc, clue }) {
         <select id="anki-deck" value={deck} disabled={!decks} onChange={(e) => setDeck(e.target.value)}>
           {(decks ?? []).map((d) => <option key={d} value={d}>{d}</option>)}
         </select>
-        <label className="anki-inv"><input type="checkbox" checked={invert} onChange={(e) => setInvert(e.target.checked)} /> Invert</label>
+        {reg
+          ? <label className="anki-inv"><input type="checkbox" checked={highlight} onChange={(e) => setHighlight(e.target.checked)} /> Highlight</label>
+          : <label className="anki-inv"><input type="checkbox" checked={invert} onChange={(e) => setInvert(e.target.checked)} /> Invert</label>}
         {card && <div className="anki-prev">
           <input value={q} aria-label="Question" onChange={(e) => setQ(e.target.value)} />
           {card.image && <img src={fileUrl(card.cc, card.image)} alt="" />}
+          {card.svg && <img src={`data:image/svg+xml;charset=utf-8,${encodeURIComponent(card.svg)}`} alt="" />}
           <hr />
-          {invert
+          {invert || reg
             ? <textarea value={a} aria-label="Answer" rows={4} onChange={(e) => setA(e.target.value)} />
             : <p><RichText text={card.answer} /></p>}
         </div>}

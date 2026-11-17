@@ -708,10 +708,12 @@ def build_layers(args, admin, group_mode, group_geoms, overlays, proj, country_d
     ]
 
 
-def assemble_svg(layers, width, country: str) -> str:
+def assemble_svg(layers, width, country: str, proj) -> str:
     w, h = round(width, PRECISION), round(HEIGHT, PRECISION)
     return (
-        f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {w} {h}" width="{w}" height="{h}">'
+        f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {w} {h}" width="{w}" height="{h}" '
+        f'data-lon0="{proj.lon0!r}" data-cos-lat0="{proj.cos_lat0!r}" data-scale="{proj.scale!r}" '
+        f'data-off-x="{proj.off_x!r}" data-off-y="{proj.off_y!r}">'
         f'<rect id="Background" width="{w}" height="{h}" fill="{COUNTRIES_COLORS[country]["water_color"]}"/>'
         + "".join(layers)
         + "</svg>"
@@ -750,7 +752,7 @@ def main() -> None:
 
     out_path = args.output or f"{args.country.replace(' ', '_')}.svg"
     pathlib.Path(out_path).write_text(
-        assemble_svg(layers, proj.width, args.country), encoding="utf-8"
+        assemble_svg(layers, proj.width, args.country, proj), encoding="utf-8"
     )
 
     print(f"\n✔ Completado en {time.perf_counter() - t0:.2f}s\n", file=sys.stderr)
