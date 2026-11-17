@@ -33,7 +33,7 @@ export default function ClueMap({ cc, clue, align, onArea, selected }) {
   const [err, setErr] = useState("");
   const kinds = GEO_KINDS.filter((k) => clue[k]);
   const hasGeo = kinds.length > 0;
-  const overlay = hasGeo && !clue.areas ? clue.overlay : null;
+  const overlay = hasGeo && !clue.areas && !clue.view ? clue.overlay : null;
 
   useEffect(() => {
     let off = false;

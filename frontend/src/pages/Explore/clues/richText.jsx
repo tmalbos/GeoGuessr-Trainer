@@ -4,13 +4,17 @@ const TOKEN = /\*\*(.+?)\*\*|__(.+?)__|\*(.+?)\*|\[([^\]]+)\]\((https?:\/\/[^\s)
 const link = (key, href, children) =>
   <a key={key} href={href} target="_blank" rel="noopener noreferrer">{children}</a>;
 
+// A line starting with "* " is a list item: the star is shown as a bullet.
+const LIST_TOKEN = new RegExp("^[ \\t]*\\*[ \\t]+|" + TOKEN.source, "gm");
+
 function render(text) {
   const out = [];
   let last = 0, i = 0;
-  for (const m of text.matchAll(TOKEN)) {
+  for (const m of text.matchAll(LIST_TOKEN)) {
     if (m.index > last) out.push(text.slice(last, m.index));
     const key = i++;
-    if (m[1] != null) out.push(<b key={key}>{render(m[1])}</b>);
+    if (/\s$/.test(m[0])) out.push(m[0].replace("*", "•"));
+    else if (m[1] != null) out.push(<b key={key}>{render(m[1])}</b>);
     else if (m[2] != null) out.push(<u key={key}>{render(m[2])}</u>);
     else if (m[3] != null) out.push(<i key={key}>{render(m[3])}</i>);
     else if (m[4] != null) out.push(link(key, m[5], render(m[4])));

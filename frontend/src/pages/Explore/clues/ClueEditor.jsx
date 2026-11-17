@@ -368,7 +368,7 @@ export default function ClueEditor({ cc, name, clue, prefill, onClose, onSaved, 
         scope, info, tags: [location, general], deck, blur: isImage && blur,
       max_height: isImage ? maxH : null,
       show_names: isImage || showNames,
-      view: drawing ? view : null,
+      view: drawing || showArea ? view : null,
       frequency: num(rating.frequency), ease: num(rating.ease), reliability: num(rating.reliability),
       source: source.trim(),
       relations,
@@ -464,7 +464,7 @@ export default function ClueEditor({ cc, name, clue, prefill, onClose, onSaved, 
           </div>}
           {/* A photo can't say which region it is: the region is mandatory in that case. It is drawn on the photo above. */}
           {showArea && <AreaPicker cc={cc} value={area.upload} current={areaCurrent} onChange={takeArea} stage={stageInput}
-            initialPicture={prefill?.areaFile} overlayEl={ovEl} clue={clue} loading={!!prefill?.pending} />}
+            initialPicture={prefill?.areaFile} overlayEl={ovEl} clue={clue} loading={!!prefill?.pending} view={view} onView={setView} />}
           <div className="ed-rels">
             {relations.map((r) => {
               const o = snippetOf(r);

@@ -91,7 +91,7 @@ const shadesOf = (parts, off) => {
  *  carries `stats.spread_km` from the server (average distance between the points of each polygon, shades ignored),
  *  which the editor uses to rate the frequency.
  *  `clue` = the clue being edited (its stored region is drawn when nothing new was picked). */
-export default function AreaPicker({ cc, value, current, onChange, stage, initialPicture, overlayEl, clue, loading }) {
+export default function AreaPicker({ cc, value, current, onChange, stage, initialPicture, overlayEl, clue, loading, view, onView }) {
   const [pic, setPic] = useState(null);     // { url, token? } — the picture shown right away
   const [up, setUp] = useState(null);       // { token, map, ... } — the picture once the stain tool has it
   const [crop, setCrop] = useState(null);   // [x0, y0, x1, y1] as fractions of the picture, drawn by hand
@@ -271,9 +271,9 @@ export default function AreaPicker({ cc, value, current, onChange, stage, initia
   } else if (value) {
     if (value.kind === "svg") overlayNode = <img src={stagedUrl(value.token, "svg")} alt="" />;
     else if (value.kind === "csv") overlayNode = <ClueMap cc={cc} clue={{ id: value.token, csv_rows: value.rows }} align="right" />;
-    else if (value.geojson) overlayNode = <RegionPreview cc={cc} layers={[value.geojson]} align="right" />;
+    else if (value.geojson) overlayNode = <RegionPreview cc={cc} layers={[value.geojson]} align="right" zoom={view} />;
   } else if (current && clue) {
-    overlayNode = clue.svg ? <img src={fileUrl(cc, clue.svg, clue.rev)} alt="" /> : <ClueMap cc={cc} clue={clue} align="right" />;
+    overlayNode = clue.svg ? <img src={fileUrl(cc, clue.svg, clue.rev)} alt="" /> : <ClueMap cc={cc} clue={{ ...clue, view }} align="right" />;
   }
 
   // The little note in the Region box (the map itself is on the photo).
@@ -349,14 +349,14 @@ export default function AreaPicker({ cc, value, current, onChange, stage, initia
 
   const toggle = <div className="ed-mode" role="group" aria-label="Region source" style={{ marginLeft: count ? 8 : "auto" }}>
     {[["import", "Import"], ["draw", "Draw"]].map(([k, l]) =>
-      <button key={k} type="button" aria-pressed={mode === k} className={mode === k ? "on" : ""} onClick={() => setMode(k)}>{l}</button>)}
+      <button key={k} type="button" aria-pressed={mode === k} className={mode === k ? "on" : ""} onClick={() => { setMode(k); if (k !== "draw") onView?.(null); }}>{l}</button>)}
   </div>;
 
   return <div className="ar">
     {mode === "draw"
       ? <div className="fp">
           <div className="fp-head"><b>Region</b>{toggle}</div>
-          <ShadeDraw cc={cc} stage={stage} onResult={onChange} />
+          <ShadeDraw cc={cc} stage={stage} onResult={onChange} storedView={view} onView={onView} />
         </div>
       : <FilePicker kind="geometry" label="Region" hint={HINT} accept={ACCEPT} value={value} current={current}
           onChange={onChange} stage={stageArea} onImage={takePicture} cc={cc} preview={note} inside={inside}

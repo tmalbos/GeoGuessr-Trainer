@@ -5,6 +5,9 @@ import { discardStaged, loadImage, stagedUrl } from "./imageTools.js";
 import { AreaName, NAME_PX, areaNameSpot } from "./RegionPreview.jsx";
 import ClueImage from "./ClueImage.jsx";
 import { createPortal } from "react-dom";
+import { streetViewAvailable } from "../../../lib/mapProviders.js";
+import { stageFile } from "./imageTools.js";
+import { resolveStreetView, streetViewShot } from "./mediaKinds.js";
 import "./draw.css";
 
 const W = 1000;
@@ -66,10 +69,21 @@ function CategoryImage({ name, value, look, onChange, onLook }) {
   valueRef.current = value;
   const [initial] = useState(value ?? null);
   const [gone, setGone] = useState(false);
+  const [incoming, setIncoming] = useState(null);
+  const [err, setErr] = useState("");
   const blur = !!look?.blur; // blur + height cap live in DrawMap, so they are saved with the area's image
   const maxH = look?.maxH ?? null;
   const setBlur = (b) => onLook(name, { blur: b });
   const setMaxH = (h) => onLook(name, { maxH: h });
+  const takeText = async (text) => {
+    setErr("");
+    try {
+      const link = await resolveStreetView(text);
+      if (!link) throw new Error("That isn't an image or a Google Maps link.");
+      if (!streetViewAvailable()) throw new Error("Street View isn't available with the current map source. Pick one in Settings.");
+      setIncoming(await stageFile(await streetViewShot(link)));
+    } catch (e) { setErr(e.message); }
+  };
   const onState = (has, sig) => {
     const n = ++seq.current;
     if (!has) { if (valueRef.current) onChange(name, null); return; }
@@ -79,7 +93,8 @@ function CategoryImage({ name, value, look, onChange, onLook }) {
   };
   return <div className="dm-cat" ref={col}>
     <ClueImage ref={ed} current={gone ? null : initial} colRef={col} onState={onState} blur={blur} onBlur={setBlur} maxH={maxH} onMaxH={setMaxH}
-      onRemove={() => { setGone(true); onChange(name, null); }} />
+      incoming={incoming} onOtherText={takeText} onRemove={() => { setGone(true); onChange(name, null); }} />
+    {err && <p className="err">{err}</p>}
   </div>;
 }
 

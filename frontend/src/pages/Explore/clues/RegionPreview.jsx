@@ -273,7 +273,7 @@ export default function RegionPreview({ cc, layers, stains, onStain, onArea, sel
   const H = Math.round(Math.min(1400, Math.max(200, W * ratio)));
   // A tall country is narrower than the viewBox: fitProjection would centre it, so right-align it there
   // (and preserveAspectRatio below does the same when the box itself is wider than the drawing).
-  const project = fitProjection(bb, W, H, 6, align === "right");
+  const project = fitProjection(bb, W, H, 6, align === "right" && !zoom);
   const land = outline ? shapes(outline, project).polys : "";
   const borders = base?.borders ? shapes(base.borders, project).lines : "";
 

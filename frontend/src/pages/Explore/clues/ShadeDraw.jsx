@@ -48,7 +48,7 @@ const alpha = (shade) => 0.85 * shadeFactor(shade);
  *  Shift + wheel changes the shade. Nothing is named and nothing is clickable on the card, so there is no renaming or images.
  *  The drawing is built by the same endpoint as DrawMap, turned into a GeoJSON with a `shade` per feature, staged through
  *  `stage` and handed to `onResult` (null when nothing is drawn). */
-export default function ShadeDraw({ cc, stage, onResult }) {
+export default function ShadeDraw({ cc, stage, onResult, storedView, onView }) {
   const [base, setBase] = useState(null);
   const [err, setErr] = useState("");
   const [level, setLevel] = useState(0);
@@ -63,6 +63,8 @@ export default function ShadeDraw({ cc, stage, onResult }) {
   const [color, setColor] = useState(DEFAULT_COLOR);
   const [view, setView] = useState({ x: 0, y: 0, w: W });
   const [busy, setBusy] = useState(false);
+  const [locked, setLocked] = useState(storedView ?? null);
+  const viewApplied = useRef(false);
   const svg = useRef(null);
   const drag = useRef(null);
   const had = useRef(false);
@@ -153,6 +155,29 @@ export default function ShadeDraw({ cc, stage, onResult }) {
     return () => el.removeEventListener("wheel", onWheel);
   }, [proj]);
 
+  // A saved clue opens framed the way it was locked.
+  useEffect(() => {
+    if (!proj || !locked || viewApplied.current) return;
+    viewApplied.current = true;
+    const w = W / locked.k;
+    setView(clampView({ w, x: locked.fx * W - w / 2, y: locked.fy * proj.H - (w * proj.H) / W / 2 }, proj.H));
+  }, [proj]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Lock = keep the zoom and position on screen right now: the card then opens on that framing.
+  const toggleLock = () => {
+    if (locked) { setLocked(null); onView?.(null); return; }
+    const next = {
+      k: Math.round((W / view.w) * 1000) / 1000,
+      fx: Math.round(((view.x + view.w / 2) / W) * 10000) / 10000,
+      fy: Math.round(((view.y + (view.w * proj.H) / W / 2) / proj.H) * 10000) / 10000,
+    };
+    setLocked(next);
+    onView?.(next);
+  };
+  const lockBox = locked && proj
+    ? clampView({ w: W / locked.k, x: locked.fx * W - W / locked.k / 2, y: locked.fy * proj.H - proj.H / locked.k / 2 }, proj.H)
+    : null;
+
   const painting = tool !== "fill";
 
   const toSvg = (e) => {
@@ -231,6 +256,8 @@ export default function ShadeDraw({ cc, stage, onResult }) {
             onClick={tool === "fill" ? () => setItems((it) => [...it, { op: "fill", level, id: u.id, slot: sel }]) : undefined}><title>{u.name}</title></path>)}
           {shownPaths.map((p) => <path key={p.key} className="dm-res" d={p.d} fillRule="evenodd"
             style={{ fill: color, fillOpacity: alpha(p.shade), pointerEvents: "none" }} />)}
+          {lockBox && <rect x={lockBox.x} y={lockBox.y} width={lockBox.w} height={(lockBox.w * proj.H) / W} fill="none" stroke="#ffd04d"
+            strokeWidth="2" strokeDasharray="8 5" vectorEffect="non-scaling-stroke" style={{ pointerEvents: "none" }} />}
           {live && <path d={pathOf(live)} fill="none" strokeLinecap="round" strokeLinejoin="round" strokeWidth={unit}
             stroke={tool === "erase" ? "#ff7357" : "#ffffff"} strokeOpacity=".5" style={{ pointerEvents: "none" }} />}
         </svg>
@@ -243,6 +270,9 @@ export default function ShadeDraw({ cc, stage, onResult }) {
       <i className="ed-sep" />
       <button type="button" className="ed-tool" aria-label="Undo" title="Undo" disabled={!items.length} onClick={() => setItems((it) => it.slice(0, -1))}>↶</button>
       <button type="button" className="ed-tool" aria-label="Clear" title="Clear all" disabled={!items.length} onClick={() => setItems([])}>×</button>
+      <button type="button" className="ed-tool" aria-pressed={!!locked} aria-label={locked ? "Unlock view" : "Lock view"} disabled={!proj}
+        title={locked ? "Unlock view (the card shows the whole map)" : "Lock view: the card opens on the zoom and position on screen now"} onClick={toggleLock}>
+        <svg {...ico}><rect x="5" y="11" width="14" height="9" rx="2" /><path d={locked ? "M8 11V8a4 4 0 0 1 8 0v3" : "M8 11V8a4 4 0 0 1 7.5-2"} /></svg></button>
       <span className={`dm-status ${err && proj ? "err" : "muted"}`}>{proj && err ? err : busy ? "Saving…" : ""}</span>
     </div>
     {proj && <div className="dm-cats">
