@@ -68,6 +68,7 @@ LEGACY_TAGS = {"Topography": "Landscape"}  # tags of packs made before the renam
 KEEP = (
     "id", "scope", "info", "tags", "frequency", "ease", "reliability", "blur", "view",
     "max_height", "source", "relations", "relation_notes", "deck", "show_names",
+    "prefix_colors",
 )  # fmt: skip
 
 

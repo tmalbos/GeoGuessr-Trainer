@@ -625,6 +625,9 @@ class ClueBody(BaseModel):
     view: ViewIn | None = (
         None  # drawn regional clue: zoom / pan the card opens on (None = the whole country)
     )
+    prefix_colors: bool = (
+        False  # drawn regional clue: colour the areas by the start of their names (area codes...)
+    )
     source: str = ""  # link to where the information came from (optional)
     relations: list[
         RelationIn
@@ -927,7 +930,10 @@ def list_clues(cc: str):
     cc = _cc(cc)
     items = _load(cc)
     color = str(prefs.load().get("stain_color") or "#c8283a")
+    depths = prefs.load().get("clue_depths") or {}
     for c in items:
+        if f"{cc}/{c.get('id')}" in depths:
+            c["depth"] = depths[f"{cc}/{c.get('id')}"]
         if c.get("csv"):
             p = CLUES_DIR / cc / c["csv"]
             if p.is_file():
@@ -1028,6 +1034,7 @@ def add_clue(cc: str, body: ClueBody, request: Request):
                 "deck": deck,
                 "show_names": None if body.show_names else False,
                 "view": body.view.model_dump() if body.view and body.scope == "reg" else None,
+                "prefix_colors": True if body.prefix_colors and body.scope == "reg" else None,
                 **names,
             }
             entry = {k: v for k, v in entry.items() if v is not None}
@@ -1072,6 +1079,21 @@ def reorder_clues(cc: str, body: OrderBody):
         placed = {c.get("id") for c in ordered}
         ordered += [c for c in items if c.get("id") not in placed]
         _save(cc, ordered)
+    return {"ok": True}
+
+
+class DepthBody(BaseModel):
+    depth: int = Field(ge=1, le=20)
+
+
+@router.put("/clues/{cc}/{clue_id}/depth")
+def set_clue_depth(cc: str, clue_id: str, body: DepthBody):
+    """Remember how many characters of the names the user chose to see on a prefix-coloured clue."""
+    cc = _cc(cc)
+    with _LOCK:
+        depths = dict(prefs.load().get("clue_depths") or {})
+        depths[f"{cc}/{clue_id}"] = body.depth
+        prefs.update(clue_depths=depths)
     return {"ok": True}
 
 
@@ -1217,6 +1239,7 @@ def update_clue(cc: str, clue_id: str, body: ClueBody, request: Request):
                 "deck": deck_store.use(body.deck) if body.deck.strip() else old.get("deck"),
                 "show_names": None if body.show_names else False,
                 "view": body.view.model_dump() if body.view and body.scope == "reg" else None,
+                "prefix_colors": True if body.prefix_colors and body.scope == "reg" else None,
                 **kept,
                 **names,
             }
@@ -1292,6 +1315,9 @@ def delete_clue(cc: str, clue_id: str):
         for code, its in books.items():
             _save(code, its)
         _set_has(cc, remaining)
+        depths = dict(prefs.load().get("clue_depths") or {})
+        if depths.pop(f"{cc}/{clue_id}", None) is not None:
+            prefs.update(clue_depths=depths)
         for kind in (*KINDS, "overlay"):
             if gone.get(kind) and ASSET_RE.fullmatch(gone[kind]):
                 (CLUES_DIR / cc / gone[kind]).unlink(missing_ok=True)

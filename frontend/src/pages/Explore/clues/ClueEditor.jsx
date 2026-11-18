@@ -109,6 +109,7 @@ export default function ClueEditor({ cc, name, clue, prefill, onClose, onSaved, 
   const [blur, setBlur] = useState(!!clue?.blur);
   const [maxH, setMaxH] = useState(clue?.max_height ?? null); // px cap for the image on the card
   const [showNames, setShowNames] = useState(clue?.show_names !== false); // drawn areas: print their names on the map (on by default)
+  const [prefixColors, setPrefixColors] = useState(!!clue?.prefix_colors); // drawn areas: colour by the start of the names (area codes...)
   const [view, setView] = useState(clue?.view ?? null); // drawn areas: the zoom / pan the card opens on (null = the whole country)
   const [img, setImg] = useState({ has: !!clue?.image, sig: ":0" }); // reported by ClueImage
   // The media slot: an image (handled by ClueImage), or an SVG / CSV / geometry staged here.
@@ -176,7 +177,7 @@ export default function ClueEditor({ cc, name, clue, prefill, onClose, onSaved, 
   };
 
   // Only ratings set by hand count as "changes": the automatic ones alone shouldn't make a fresh form look dirty.
-  const snapshot = () => JSON.stringify([scope, info, general, location, RATINGS.map(([k]) => (manual[k] ? rating[k] : null)), blur, maxH, showNames,
+  const snapshot = () => JSON.stringify([scope, info, general, location, RATINGS.map(([k]) => (manual[k] ? rating[k] : null)), blur, maxH, showNames, prefixColors,
     view, img.sig, source, relations, notes, mainKind, media.upload?.token ?? "", area.kind, area.upload?.token ?? ""]);
   const initial = useRef(snapshot());
   const dirty = snapshot() !== initial.current;
@@ -371,6 +372,7 @@ export default function ClueEditor({ cc, name, clue, prefill, onClose, onSaved, 
         scope, info, tags: [location, general], deck, blur: isImage && blur,
       max_height: isImage ? maxH : null,
       show_names: isImage || showNames,
+      prefix_colors: namedAreas && prefixColors,
       view: drawing || showArea ? view : null,
       frequency: num(rating.frequency), ease: num(rating.ease), reliability: num(rating.reliability),
       source: source.trim(),
@@ -465,6 +467,8 @@ export default function ClueEditor({ cc, name, clue, prefill, onClose, onSaved, 
               Show category names on the map</label>
             <span ref={setChkEl} />
           </div>}
+          {namedAreas && <label className="chk-row"><input type="checkbox" checked={prefixColors} onChange={(e) => setPrefixColors(e.target.checked)} />
+            Color by the start of the names (area codes: 8X, 9X…)</label>}
           {/* A photo can't say which region it is: the region is mandatory in that case. It is drawn on the photo above. */}
           {showArea && <AreaPicker cc={cc} value={area.upload} current={areaCurrent} onChange={takeArea} stage={stageInput}
             initialPicture={prefill?.areaFile} overlayEl={ovEl} clue={clue} loading={!!prefill?.pending} view={view} onView={setView} />}
