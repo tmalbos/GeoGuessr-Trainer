@@ -3,7 +3,7 @@
 .cl-area.click { cursor: pointer; }
 .cl-area.sel { stroke: var(--sea-hi); stroke-width: 2px; fill-opacity: 1; }
 /* Invisible, wider click target laid over small areas (see RegionPreview) */
-.cl-area.cl-area-hit { fill: transparent; stroke: transparent; stroke-width: 18px; cursor: pointer; }
+.cl-area.cl-area-hit { fill: transparent; stroke: transparent; stroke-width: 12px; cursor: pointer; }
 /* Zoom buttons over a zoomable clue map (see ZoomableRegion) */
 .cl-zoomwrap { position: relative; }
 .cl-zoom { position: absolute; right: 8px; bottom: 8px; display: grid; gap: 6px; }
