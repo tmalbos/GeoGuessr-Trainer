@@ -55,9 +55,9 @@ def recolour(svg: str, fill: str) -> str:
 
 SHADE_FACTORS = (
     1.0,
-    0.7,
-    0.5,
-    0.35,
+    0.6,
+    0.3,
+    0.1,
 )  # fixed per shade; keep equal to SHADE_FACTORS in frontend geoDraw.js
 
 

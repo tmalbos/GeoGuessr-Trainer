@@ -4,7 +4,7 @@ const f = (n) => n.toFixed(1);
 /** How strong a shade is drawn: fixed per shade (0 = the main tone ... 3 = the lightest), never relative to the other
  *  shades a clue has. Shade = how rare that part of a region is: higher = rarer = lighter. Multiply by the base opacity.
  *  Keep equal to SHADE_FACTORS in src/geo/clue_overlay.py. */
-const SHADE_FACTORS = [1, 0.7, 0.5, 0.35];
+const SHADE_FACTORS = [1, 0.6, 0.3, 0.1];
 export const shadeFactor = (shade) => SHADE_FACTORS[Math.max(0, Math.min(SHADE_FACTORS.length - 1, Math.round(shade) || 0))];
 
 function walk(g, fn) {
