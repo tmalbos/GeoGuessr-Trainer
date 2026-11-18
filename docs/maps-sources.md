@@ -21,4 +21,5 @@
 **Bosnia and Herzegovina**: OSM extract for ADM0 through ADM3 (13-11-2026)
 **Bulgaria**: OSM extract for ADM0 through ADM2 (17-11-2026)
 **Burkina Faso**: https://www.geoboundaries.org/countryDownloads.html for ADM0 through ADM3 (17-11-2026)
+**Burundi**: OSM extract for ADM0 and ADM1 (17-11-2026). Missing real ADM1 through ADM3
 **United Arab Emirates**: https://data.humdata.org/dataset/cod-em-are for ADM0 and ADM1 (06-11-2026). Missing ADM2 and ADM3
