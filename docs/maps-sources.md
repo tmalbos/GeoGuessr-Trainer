@@ -21,6 +21,7 @@
 **Benin**: OSM extract for ADM0 through ADM2 (17-11-2026). Missing ADM3
 **Bermuda**: OSM extract for ADM0 and ADM1 (28-10-2026)
 **Bosnia and Herzegovina**: OSM extract for ADM0 through ADM3 (13-11-2026)
+**Brunei**: OSM extract for ADM0 and ADM1 (12-10-2026). Missing ADM2 and ADM3
 **Bulgaria**: OSM extract for ADM0 through ADM2 (17-11-2026)
 **Burkina Faso**: https://www.geoboundaries.org/countryDownloads.html for ADM0 through ADM3 (17-11-2026)
 **Burundi**: OSM extract for ADM0 and ADM1 (17-11-2026). Missing real ADM1 through ADM3
