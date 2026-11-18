@@ -245,7 +245,8 @@ def _stroke(points: list[list[float]], width: float):
     return shapely.transform(g, lambda c: c / np.array([k, 1.0]))
 
 
-def _build(local, cc: str, items: list[Item], colored: bool = True) -> dict:
+def _paint(local, cc: str, items: list[Item]) -> tuple[dict, dict, dict, dict]:
+    """Replays the drawing's items: (shapes, extras, looks, slots), each keyed by category name."""
     outline = _outline(local, cc)
     if outline is None or outline.is_empty:
         raise HTTPException(422, f"No local outline for {cc}.")
@@ -286,6 +287,11 @@ def _build(local, cc: str, items: list[Item], colored: bool = True) -> dict:
             if k != name:
                 shapes[k] = shapely.difference(shapes[k], geom)
         shapes[name] = shapely.union(shapes[name], geom) if name in shapes else geom
+    return shapes, extras, looks, slots
+
+
+def _build(local, cc: str, items: list[Item], colored: bool = True) -> dict:
+    shapes, extras, looks, slots = _paint(local, cc, items)
     names, geoms = [], []
     for n, g in shapes.items():
         g = _polygonal(g)
@@ -313,6 +319,45 @@ def _build(local, cc: str, items: list[Item], colored: bool = True) -> dict:
             for n, c, g in zip(names, colors, geoms, strict=True)
         ],
     }
+
+
+class FillBody(BaseModel):
+    items: list[Item]
+    level: int = 0
+    id: int = 0
+    point: list[float]  # lon, lat of the click
+
+
+def _fill(local, cc: str, body: FillBody) -> dict:
+    """Bucket fill inside one division. Clicked on empty space: the connected empty area around the click.
+    Clicked on a painted area: the connected part of that painted area. Never more than the division.
+    """
+    units = _units(local, cc, body.level)
+    if not 0 <= body.id < len(units) or len(body.point) != 2:
+        raise HTTPException(422, "Nothing to fill there.")
+    unit = units[body.id][1]
+    pt = shapely.Point(body.point)
+    shapes = _paint(local, cc, body.items)[0]
+    hit = next((g for g in shapes.values() if g.covers(pt)), None)
+    if hit is not None:
+        area = shapely.intersection(unit, hit)
+    elif shapes:
+        area = shapely.difference(unit, shapely.union_all(list(shapes.values())))
+    else:
+        area = unit
+    area = _polygonal(area)
+    parts = [] if area is None else [p for p in shapely.get_parts(area) if p.geom_type == "Polygon"]
+    if not parts:
+        raise HTTPException(422, "Nothing to fill there.")
+    part = next((p for p in parts if p.covers(pt)), None)
+    if part is None:
+        part = min(parts, key=lambda p: p.distance(pt))
+    return {"geometry": json.loads(shapely.to_geojson(part))}
+
+
+@router.post("/clues/{cc}/draw/fill")
+async def draw_fill(cc: str, body: FillBody, request: Request):
+    return await run_in_threadpool(_fill, _local(request), _cc(cc), body)
 
 
 @router.post("/clues/{cc}/draw/build")

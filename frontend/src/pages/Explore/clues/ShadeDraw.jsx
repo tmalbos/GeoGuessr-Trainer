@@ -142,8 +142,18 @@ export default function ShadeDraw({ cc, stage, onResult, storedView, onView }) {
   // Shades are drawn opaque (the colour mixed into the land colour), so overlapping strokes look the same as the server result.
   const fillOf = useMemo(() => (s) => `color-mix(in srgb, ${color} ${Math.round(alpha(s) * 100)}%, #f6f4e4)`, [color]);
   const pickRef = useRef(null);
-  pickRef.current = (u) => setItems((it) => [...it, { op: "fill", level, id: u.id, slot: sel, d: u.d }]);
-  const onPick = useMemo(() => (u) => pickRef.current(u), []);
+  // Bucket fill: the server works out the connected empty area (or the clicked colour's area) inside the division under the click.
+  pickRef.current = async (u, e) => {
+    const p = toSvg(e);
+    if (!p) return;
+    const slot = sel;
+    try {
+      const sent = items.map(({ d: _d, w: _w, ...i }) => ({ ...i, name: i.op === "erase" ? "" : `s${i.slot}` }));
+      const r = await api(`/clues/${cc}/draw/fill`, { method: "POST", body: { items: sent, level, id: u.id, point: proj.inv(p) } });
+      setItems((it) => [...it, { op: "shape", slot, geometry: r.geometry }]);
+    } catch (ex) { setErr(errorText(ex)); }
+  };
+  const onPick = useMemo(() => (u, e) => pickRef.current(u, e), []);
 
   // Wheel zooms around the cursor; Shift + wheel cycles the shade.
   useEffect(() => {

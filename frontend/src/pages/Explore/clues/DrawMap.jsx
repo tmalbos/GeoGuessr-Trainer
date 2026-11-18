@@ -342,8 +342,18 @@ export default function DrawMap({ cc, stage, onResult, trailing, optionsEl, show
   cycle.current = { options, sel };
   const dup = used.some((s) => s !== sel && nameOf(s) === nameOf(sel));
   const pickRef = useRef(null);
-  pickRef.current = (u) => setItems((it) => [...it, { op: "fill", level, id: u.id, slot: sel, d: u.d }]);
-  const onPick = useMemo(() => (u) => pickRef.current(u), []);
+  // Bucket fill: the server works out the connected empty area (or the clicked colour's area) inside the division under the click.
+  pickRef.current = async (u, e) => {
+    const p = toSvg(e);
+    if (!p) return;
+    const slot = sel;
+    try {
+      const sent = items.map(({ d: _d, w: _w, ...i }) => ({ ...i, name: i.op === "erase" ? "" : nameOf(i.slot) }));
+      const r = await api(`/clues/${cc}/draw/fill`, { method: "POST", body: { items: sent, level, id: u.id, point: proj.inv(p) } });
+      setItems((it) => [...it, { op: "shape", slot, geometry: r.geometry }]);
+    } catch (ex) { setErr(errorText(ex)); }
+  };
+  const onPick = useMemo(() => (u, e) => pickRef.current(u, e), []);
 
   const toSvg = (e) => {
     const m = svg.current.getScreenCTM();
