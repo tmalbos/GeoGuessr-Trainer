@@ -91,6 +91,7 @@ export default function ShadeDraw({ cc, stage, onResult, storedView, onView }) {
     api(`/clues/${cc}/draw/units?level=${level}`).then((d) => {
       if (off) return;
       setNLevels(d.levels);
+      if (d.levels && level === 0) setLevel(1);
       setUnits(d.units);
     }).catch((e) => !off && setErr(errorText(e)));
     return () => { off = true; };
@@ -252,8 +253,8 @@ export default function ShadeDraw({ cc, stage, onResult, storedView, onView }) {
     <div className="dm">
       {proj ? <>
         <div className="dm-levels" role="group" aria-label="Subdivision level">
-          {["National", ...Array.from({ length: nLevels }, (_, i) => `Adm ${i + 1}`)].map((l, i) =>
-            <button key={l} type="button" className={level === i ? "on" : ""} aria-pressed={level === i} onClick={() => setLevel(i)}>{l}</button>)}
+          {(nLevels ? Array.from({ length: nLevels }, (_, i) => [i + 1, `Adm ${i + 1}`]) : [[0, "National"]]).map(([v, l]) =>
+            <button key={l} type="button" className={level === v ? "on" : ""} aria-pressed={level === v} onClick={() => setLevel(v)}>{l}</button>)}
         </div>
         <svg ref={svg} className="dm-svg" viewBox={`${view.x} ${view.y} ${view.w} ${(view.w * proj.H) / W}`} role="img" aria-label="Map to draw on"
           style={{ cursor: painting ? "crosshair" : undefined }} onContextMenu={(e) => e.preventDefault()}
