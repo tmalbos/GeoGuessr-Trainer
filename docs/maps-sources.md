@@ -14,6 +14,7 @@
 **Australia**: OSM extract for ADM0 and ADM1 (28-10-2026). Missing ADM2
 **Austria**: OSM extract for ADM0 through ADM3 (28-10-2026)
 **Azerbaijan**: https://data.humdata.org/dataset/whosonfirst-data-admin-aze for ADM0 and ADM1 (13-11-2026). Missing ADM2 and ADM3
+**Bahrain**: OSM extract for ADM0 and ADM1 (28-10-2026)
 **Bangladesh**: https://www.geoboundaries.org/countryDownloads.html for ADM0 through ADM4 (15-11-2026)
 **Barbados**: OSM extract for ADM0 and ADM1 (28-10-2026)
 **Belgium**: OSM extract for ADM0 through ADM5 (16-11-2026)
