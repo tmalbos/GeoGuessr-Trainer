@@ -20,6 +20,7 @@
 **Belgium**: OSM extract for ADM0 through ADM5 (16-11-2026)
 **Benin**: OSM extract for ADM0 through ADM2 (17-11-2026). Missing ADM3
 **Bermuda**: OSM extract for ADM0 and ADM1 (28-10-2026)
+**Bolivia**: OSM extract for ADM0 through ADM3 (17-11-2026)
 **Bosnia and Herzegovina**: OSM extract for ADM0 through ADM3 (13-11-2026)
 **Brunei**: OSM extract for ADM0 and ADM1 (12-10-2026). Missing ADM2 and ADM3
 **Bulgaria**: OSM extract for ADM0 through ADM2 (17-11-2026)
