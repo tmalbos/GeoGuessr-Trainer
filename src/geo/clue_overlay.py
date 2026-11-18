@@ -34,6 +34,10 @@ NEAR_UNITS = (
 PIN_D = "M0 0C-3 -9 -15 -18 -15 -30A15 15 0 1 1 15 -30C15 -18 3 -9 0 0Z"
 PIN_HALF_W = 30
 PIN_H = 50
+PIN_W = (
+    30  # pins whose boxes (PIN_W wide, PIN_TALL tall, tip at the bottom) overlap are drawn as one
+)
+PIN_TALL = 45
 
 LAND = 'fill="#f6f4e4" stroke="#8b98a8" stroke-width="1" stroke-linejoin="round"'
 STAIN_FILL = "#c8283a"
@@ -115,6 +119,31 @@ def _alone(geoms: list, small: list[int]) -> list[int]:
     return out
 
 
+def _merge_pins(pins: list) -> list:
+    """Pins that would overlap become one pin in the middle of them (keep equal to mergePins in RegionPreview.jsx)."""
+    out = [[x, y, s, 1] for (x, y), s in pins]
+    merged = True
+    while merged:
+        merged = False
+        for i in range(len(out)):
+            for j in range(i + 1, len(out)):
+                a, b = out[i], out[j]
+                if abs(a[0] - b[0]) < PIN_W and abs(a[1] - b[1]) < PIN_TALL:
+                    n = a[3] + b[3]
+                    out[i] = [
+                        (a[0] * a[3] + b[0] * b[3]) / n,
+                        (a[1] * a[3] + b[1] * b[3]) / n,
+                        min(a[2], b[2]),
+                        n,
+                    ]
+                    del out[j]
+                    merged = True
+                    break
+            if merged:
+                break
+    return [((x, y), s) for x, y, s, _ in out]
+
+
 def _opacity(op: float | None) -> str:
     return "" if op is None else f' fill-opacity="{op:.3f}" stroke-opacity="{op:.3f}"'
 
@@ -187,7 +216,7 @@ def render_overlay(
         small = _alone(pg, small)
         pins: list[tuple[tuple[float, float], int]] = []
         if 0 < len(small) <= MAX_PINS:
-            pins = [(_centre(pg[i]), int(sh[i])) for i in small]
+            pins = _merge_pins([(_centre(pg[i]), int(sh[i])) for i in small])
             gone = set(small)
         else:
             gone = set()

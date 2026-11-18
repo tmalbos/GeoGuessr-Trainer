@@ -357,7 +357,7 @@ export default function DrawMap({ cc, stage, onResult, trailing, optionsEl, show
     }
     const p = toSvg(e);
     const lastPt = d.pts[d.pts.length - 1];
-    if (!p || Math.hypot(p[0] - lastPt[0], p[1] - lastPt[1]) < 2) return;
+    if (!p || Math.hypot(p[0] - lastPt[0], p[1] - lastPt[1]) < (2 * view.w) / W) return;
     d.pts.push(p);
     setLive([...d.pts]);
   };

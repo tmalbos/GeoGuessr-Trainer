@@ -90,6 +90,29 @@ function splitPins(g, total, project) {
   return { rest, pins: small.map((i) => ({ at: centre(g.geometries[i], project), shade: g.shades?.[i] ?? 0 })) };
 }
 
+// Pins that would overlap on screen become one pin in the middle of them (keep equal to _merge_pins in src/geo/clue_overlay.py).
+const PIN_W = 30;
+const PIN_TALL = 45;
+function mergePins(pins, size) {
+  const out = pins.map((p) => ({ ...p, n: 1 }));
+  for (let merged = true; merged;) {
+    merged = false;
+    for (let i = 0; i < out.length && !merged; i++) {
+      for (let j = i + 1; j < out.length && !merged; j++) {
+        const a = out[i];
+        const b = out[j];
+        if (Math.abs(a.at[0] - b.at[0]) < PIN_W * size && Math.abs(a.at[1] - b.at[1]) < PIN_TALL * size) {
+          const n = a.n + b.n;
+          out[i] = { at: [(a.at[0] * a.n + b.at[0] * b.n) / n, (a.at[1] * a.n + b.at[1] * b.n) / n], shade: Math.min(a.shade, b.shade), n };
+          out.splice(j, 1);
+          merged = true;
+        }
+      }
+    }
+  }
+  return out;
+}
+
 // ── Area names ──
 // A name is printed on its area only where it fits: NAME_PX is the text height on screen. It is tried at full size,
 // then split in two lines (names with spaces), then a bit smaller, on any of the area's biggest pieces, and the text
@@ -331,7 +354,7 @@ export default function RegionPreview({ cc, layers, stains, onStain, onArea, sel
           : <path className="cl-poly" d={s.polys} fillRule="evenodd" />}
         <path className="cl-line" d={s.lines} fill="none" />
         {s.pts.map(([x, y], j) => <circle key={j} className="cl-pt" cx={x} cy={y} r="5" />)}
-        {pins.map((p, j) => {
+        {mergePins(pins, 1.5 / zk).map((p, j) => {
           const op = p.shade ? 0.85 * shadeFactor(p.shade) : null;
           return <Pin key={`pin-${j}`} at={p.at} size={1.5 / zk} style={op != null ? { fillOpacity: op, strokeOpacity: op } : undefined} />;
         })}
