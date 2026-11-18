@@ -295,7 +295,7 @@ async def plonkit_start(body: StartBody, request: Request):
         (
             x["index"]
             for x in sections
-            if re.match(r"\s*(?:region|spotlight)\b", x["title"], re.IGNORECASE)
+            if re.match(r"\s*(?:region|regional|spotlight)\b", x["title"], re.IGNORECASE)
         ),
         None,
     )
