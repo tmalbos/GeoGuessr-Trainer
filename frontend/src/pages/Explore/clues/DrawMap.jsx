@@ -7,6 +7,7 @@ import { AreaName, NAME_PX, areaNameSpot } from "./RegionPreview.jsx";
 import ClueImage from "./ClueImage.jsx";
 import PaintedLayer, { Units } from "./PaintedLayer.jsx";
 import { setDrawBusy } from "./drawBusy.js";
+import { nameColors } from "./prefixColors.js";
 import { createPortal } from "react-dom";
 import { streetViewAvailable } from "../../../lib/mapProviders.js";
 import { stageFile } from "./imageTools.js";
@@ -109,7 +110,7 @@ function CategoryImage({ name, value, look, onChange, onLook }) {
  *  (null when nothing is drawn). `trailing` goes at the end of the toolbar row (the Import | Draw switch).
  *  Lock (toolbar): remembers the zoom and position on screen as `{ k, fx, fy }` (see ZoomableRegion) and hands it to `onView`;
  *  the card then opens on that framing instead of the whole country. `storedView` is the framing already locked (null = none). */
-export default function DrawMap({ cc, stage, onResult, trailing, optionsEl, showNames, stored, storedView, onView }) {
+export default function DrawMap({ cc, stage, onResult, trailing, optionsEl, showNames, prefixColors, stored, storedView, onView }) {
   const [base, setBase] = useState(null);
   const [err, setErr] = useState("");
   const [level, setLevel] = useState(0);
@@ -144,7 +145,14 @@ export default function DrawMap({ cc, stage, onResult, trailing, optionsEl, show
   const resultRef = useRef(onResult);
   resultRef.current = onResult;
   const nameOf = (s) => custom[s]?.trim() || `Unnamed ${s + 1}`;
-  const colorOf = (s) => (palette.length ? palette[s % palette.length] : "#8b98a8");
+  // "Color by prefix": the colour of each category follows the start of its name (see prefixColors.js).
+  const slotColors = useMemo(() => {
+    if (!prefixColors || !colored) return null;
+    const slots = [...new Set(items.filter((i) => i.op !== "erase").map((i) => i.slot))];
+    const cols = nameColors(slots.map(nameOf));
+    return cols && new Map(slots.map((s, i) => [s, cols[i]]));
+  }, [prefixColors, colored, items, custom]); // eslint-disable-line react-hooks/exhaustive-deps
+  const colorOf = (s) => slotColors?.get(s) ?? (palette.length ? palette[s % palette.length] : "#8b98a8");
 
   useEffect(() => {
     let off = false;
@@ -235,7 +243,7 @@ export default function DrawMap({ cc, stage, onResult, trailing, optionsEl, show
   const proj = useMemo(() => { const bb = base && bboxOf(base); return bb ? makeProjection(bb) : null; }, [base]);
   const landD = useMemo(() => (proj ? shapes(base, proj.fwd).polys : ""), [proj, base]);
   const unitPaths = useMemo(() => (proj && units ? units.map((u) => ({ id: u.id, name: u.name, d: shapes(u.geometry, proj.fwd).polys })) : []), [proj, units]);
-  const fillOf = useMemo(() => (colored ? (s) => (palette.length ? palette[s % palette.length] : "#8b98a8") : () => PALE), [colored, palette]);
+  const fillOf = useMemo(() => (colored ? colorOf : () => PALE), [colored, palette, slotColors]); // eslint-disable-line react-hooks/exhaustive-deps
   // Names on the drawn areas (the "Show category names" setting): printed where they fit, so zooming in adds more.
   const [svgW, setSvgW] = useState(0);
   useEffect(() => {

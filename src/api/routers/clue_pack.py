@@ -45,6 +45,7 @@ from src.api.routers.clues import (
     _apply_medal,
     _cc,
     _load,
+    _make_levels,
     _next_name,
     _next_num,
     _overlay_name,
@@ -305,6 +306,7 @@ def _import(raw: bytes, request: Request) -> dict:
                                 for k in (*KINDS, "overlay")
                                 if old.get(k) and ASSET_RE.fullmatch(old[k])
                             ]
+                            stale += [folder / n for n in (old.get("levels") or {}).values()]
                         touched.append((cc, entry, before))
 
                 # Relations may only point at clues that exist now, then the other ends are brought in line.
@@ -330,6 +332,10 @@ def _import(raw: bytes, request: Request) -> dict:
                             entry["overlay"] = _overlay_name(entry[geo])
                             _write_overlay(folder, entry["overlay"], svg)
                             written.append(folder / entry["overlay"])
+                    levels = _make_levels(folder, entry)
+                    if levels:
+                        entry["levels"] = levels
+                        written += [folder / n for n in levels.values()]
                     _apply_medal(cc, entry, request, folder)
 
                 for code, its in books.items():

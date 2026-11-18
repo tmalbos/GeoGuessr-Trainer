@@ -62,6 +62,7 @@ from src.api.deps import get_ctx
 from src.api.routers.stain import _borders, _outline  # noqa: PLC2701
 from src.geo.clue_overlay import recolour, render_overlay
 from src.geo.local_geo import CountryAreaMissingError
+from src.geo.prefix_levels import build_levels
 from src.geo.region_stats import region_stats
 from src.geo.subcontinents import SUBCONTINENTS
 from src.shared import decks as deck_store
@@ -99,7 +100,8 @@ MAX_SHADE = 3  # 4 shades in total (0 = main tone); keep equal to SHADES - 1 in 
 URL_RE = re.compile(r"https?://\S+", re.IGNORECASE)
 
 # The overlay of a clue sits next to its geometry file and shares its name: reg_roads_00003.overlay.svg
-ASSET_RE = re.compile(r"(nat|reg)_[a-z]+_\d{5}(\.overlay)?\.(webp|svg|csv|parquet)")
+# So do the per-depth maps of a prefix-coloured clue (see prefix_levels.py): reg_phonenumbers_00003.d1.parquet
+ASSET_RE = re.compile(r"(nat|reg)_[a-z]+_\d{5}(\.(?:overlay|d\d{1,2}))?\.(webp|svg|csv|parquet)")
 TOKEN_RE = re.compile(r"[0-9a-f]{32}")
 
 _LOCK = threading.Lock()
@@ -361,6 +363,20 @@ def _write_overlay(folder: Path, name: str, svg: str) -> None:
     tmp = folder / f"{name}.tmp"
     tmp.write_text(svg, encoding="utf-8")
     tmp.replace(folder / name)
+
+
+def _make_levels(folder: Path, entry: dict, geo_file: Path | None = None) -> dict[str, str] | None:
+    """{depth: file name} of the per-depth maps of a prefix-coloured drawn clue, written next to its geometry file.
+    None when the clue isn't one, or when they can't be made (the card then shows the drawing as it is).
+    """
+    if not entry.get("prefix_colors") or not entry.get("polygons"):
+        return None
+    try:
+        levels = build_levels(geo_file or folder / entry["polygons"], folder, entry["polygons"])
+    except Exception:
+        logger.exception("Could not build the prefix levels of %s", entry["polygons"])
+        return None
+    return {str(d): n for d, n in levels.items()} or None
 
 
 # ── converters (run in a thread) ───────────────────────────────────────────
@@ -1048,6 +1064,10 @@ def add_clue(cc: str, body: ClueBody, request: Request):
                     entry["overlay"] = _overlay_name(names[geo_kind])
                     _write_overlay(folder, entry["overlay"], svg)
                     made.append(entry["overlay"])
+            levels = _make_levels(folder, entry)
+            if levels:
+                entry["levels"] = levels
+                made.extend(levels.values())
             _apply_medal(cc, entry, request, folder)
             items = [*_load(cc), entry]
             books = {cc: items}
@@ -1185,6 +1205,7 @@ def update_clue(cc: str, clue_id: str, body: ClueBody, request: Request):
         fresh_overlay: str | None = (
             None  # overlay written by this request under a name the clue didn't have
         )
+        fresh_levels: list[str] = []  # per-depth maps written by this request
         try:
             for kind in KINDS:
                 if kind not in staged:
@@ -1266,6 +1287,10 @@ def update_clue(cc: str, clue_id: str, body: ClueBody, request: Request):
                         entry["overlay"] = want
                     else:
                         entry["overlay"] = old["overlay"]
+            levels = _make_levels(folder, entry, overwrite.get("polygons"))
+            if levels:
+                entry["levels"] = levels
+                fresh_levels = list(levels.values())
             # files being overwritten are still staged at this point: score from those
             _apply_medal(cc, entry, request, folder, {names[k]: s for k, s in overwrite.items()})
             updated = [entry if c is old else c for c in items]
@@ -1281,6 +1306,9 @@ def update_clue(cc: str, clue_id: str, body: ClueBody, request: Request):
                     (folder / name).unlink(missing_ok=True)
             if fresh_overlay:
                 (folder / fresh_overlay).unlink(missing_ok=True)
+            for name in fresh_levels:
+                if name not in (old.get("levels") or {}).values():
+                    (folder / name).unlink(missing_ok=True)
             raise
         for kind, src in overwrite.items():
             try:
@@ -1297,6 +1325,9 @@ def update_clue(cc: str, clue_id: str, body: ClueBody, request: Request):
         old_overlay = old.get("overlay")
         if old_overlay and old_overlay != entry.get("overlay") and ASSET_RE.fullmatch(old_overlay):
             (folder / old_overlay).unlink(missing_ok=True)
+        for name in (old.get("levels") or {}).values():
+            if name not in (entry.get("levels") or {}).values() and ASSET_RE.fullmatch(name):
+                (folder / name).unlink(missing_ok=True)
     return entry
 
 
@@ -1318,6 +1349,9 @@ def delete_clue(cc: str, clue_id: str):
         depths = dict(prefs.load().get("clue_depths") or {})
         if depths.pop(f"{cc}/{clue_id}", None) is not None:
             prefs.update(clue_depths=depths)
+        for name in (gone.get("levels") or {}).values():
+            if ASSET_RE.fullmatch(name):
+                (CLUES_DIR / cc / name).unlink(missing_ok=True)
         for kind in (*KINDS, "overlay"):
             if gone.get(kind) and ASSET_RE.fullmatch(gone[kind]):
                 (CLUES_DIR / cc / gone[kind]).unlink(missing_ok=True)

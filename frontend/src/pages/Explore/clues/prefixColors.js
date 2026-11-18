@@ -18,6 +18,16 @@ export function depthOptions(names) {
   return out;
 }
 
+/** One colour per name, as the card shows them at its lowest depth (null when the names can't be told apart). */
+export function nameColors(names) {
+  const options = depthOptions(names);
+  if (!options.length) return null;
+  const d = options[0];
+  const g = groupLayer({ names, geometries: names.map(() => ({ type: "Polygon", coordinates: [] })) }, d, options);
+  const by = new Map(g.names.map((k, i) => [k, g.colors[i]]));
+  return names.map((n) => by.get(prefixes(n, d)[0] ?? ""));
+}
+
 const merge = (geoms) => ({
   type: "MultiPolygon",
   coordinates: geoms.flatMap((g) => (g.type === "Polygon" ? [g.coordinates] : g.type === "MultiPolygon" ? g.coordinates : [])),

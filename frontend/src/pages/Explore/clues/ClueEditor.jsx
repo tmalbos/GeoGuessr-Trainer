@@ -455,7 +455,7 @@ export default function ClueEditor({ cc, name, clue, prefill, onClose, onSaved, 
       {/* Same grid as the clue card: media on the left, body on the right. */}
       <div className="clue ed-clue">
         <div className="ed-left" ref={colRef}>
-          {drawing ? <DrawMap cc={cc} stage={stageInput} onResult={takeDrawn} trailing={modeToggle} optionsEl={chkEl} showNames={showNames} stored={clue?.polygons ?? null} storedView={view} onView={setView} /> : <ClueImage ref={imgApi} current={imageGone ? null : clue?.image ? fileUrl(cc, clue.image, clue.rev) : null} colRef={colRef} overlay={badges}
+          {drawing ? <DrawMap cc={cc} stage={stageInput} onResult={takeDrawn} trailing={modeToggle} optionsEl={chkEl} showNames={showNames} prefixColors={prefixColors} stored={clue?.polygons ?? null} storedView={view} onView={setView} /> : <ClueImage ref={imgApi} current={imageGone ? null : clue?.image ? fileUrl(cc, clue.image, clue.rev) : null} colRef={colRef} overlay={badges}
             preview={mediaPreview} incoming={incoming}
             regionSlot={showArea} onOverlay={setOvEl} loading={mediaBusy || (!!prefill?.pending && !mainKind)}
             onOtherFile={(f) => takeMedia({ file: f })} onOtherText={(t) => takeMedia({ text: t })} onRemove={removeMedia}
@@ -468,7 +468,7 @@ export default function ClueEditor({ cc, name, clue, prefill, onClose, onSaved, 
             <span ref={setChkEl} />
           </div>}
           {namedAreas && <label className="chk-row"><input type="checkbox" checked={prefixColors} onChange={(e) => setPrefixColors(e.target.checked)} />
-            Color by the start of the names (area codes: 8X, 9X…)</label>}
+            Color by prefix</label>}
           {/* A photo can't say which region it is: the region is mandatory in that case. It is drawn on the photo above. */}
           {showArea && <AreaPicker cc={cc} value={area.upload} current={areaCurrent} onChange={takeArea} stage={stageInput}
             initialPicture={prefill?.areaFile} overlayEl={ovEl} clue={clue} loading={!!prefill?.pending} view={view} onView={setView} />}
