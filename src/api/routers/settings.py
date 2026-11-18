@@ -39,6 +39,10 @@ class ShortcutBody(BaseModel):
     shortcut: str = Field(min_length=1, max_length=32)
 
 
+class LevelShortcutsBody(BaseModel):
+    shortcuts: list[str] = Field(min_length=5, max_length=5)
+
+
 class DecksBody(BaseModel):
     decks: list[str]
 
@@ -55,6 +59,8 @@ async def get_settings():
         "cookie": bool(load_cookie()),
         "merge_shortcut": str(prefs.load().get("merge_shortcut") or "Shift+G"),
         "stain_color": str(prefs.load().get("stain_color") or "#c8283a"),
+        "draw_level_shortcuts": prefs.load().get("draw_level_shortcuts")
+        or [f"Alt+{i}" for i in range(1, 6)],
         "decks": deck_store.load(),
     }
 
@@ -91,6 +97,12 @@ async def put_user(body: UserBody):
 @router.put("/settings/merge-shortcut")
 async def put_merge_shortcut(body: ShortcutBody):
     prefs.update(merge_shortcut=body.shortcut.strip())
+    return {"ok": True}
+
+
+@router.put("/settings/draw-levels")
+async def put_draw_levels(body: LevelShortcutsBody):
+    prefs.update(draw_level_shortcuts=[s.strip() for s in body.shortcuts])
     return {"ok": True}
 
 

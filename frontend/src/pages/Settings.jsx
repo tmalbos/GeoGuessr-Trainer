@@ -6,6 +6,7 @@ import { Skeleton } from "../components/Skeleton.jsx";
 import StatusGrid from "../components/StatusGrid.jsx";
 import { useToast } from "../components/Toast.jsx";
 import { api, errorText } from "../lib/api.js";
+import { DEFAULT_DRAW_LEVEL_SHORTCUTS } from "../lib/shortcut.js";
 
 const MODS = ["Control", "Shift", "Alt", "Meta"];
 function ShortcutBind({ value, onChange }) {
@@ -33,14 +34,14 @@ function ShortcutBind({ value, onChange }) {
 export default function Settings() {
   const toast = useToast();
   const [saved, setSaved] = useState(null);
-  const [draft, setDraft] = useState({ cookie: "", userId: "", lang: "en", mergeShortcut: "Shift+G", stainColor: "#c8283a" });
+  const [draft, setDraft] = useState({ cookie: "", userId: "", lang: "en", mergeShortcut: "Shift+G", stainColor: "#c8283a", drawLevels: DEFAULT_DRAW_LEVEL_SHORTCUTS });
   const [loadErr, setLoadErr] = useState("");
   const [saving, setSaving] = useState(false);
 
   const load = useCallback(() => {
     setLoadErr("");
     return api("/settings")
-      .then((s) => { setSaved(s); setDraft({ cookie: "", userId: s.user_id, lang: s.lang, mergeShortcut: s.merge_shortcut, stainColor: s.stain_color }); })
+      .then((s) => { setSaved(s); setDraft({ cookie: "", userId: s.user_id, lang: s.lang, mergeShortcut: s.merge_shortcut, stainColor: s.stain_color, drawLevels: s.draw_level_shortcuts }); })
       .catch((e) => setLoadErr(errorText(e)));
   }, []);
   useEffect(() => { load(); }, [load]);
@@ -49,7 +50,8 @@ export default function Settings() {
   const idEmpty = !draft.userId.trim();
   const mergeEmpty = !draft.mergeShortcut.trim();
   const dirty = !!saved && (draft.cookie.trim() !== "" || draft.userId.trim() !== saved.user_id || draft.lang !== saved.lang
-    || draft.mergeShortcut.trim() !== saved.merge_shortcut || draft.stainColor !== saved.stain_color);
+    || draft.mergeShortcut.trim() !== saved.merge_shortcut || draft.stainColor !== saved.stain_color
+    || draft.drawLevels.join() !== saved.draw_level_shortcuts.join());
 
   const save = async () => {
     setSaving(true);
@@ -58,6 +60,7 @@ export default function Settings() {
       if (draft.userId.trim() !== saved.user_id) await api("/settings/user", { method: "PUT", body: { user_id: draft.userId } });
       if (draft.lang !== saved.lang) await api("/settings/lang", { method: "PUT", body: { lang: draft.lang } });
       if (draft.mergeShortcut.trim() !== saved.merge_shortcut) await api("/settings/merge-shortcut", { method: "PUT", body: { shortcut: draft.mergeShortcut.trim() } });
+      if (draft.drawLevels.join() !== saved.draw_level_shortcuts.join()) await api("/settings/draw-levels", { method: "PUT", body: { shortcuts: draft.drawLevels } });
       if (draft.stainColor !== saved.stain_color) await api("/settings/stain-color", { method: "PUT", body: { color: draft.stainColor } });
       toast.push("Settings saved", { kind: "ok" });
       await load();
@@ -88,6 +91,11 @@ export default function Settings() {
       <label htmlFor="merge-shortcut">Merge shortcut (OSM extractor)</label>
       <ShortcutBind value={draft.mergeShortcut} onChange={(v) => setDraft((d) => ({ ...d, mergeShortcut: v }))} />
       {mergeEmpty && <p className="err">The shortcut can't be empty.</p>}
+      <label>Admin level shortcuts (draw editors)</label>
+      {draft.drawLevels.map((v, i) => <div key={i} style={{ display: "flex", gap: 10, alignItems: "center" }}>
+        <span className="muted">Adm {i + 1}</span>
+        <ShortcutBind value={v} onChange={(x) => setDraft((d) => ({ ...d, drawLevels: d.drawLevels.map((y, j) => (j === i ? x : y)) }))} />
+      </div>)}
       <label htmlFor="stain-color">Regional stain colour</label>
       <select id="stain-color" value={draft.stainColor} onChange={set("stainColor")}>
         <option value="#c8283a">Red</option>
@@ -101,7 +109,7 @@ export default function Settings() {
       </select>
       <p style={{ display: "flex", gap: 10, marginTop: 20 }}>
         <button type="button" className="btn" disabled={!dirty || idEmpty || mergeEmpty || saving} onClick={save}>{saving ? "Saving…" : "Save changes"}</button>
-        {dirty && <button type="button" className="btn ghost" disabled={saving} onClick={() => setDraft({ cookie: "", userId: saved.user_id, lang: saved.lang, mergeShortcut: saved.merge_shortcut, stainColor: saved.stain_color })}>Discard</button>}
+        {dirty && <button type="button" className="btn ghost" disabled={saving} onClick={() => setDraft({ cookie: "", userId: saved.user_id, lang: saved.lang, mergeShortcut: saved.merge_shortcut, stainColor: saved.stain_color, drawLevels: saved.draw_level_shortcuts })}>Discard</button>}
       </p>
     </>}
     <h3>Clues</h3>

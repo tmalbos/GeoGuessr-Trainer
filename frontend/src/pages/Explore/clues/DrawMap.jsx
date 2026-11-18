@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api, errorText } from "../../../lib/api.js";
+import { DEFAULT_DRAW_LEVEL_SHORTCUTS, sameShortcut } from "../../../lib/shortcut.js";
 import { bboxOf, shapes } from "./geoDraw.js";
 import { discardStaged, loadImage, stagedUrl } from "./imageTools.js";
 import { AreaName, NAME_PX, areaNameSpot } from "./RegionPreview.jsx";
@@ -113,6 +114,7 @@ export default function DrawMap({ cc, stage, onResult, trailing, optionsEl, show
   const [err, setErr] = useState("");
   const [level, setLevel] = useState(0);
   const [nLevels, setNLevels] = useState(0);
+  const [levelKeys, setLevelKeys] = useState(DEFAULT_DRAW_LEVEL_SHORTCUTS);
   const [units, setUnits] = useState(null);
   const [tool, setTool] = useState("fill");
   const [size, setSize] = useState(24);
@@ -143,6 +145,14 @@ export default function DrawMap({ cc, stage, onResult, trailing, optionsEl, show
   resultRef.current = onResult;
   const nameOf = (s) => custom[s]?.trim() || `Unnamed ${s + 1}`;
   const colorOf = (s) => (palette.length ? palette[s % palette.length] : "#8b98a8");
+
+  useEffect(() => {
+    let off = false;
+    api("/settings").then((s) => {
+      if (!off && Array.isArray(s.draw_level_shortcuts)) setLevelKeys(s.draw_level_shortcuts);
+    }).catch(() => {});
+    return () => { off = true; };
+  }, []);
 
   useEffect(() => {
     let off = false;
@@ -276,6 +286,19 @@ export default function DrawMap({ cc, stage, onResult, trailing, optionsEl, show
     document.addEventListener("keydown", onKey);
     return () => { document.removeEventListener("pointerdown", onDown); document.removeEventListener("keydown", onKey); };
   }, [colorOpen]);
+
+  useEffect(() => {
+    const onKey = (e) => {
+      const t = e.target;
+      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.isContentEditable)) return;
+      const at = levelKeys.findIndex((k) => sameShortcut(e, k)) + 1;
+      if (!at || at > nLevels) return;
+      e.preventDefault();
+      setLevel(at);
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [levelKeys, nLevels]);
 
   // A saved clue opens framed the way it was locked.
   useEffect(() => {
