@@ -146,6 +146,9 @@ export default function ClueEditor({ cc, name, clue, prefill, onClose, onSaved, 
   const isImage = mainKind === "image";
   const showArea = scope === "reg" && isImage; // a photo needs a region; an SVG/CSV/geometry is its own
   const drawing = scope === "reg" && tab === "draw";
+  // Import: the size the incoming picture will have, so its box has the final height before it has downloaded.
+  const streetView = prefill?.mediaText ? [16, 9] : null;
+  const reserve = prefill?.scope === "reg" ? streetView : prefill?.aspect ?? streetView;
   // named, colored areas (drawn here, or a stored drawn clue): they can show their names on the map
   const namedAreas = scope === "reg" && !isImage && (drawing || (media.upload ? !!media.upload.geojson?.colors : mainKind === "geometry" && !!clue?.polygons));
   const modeToggle = scope === "reg" && (tab === "draw" || !isImage)
@@ -457,7 +460,7 @@ export default function ClueEditor({ cc, name, clue, prefill, onClose, onSaved, 
         <div className="ed-left" ref={colRef}>
           {drawing ? <DrawMap cc={cc} stage={stageInput} onResult={takeDrawn} trailing={modeToggle} optionsEl={chkEl} showNames={showNames} prefixColors={prefixColors} stored={clue?.polygons ?? null} storedView={view} onView={setView} /> : <ClueImage ref={imgApi} current={imageGone ? null : clue?.image ? fileUrl(cc, clue.image, clue.rev) : null} colRef={colRef} overlay={badges}
             preview={mediaPreview} incoming={incoming}
-            regionSlot={showArea} onOverlay={setOvEl} loading={mediaBusy || (!!prefill?.pending && !mainKind)}
+            regionSlot={showArea} onOverlay={setOvEl} loading={mediaBusy || (!!prefill?.pending && !mainKind)} reserve={reserve}
             onOtherFile={(f) => takeMedia({ file: f })} onOtherText={(t) => takeMedia({ text: t })} onRemove={removeMedia}
             blur={blur} onBlur={setBlur} maxH={maxH} onMaxH={setMaxH} trailing={modeToggle}
             onState={(h, sig) => setImg((p) => (p.has === h && p.sig === sig ? p : { has: h, sig }))} />}
@@ -471,7 +474,7 @@ export default function ClueEditor({ cc, name, clue, prefill, onClose, onSaved, 
             Color by prefix</label>}
           {/* A photo can't say which region it is: the region is mandatory in that case. It is drawn on the photo above. */}
           {showArea && <AreaPicker cc={cc} value={area.upload} current={areaCurrent} onChange={takeArea} stage={stageInput}
-            initialPicture={prefill?.areaFile} overlayEl={ovEl} clue={clue} loading={!!prefill?.pending} view={view} onView={setView} />}
+            initialPicture={prefill?.areaFile} overlayEl={ovEl} clue={clue} loading={!!prefill?.pending} reserve={prefill?.aspect} view={view} onView={setView} />}
           <div className="ed-rels">
             {relations.map((r) => {
               const o = snippetOf(r);

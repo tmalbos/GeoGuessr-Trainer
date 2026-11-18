@@ -91,7 +91,7 @@ const shadesOf = (parts, off) => {
  *  carries `stats.spread_km` from the server (average distance between the points of each polygon, shades ignored),
  *  which the editor uses to rate the frequency.
  *  `clue` = the clue being edited (its stored region is drawn when nothing new was picked). */
-export default function AreaPicker({ cc, value, current, onChange, stage, initialPicture, overlayEl, clue, loading, view, onView }) {
+export default function AreaPicker({ cc, value, current, onChange, stage, initialPicture, overlayEl, clue, loading, reserve, view, onView }) {
   const [pic, setPic] = useState(null);     // { url, token? } — the picture shown right away
   const [up, setUp] = useState(null);       // { token, map, ... } — the picture once the stain tool has it
   const [crop, setCrop] = useState(null);   // [x0, y0, x1, y1] as fractions of the picture, drawn by hand
@@ -316,6 +316,7 @@ export default function AreaPicker({ cc, value, current, onChange, stage, initia
   else status = "The map wasn't found: drag a box around it.";
   const count = res && !busy && !err ? `${parts.length - off.length}${off.length ? ` of ${parts.length}` : ""} areas included` : null;
 
+  const holding = !!reserve && !pic && !err && (loading || !!initialPicture); // keep the picture's box while it downloads
   const inside = <>
     {mm && <div className="ar-stain">
       <div className="clue-chips" role="group" aria-label="Tag" style={{ maxHeight: 150, overflowY: "auto" }}>
@@ -344,7 +345,9 @@ export default function AreaPicker({ cc, value, current, onChange, stage, initia
         <span className={warn ? "muted err" : "muted"}>{status}</span>
       </div>
     </div>}
-    {loading && !pic && <StatusIcon kind="wait" />}
+    {holding && <div className="ar-shot" style={{ aspectRatio: `${reserve[0]} / ${reserve[1]}`, display: "grid", placeItems: "center", cursor: "default" }}>
+      <StatusIcon kind="wait" /></div>}
+    {loading && !pic && !holding && <StatusIcon kind="wait" />}
   </>;
 
   const toggle = <div className="ed-mode" role="group" aria-label="Region source" style={{ marginLeft: count ? 8 : "auto" }}>

@@ -197,9 +197,12 @@ export default function ClueList({ id, name, editing, collapsed, query }) {
 
   // ── Import from Plonkit: one clue at a time; the text is instant, the image downloads on demand ──
   // `sections` = [{ step, title, index }] from the start call: the guide's sections and where each one begins.
-  const plonkitImage = async (token, index) => {
+  const plonkitImage = async (token, index, onSize) => {
     const r = await fetch(`/api/import/plonkit/${token}/${index}/image`);
     if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || r.statusText);
+    const w = Number(r.headers.get("X-Image-Width"));
+    const h = Number(r.headers.get("X-Image-Height"));
+    if (w > 0 && h > 0) onSize?.(w, h); // the headers arrive before the body: the box can be sized now
     const b = await r.blob();
     return new File([b], "plonkit.png", { type: b.type || "image/png" });
   };
@@ -214,9 +217,9 @@ export default function ClueList({ id, name, editing, collapsed, query }) {
       if (!mine()) return;
       const sv = !!d.link && streetViewAvailable();
       const needsImage = d.zone || !sv; // before the Regional sections the Street View link is enough
-      set({ index, clue: { ...d, scope: d.zone && sv ? "reg" : "nat", street_view_url: sv ? d.link : null }, file: null, pending: needsImage });
+      set({ index, clue: { ...d, scope: d.zone && sv ? "reg" : "nat", street_view_url: sv ? d.link : null }, file: null, aspect: null, pending: needsImage });
       if (!needsImage) return;
-      const file = await plonkitImage(token, index);
+      const file = await plonkitImage(token, index, (w, h) => { if (mine()) set({ aspect: [w, h] }); });
       if (mine()) set({ file, pending: false });
     } catch (e) {
       if (mine()) set({ err: errorText(e), pending: false });
@@ -442,6 +445,7 @@ export default function ClueList({ id, name, editing, collapsed, query }) {
         mediaText: ic.street_view_url, pending: !!imp.pending,
         areaFile: ic.scope === "reg" ? imp.file : null, imageFile: ic.scope === "reg" ? null : imp.file,
         fallbackImage: ic.scope === "nat" && ic.street_view_url ? () => plonkitImage(imp.token, ic.index) : null,
+        aspect: imp.aspect,
         progress: `Plonkit ${imp.index + 1} of ${imp.total}`,
       }}
       skipTo={skipItems}

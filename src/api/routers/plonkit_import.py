@@ -19,6 +19,7 @@ Tags and text come from src/plonkit (the same rules scripts/import_plonkit_clues
 
 import asyncio
 import contextlib
+import io
 import logging
 import math
 import re
@@ -30,6 +31,8 @@ from urllib.parse import parse_qs, urlparse
 from uuid import uuid4
 
 from fastapi import APIRouter, HTTPException, Request, Response
+from fastapi.responses import StreamingResponse
+from PIL import Image
 from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
@@ -163,8 +166,18 @@ async def _wait(s: dict, secs: float) -> None:
     await asyncio.sleep(secs)
 
 
+def _image_size(data: bytes) -> tuple[int, int] | None:
+    """(width, height) from the first bytes of an image, or None while there are too few."""
+    try:
+        with Image.open(io.BytesIO(data)) as im:
+            return im.size
+    except Exception:  # noqa: BLE001
+        return None
+
+
 async def _build(ctx, s: dict, i: int) -> dict:
     tip = s["tips"][i]
+    meta = s["meta"][i]
     async with s["lock"]:  # one download at a time, with a pause: Plonkit must not see a burst
         try:
             client = ctx.http_client
@@ -176,20 +189,32 @@ async def _build(ctx, s: dict, i: int) -> dict:
                 gap = s["last"] + PAUSE_S - time.monotonic()
                 if gap > 0:  # never two requests to Plonkit closer than PAUSE_S
                     await _wait(s, gap)
-                r = await client.get(
+                async with client.stream(
+                    "GET",
                     full,
                     headers={"User-Agent": UA, "Referer": s["page_url"]},
                     follow_redirects=True,
                     timeout=30,
-                )
-                s["last"] = time.monotonic()
-                if r.status_code >= 400:
-                    _log_blocked(full, r)
-                if r.status_code != 429:
-                    break
-                asked = 0.0
-                with contextlib.suppress(ValueError):
-                    asked = float(r.headers.get("Retry-After", 0))
+                ) as r:
+                    s["last"] = time.monotonic()
+                    if r.status_code >= 400:
+                        await r.aread()
+                        _log_blocked(full, r)
+                    if r.status_code != 429:
+                        r.raise_for_status()
+                        meta["media"] = r.headers.get("content-type", "image/png")
+                        body = bytearray()
+                        async for chunk in r.aiter_bytes():
+                            body += chunk
+                            if meta["size"] is None and (size := _image_size(bytes(body))):
+                                meta["size"] = (
+                                    size  # the UI can size its box before the rest arrives
+                                )
+                                meta["ev"].set()
+                        return {"data": bytes(body), "media": meta["media"]}
+                    asked = 0.0
+                    with contextlib.suppress(ValueError):
+                        asked = float(r.headers.get("Retry-After", 0))
                 delay = max(delay, asked)
                 if delay > MAX_WAIT_S:
                     mins = max(1, round(delay / 60))
@@ -198,16 +223,19 @@ async def _build(ctx, s: dict, i: int) -> dict:
                     }
                 await _wait(s, delay)
                 delay *= 2
-            r.raise_for_status()
-            return {"data": r.content, "media": r.headers.get("content-type", "image/png")}
+            msg = "Plonkit kept answering 'too many requests'."
+            raise RuntimeError(msg)  # noqa: TRY301
         except Exception as e:
             logger.exception("Plonkit import: clue %s failed", i)
             return {"error": f"Could not load clue {i + 1}: {e}"}
+        finally:
+            meta["ev"].set()
 
 
 def _task(ctx, s: dict, i: int) -> asyncio.Task:
     t = s["tasks"].get(i)
     if t is None or t.cancelled():
+        s["meta"][i] = {"size": None, "media": "image/png", "ev": asyncio.Event()}
         t = s["tasks"][i] = asyncio.create_task(_build(ctx, s, i))
     return t
 
@@ -306,6 +334,7 @@ async def plonkit_start(body: StartBody, request: Request):
         "page_url": page_url,
         "tips": tips,
         "tasks": {},
+        "meta": {},
         "lock": asyncio.Lock(),
         "wait_until": 0.0,
         "reg_from": reg_from,
@@ -366,16 +395,38 @@ async def plonkit_image(token: str, index: int, request: Request):
     for j in [j for j in s["tasks"] if j != index]:  # clues the user already moved away from
         s["tasks"].pop(j).cancel()
     cur = _task(ctx, s, index)
-    try:
-        res = await cur
-    except asyncio.CancelledError:
-        if cur.cancelled():
-            raise HTTPException(409, "Superseded") from None
-        raise
-    if "error" in res:
-        s["tasks"].pop(index, None)
-        raise HTTPException(502, res["error"])
-    return Response(res["data"], media_type=res["media"])
+    meta = s["meta"][index]
+    waiter = asyncio.ensure_future(meta["ev"].wait())
+    try:  # answer as soon as the size is known (or the download ended): the body follows
+        await asyncio.wait({waiter, cur}, return_when=asyncio.FIRST_COMPLETED)
+    finally:
+        waiter.cancel()
+    if cur.cancelled():
+        raise HTTPException(409, "Superseded")
+    headers = {}
+    if meta["size"]:
+        headers = {"X-Image-Width": str(meta["size"][0]), "X-Image-Height": str(meta["size"][1])}
+    if cur.done():
+        res = cur.result()
+        if "error" in res:
+            s["tasks"].pop(index, None)
+            raise HTTPException(502, res["error"])
+        return Response(res["data"], media_type=res["media"], headers=headers)
+
+    async def body():
+        try:
+            res = await cur
+        except asyncio.CancelledError:
+            if cur.cancelled():
+                msg = "Superseded"
+                raise RuntimeError(msg) from None
+            raise
+        if "error" in res:
+            s["tasks"].pop(index, None)
+            raise RuntimeError(res["error"])
+        yield res["data"]
+
+    return StreamingResponse(body(), media_type=meta["media"], headers=headers)
 
 
 @router.delete("/import/plonkit/{token}")

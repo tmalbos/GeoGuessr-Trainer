@@ -83,7 +83,7 @@ function dragCrop(kind, s, dx, dy, min) {
  *  Height: any image that is loaded is capped at IMG_MAX_H (it gets narrower instead of taller). Cropping an image
  *  that was already there caps the result at the height the original had. */
 const ClueImage = forwardRef(function ClueImage({ current, blur, onBlur, maxH, onMaxH, colRef, onState, overlay: badges,
-  preview, incoming, onOtherFile, onOtherText, onRemove, regionSlot, onOverlay, trailing, loading }, ref) {
+  preview, incoming, onOtherFile, onOtherText, onRemove, regionSlot, onOverlay, trailing, loading, reserve }, ref) {
   const toast = useToast();
   const [src, setSrc] = useState(null);      // { token, url }: a staged upload that replaces `current`
   const [hist, setHist] = useState([]);      // canvases from before each edit (undo stack)
@@ -324,6 +324,7 @@ const ClueImage = forwardRef(function ClueImage({ current, blur, onBlur, maxH, o
   };
 
   const off = busy;
+  const dropStyle = reserve ? { minHeight: Math.min(IMG_MAX_H, Math.round(((colRef.current?.clientWidth || 560) * reserve[1]) / reserve[0])) } : undefined;
   const remove = () => {
     discardStaged(live.current.src?.token);
     work.current = null; setHist([]); showUrl(null); setSrc(null); setPath(""); setMode("view");
@@ -352,7 +353,7 @@ const ClueImage = forwardRef(function ClueImage({ current, blur, onBlur, maxH, o
           aria-label="Maximum image height" aria-valuemin={MIN_H} aria-valuenow={maxH ?? Math.round(fullHeight())} title="Drag to limit the height"
           onPointerDown={hDown} onPointerMove={hMove} onPointerUp={hUp} onKeyDown={hKey} onDoubleClick={() => onMaxH(null)} />
       </>}
-    </div> : <div className={`ed-drop ${over ? "over" : ""}`} role="button" tabIndex={0}
+    </div> : <div className={`ed-drop ${over ? "over" : ""}`} role="button" tabIndex={0} style={dropStyle}
         aria-label="Add an image, SVG, CSV, geometry file or Street View link" {...dropProps}
         onClick={() => picker.current.click()}
         onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); picker.current.click(); } }}>
