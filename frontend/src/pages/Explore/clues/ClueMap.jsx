@@ -92,7 +92,6 @@ export default function ClueMap({ cc, clue, align, onArea, selected }) {
       <Preview cc={cc} layers={kinds.map((k) => geo[k])} align={align} onArea={onArea} selected={selected} showNames={clue.show_names !== false}
         {...(clue.view ? { zoom: clue.view } : {})} />
       {depths.length > 1 && <div className="tabs" style={{ margin: "8px 0 0" }} role="group" aria-label="Characters of the names to show">
-        <span className="muted">Depth</span>
         {depths.map((d) => <button key={d} type="button" className={d === depth ? "on" : ""} aria-pressed={d === depth} onClick={() => pickDepth(d)}>{d}</button>)}
       </div>}
     </>;
