@@ -255,7 +255,7 @@ def _paint(local, cc: str, items: list[Item]) -> tuple[dict, dict, dict, dict]:
     looks: dict[str, tuple[bool, int | None]] = {}  # name -> (blur, max height) of its image
     slots: dict[str, int] = {}
     for it in items:
-        if it.op == "shape":
+        if it.op == "shape" or (it.op == "erase" and it.geometry):
             if not it.geometry:
                 continue
             shape = shapely.make_valid(shapely.from_geojson(json.dumps(it.geometry)))
@@ -326,6 +326,7 @@ class FillBody(BaseModel):
     level: int = 0
     id: int = 0
     point: list[float]  # lon, lat of the click
+    erase: bool = False  # Shift + eraser: only report the painted part under the click (None when there is none)
 
 
 def _fill(local, cc: str, body: FillBody) -> dict:
@@ -341,6 +342,8 @@ def _fill(local, cc: str, body: FillBody) -> dict:
     hit = next((g for g in shapes.values() if g.covers(pt)), None)
     if hit is not None:
         area = shapely.intersection(unit, hit)
+    elif body.erase:
+        return {"geometry": None}
     elif shapes:
         area = shapely.difference(unit, shapely.union_all(list(shapes.values())))
     else:

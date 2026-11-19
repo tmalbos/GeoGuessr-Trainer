@@ -233,6 +233,15 @@ export default function ShadeDraw({ cc, stage, onResult, stored, storedView, onV
     return [p.x, p.y];
   };
 
+  // Shift + eraser on a subdivision works like the fill bucket: it removes only the connected painted part under the click.
+  const eraseIn = async (id, p) => {
+    try {
+      const sent = items.map(({ d: _d, w: _w, ...i }) => ({ ...i, name: i.op === "erase" ? "" : `s${i.slot}` }));
+      const r = await api(`/clues/${cc}/draw/fill`, { method: "POST", body: { items: sent, level, id, point: proj.inv(p), erase: true } });
+      if (r.geometry) setItems((it) => [...it, { op: "erase", name: "", level, id, geometry: r.geometry }]);
+    } catch (ex) { setErr(errorText(ex)); }
+  };
+
   const down = (e) => {
     const alt = e.button === 1 || e.button === 2;
     if (alt || (tool === "fill" && e.button === 0)) {
@@ -246,7 +255,7 @@ export default function ShadeDraw({ cc, stage, onResult, stored, storedView, onV
     if (tool === "erase" && e.shiftKey) {
       const pt = new DOMPoint(p[0], p[1]);
       const hit = [...svg.current.querySelectorAll(".dm-unit")].find((u) => u.isPointInFill(pt));
-      if (hit) setItems((it) => [...it, { op: "erase", name: "", level, id: Number(hit.dataset.id), d: hit.getAttribute("d") }]);
+      if (hit) eraseIn(Number(hit.dataset.id), p);
       return;
     }
     e.currentTarget.setPointerCapture(e.pointerId);
