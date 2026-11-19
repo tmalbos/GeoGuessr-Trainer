@@ -473,6 +473,7 @@ def _extract(ds: dict, country: str) -> dict:
         "land": {},  # level -> {"props", "geoms"}: finished (cut to land + gaps filled)
         "fill": {},  # level -> other level whose polygons fill its gaps (absent = "Unnamed N")
         "renames": {},  # level -> {gap number: custom name}
+        "undo": [],
         "cache": OrderedDict(),
     }
 
@@ -912,6 +913,25 @@ def _set_fill(data: dict, level: int, source: int | None) -> None:
         _drop_preview(data, level)
 
 
+MAX_UNDO = 50
+
+
+def _snapshot(data: dict, level: int, item: dict) -> None:
+    props = [dict(p) for p in item["props"]]
+    data["undo"].append((level, {"props": props, "geoms": item["geoms"].copy()}))
+    del data["undo"][:-MAX_UNDO]
+
+
+def _undo(data: dict) -> int:
+    with _LAND:
+        if not data["undo"]:
+            raise HTTPException(422, "Nothing to undo.")
+        level, item = data["undo"].pop()
+        data["land"][level] = item
+        _drop_preview(data, level)
+        return level
+
+
 def _merge(data: dict, level: int, idxs: list[int]) -> None:
     """Merge any number of polygons of a finished level into one (the first one that keeps its name wins)."""
     with _LAND:
@@ -925,6 +945,7 @@ def _merge(data: dict, level: int, idxs: list[int]) -> None:
         merged = _polys(merged)
         if merged is None:
             raise HTTPException(422, "Those polygons could not be merged.")
+        _snapshot(data, level, item)
         keep = next(
             (item["props"][i] for i in ids if not item["props"][i].get("unnamed")),
             item["props"][ids[0]],
@@ -1105,7 +1126,7 @@ def _parent_fields(geoms: np.ndarray, adm: int, layers: dict[int, dict]) -> list
     if not len(geoms):
         return out
     pts = shapely.point_on_surface(geoms)
-    for k in range(adm - 1, 0, -1):
+    for k in range(adm - 1, -1, -1):
         lay = layers.get(k)
         todo = [i for i in range(len(geoms)) if k not in out[i]]
         if lay is None or not todo or not len(lay["geoms"]):
@@ -1164,7 +1185,7 @@ def _import_parent(ds: dict, raw: bytes, filename: str) -> dict:
     if own is None:
         raise HTTPException(422, "No name field found in that file.")
     names = [_clean(v) for v in df[own].tolist()]
-    extra = {k: [_clean(v) for v in df[c].tolist()] for k, c in coarser.items() if k >= 1}
+    extra = {k: [_clean(v) for v in df[c].tolist()] for k, c in coarser.items() if k >= 0}
     inherit = [{k: v[i] for k, v in extra.items() if v[i]} for i in range(len(names))]
     imports = ds.setdefault("imports", OrderedDict())
     imp_id = uuid4().hex
@@ -1187,7 +1208,7 @@ def _export(
         raise HTTPException(422, "Pick at least one admin level")
     layers: dict[int, dict] = {}
     for spec in parents:
-        if 1 <= spec.adm < adm:
+        if 0 <= spec.adm < adm:
             lay = _layer_of(ds, data, spec)
             if lay is not None:
                 layers[spec.adm] = lay
@@ -1279,7 +1300,7 @@ class DeleteBody(CountryBody):
 
 
 class ParentSpec(BaseModel):
-    adm: int = Field(ge=1, le=MAX_ADM)  # which coarser ADM number this source provides
+    adm: int = Field(ge=0, le=MAX_ADM)  # which coarser ADM number this source provides
     level: int | None = None  # an OSM level of the open country...
     file: str | None = None  # ...or an imported file (id from /technical/pbf/parent-file)
 
@@ -1372,6 +1393,7 @@ def _delete(data: dict, level: int, idxs: list[int]) -> None:
         drop = set(idxs)
         if min(drop) < 0 or max(drop) >= len(item["props"]):
             raise HTTPException(422, "Those polygons are not in this level any more.")
+        _snapshot(data, level, item)
         keep = [i for i in range(len(item["props"])) if i not in drop]
         data["land"][level] = {
             "props": [item["props"][i] for i in keep],
@@ -1387,6 +1409,13 @@ async def delete_pbf(body: DeleteBody):
         raise HTTPException(422, "That admin level is not in this country.")
     await run_in_threadpool(_delete, data, body.level, body.idxs)
     return {"ok": True}
+
+
+@router.post("/technical/pbf/undo")
+async def undo_pbf(body: CountryBody):
+    data = await run_in_threadpool(_load, _dataset(body.token), body.country)
+    level = await run_in_threadpool(_undo, data)
+    return {"level": level}
 
 
 @router.post("/technical/pbf/parent-file")

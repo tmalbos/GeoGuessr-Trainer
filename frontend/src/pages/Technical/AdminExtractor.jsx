@@ -53,6 +53,8 @@ export default function AdminExtractor() {
   const cache = useRef(new Map()); // `${token}|${country}|${level}|${pct}` -> features (a level is fetched once)
   const last = useRef({ k: "", fc: null });
   const pick = useRef(null);
+  const undoStack = useRef([]);
+  const queue = useRef(Promise.resolve());
   memo.ds = ds; memo.mode = mode; memo.country = country; memo.levels = levels;
 
   const accept = (d) => {
@@ -85,6 +87,7 @@ export default function AdminExtractor() {
   // Step 1: build the selected country (slow once, instant when the server already has it).
   useEffect(() => {
     setInfo(null); setPicked(null); setMarks([]);
+    undoStack.current = [];
     if (!ds || !country) { setExtracting(false); return undefined; }
     let stale = false;
     setExtracting(true); setErr("");
@@ -153,20 +156,45 @@ export default function AdminExtractor() {
     } catch (e) { setErr(errorText(e)); }
   };
 
+  const enqueue = (fn) => {
+    const run = queue.current.then(fn);
+    queue.current = run.catch(() => {});
+    return run;
+  };
+
+  const pushUndo = (snap) => {
+    undoStack.current.push(snap);
+    if (undoStack.current.length > 50) undoStack.current.shift();
+  };
+
+  const dropUndo = (snap) => { undoStack.current = undoStack.current.filter((s) => s !== snap); };
+
   // Delete/Backspace removes the picked polygon (or every Shift-selected one) from the server's copy of the level,
   // so exports and coarser-layer lookups don't see it either.
-  const removePicked = async () => {
+  const removePicked = () => {
     const list = marks.length ? marks : picked?.idx != null ? [picked] : [];
     if (!list.length) return;
     const level = list[0].admin_level;
+    const key = `${ds.token}|${country}|${level}|${pct}`;
+    const feats = cache.current.get(key) ?? null;
+    const gone = [...new Set(list.map((m) => m.idx))].sort((a, b) => a - b);
+    const snap = { key, feats };
+    const body = { token: ds.token, country, level, idxs: list.map((m) => m.idx) };
     setErr("");
-    try {
-      await api("/technical/pbf/delete", { method: "POST", body: { token: ds.token, country, level, idxs: list.map((m) => m.idx) } });
-      cache.current.delete(`${ds.token}|${country}|${level}|${pct}`);
-      setMarks([]); setPicked(null);
-      setVer((v) => v + 1);
+    pushUndo(snap);
+    if (feats) {
+      cache.current.set(key, feats.filter((f) => !gone.includes(f.properties.idx)).map((f) => {
+        const n = gone.filter((g) => g < f.properties.idx).length;
+        return n ? { ...f, properties: { ...f.properties, idx: f.properties.idx - n } } : f;
+      }));
+    }
+    setMarks([]); setPicked(null);
+    setVer((v) => v + 1);
+    enqueue(() => api("/technical/pbf/delete", { method: "POST", body })).catch((e) => {
+      setErr(errorText(e)); dropUndo(snap);
+      cache.current.delete(key);
       setBump((n) => n + 1);
-    } catch (e) { setErr(errorText(e)); }
+    });
   };
 
   useEffect(() => {
@@ -212,14 +240,17 @@ export default function AdminExtractor() {
 
   const mergeMarked = async () => {
     const first = marks[0];
+    const key = `${ds.token}|${country}|${first.admin_level}|${pct}`;
+    const snap = { key, feats: cache.current.get(key) ?? null };
     setErr("");
+    pushUndo(snap);
     try {
-      await api("/technical/pbf/merge", { method: "POST", body: { token: ds.token, country, level: first.admin_level, idxs: marks.map((m) => m.idx) } });
-      cache.current.delete(`${ds.token}|${country}|${first.admin_level}|${pct}`);
+      await enqueue(() => api("/technical/pbf/merge", { method: "POST", body: { token: ds.token, country, level: first.admin_level, idxs: marks.map((m) => m.idx) } }));
+      cache.current.delete(key);
       setMarks([]); setPicked(null);
       setVer((v) => v + 1);
       setBump((n) => n + 1);
-    } catch (e) { setErr(errorText(e)); }
+    } catch (e) { dropUndo(snap); setErr(errorText(e)); }
   };
 
   useEffect(() => {
@@ -234,6 +265,32 @@ export default function AdminExtractor() {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [mode, marks, levels, mergeShortcut, ds, country, pct]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const undo = () => {
+    const snap = undoStack.current.pop();
+    if (!snap) return;
+    if (snap.feats) cache.current.set(snap.key, snap.feats);
+    else { cache.current.delete(snap.key); setBump((n) => n + 1); }
+    setMarks([]); setPicked(null);
+    setVer((v) => v + 1);
+    enqueue(() => api("/technical/pbf/undo", { method: "POST", body: { token: ds.token, country } })).catch((e) => {
+      setErr(errorText(e));
+      cache.current.delete(snap.key);
+      setBump((n) => n + 1);
+    });
+  };
+
+  useEffect(() => {
+    const onKey = (e) => {
+      const t = e.target;
+      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.isContentEditable)) return;
+      if (mode !== "admin" || !ds || !country || !sameShortcut(e, "Ctrl+Z")) return;
+      e.preventDefault();
+      undo();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [mode, ds, country, pct]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Called by the export dialog (name, adm, simplify, parents). It throws so the dialog can show the error.
   const exportTopo = async (settings) => {

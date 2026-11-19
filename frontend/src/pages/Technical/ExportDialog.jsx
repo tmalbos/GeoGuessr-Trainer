@@ -44,7 +44,7 @@ export default function ExportDialog({ ds, levels, selected, onClose, onExport }
     return top ? `L:${top.level}` : "";
   };
   const sourceOf = (k) => chosen[k] ?? best(k);
-  const ks = Array.from({ length: adm }, (_, i) => i + 1).filter((k) => k < adm);
+  const ks = Array.from({ length: adm }, (_, i) => i);
 
   const importFile = async (k, file) => {
     if (!file) return;
