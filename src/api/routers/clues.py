@@ -61,6 +61,7 @@ from starlette.concurrency import run_in_threadpool
 from src.api.deps import get_ctx
 from src.api.routers.stain import _borders, _outline  # noqa: PLC2701
 from src.geo.clue_overlay import recolour, render_overlay
+from src.geo.csv_areas import AreasError, build_areas, read_rows
 from src.geo.local_geo import CountryAreaMissingError
 from src.geo.prefix_levels import build_levels
 from src.geo.region_stats import region_stats
@@ -533,12 +534,62 @@ def _process_geo(data: bytes, suffix: str, token: str) -> tuple[str, dict]:
     }
 
 
+def _process_csv_areas(data: bytes, cc: str, local, token: str, base_dir: Path | None) -> dict:
+    layer = None if local is None else local._admin_layer(cc)  # noqa: SLF001
+    try:
+        names, colors, extras, geoms = build_areas(read_rows(data), layer, base_dir)
+    except AreasError as e:
+        raise HTTPException(422, str(e)) from e
+    arr = np.empty(len(geoms), dtype=object)
+    arr[:] = geoms
+    shades = np.zeros(len(arr), dtype=int)
+    blurs = np.zeros(len(arr), dtype=bool)
+    heights = np.zeros(len(arr), dtype=int)
+    out = STAGING / f"{token}.polygons.parquet"
+    cols = {
+        "name": np.array(names, dtype=object),
+        "color": np.array(colors, dtype=object),
+        "extra": np.array(extras, dtype=object),
+        "extra_blur": blurs,
+        "extra_max_height": heights,
+    }
+    gpd.GeoDataFrame(cols, geometry=arr, crs=4326).to_parquet(out, compression="zstd")
+    parts = shapely.get_parts(arr)
+    return {
+        "kind": "polygons",
+        "features": len(parts),
+        "vertices_before": _vertices(parts),
+        "vertices_after": _vertices(parts),
+        "bytes_in": len(data),
+        "bytes_out": out.stat().st_size,
+        "bbox": [float(v) for v in shapely.total_bounds(arr)],
+        "geojson": _to_geojson(
+            arr,
+            PREVIEW_MAX_FEATURES,
+            shades,
+            cols["name"],
+            cols["color"],
+            cols["extra"],
+            blurs,
+            heights,
+        ),
+        "stats": region_stats(parts, np.zeros(len(parts), dtype=int), "polygons"),
+    }
+
+
 def _discard(token: str) -> None:
     for p in STAGING.glob(f"{token}.*"):
         p.unlink(missing_ok=True)
 
 
-def _stage(kind: str, filename: str, data: bytes) -> dict:
+def _stage(
+    kind: str,
+    filename: str,
+    data: bytes,
+    cc: str | None = None,
+    local=None,
+    base_dir: Path | None = None,
+) -> dict:
     if kind not in STAGE_KINDS:
         raise HTTPException(404, "Unknown file kind")
     if not data:
@@ -553,7 +604,10 @@ def _stage(kind: str, filename: str, data: bytes) -> dict:
         elif kind == "svg":
             info = _process_svg(data, STAGING / f"{token}.svg.svg")
         elif kind == "csv":
-            info = _process_csv(data, STAGING / f"{token}.csv.csv")
+            if cc:
+                info = _process_csv_areas(data, cc, local, token, base_dir)
+            else:
+                info = _process_csv(data, STAGING / f"{token}.csv.csv")
         else:
             _, info = _process_geo(data, suffix, token)
     except HTTPException:
@@ -569,22 +623,29 @@ def _stage(kind: str, filename: str, data: bytes) -> dict:
 
 
 @router.post("/clues/stage/{kind}")
-async def stage_upload(kind: str, filename: str, request: Request):
+async def stage_upload(kind: str, filename: str, request: Request, cc: str | None = None):
     """Raw file bytes in the body (no multipart dependency)."""
-    return await run_in_threadpool(_stage, kind, filename, await request.body())
+    local = get_ctx(request).local_geo
+    return await run_in_threadpool(
+        _stage, kind, filename, await request.body(), _cc(cc) if cc else None, local
+    )
 
 
 class PathBody(BaseModel):
     path: str
+    cc: str | None = None
 
 
 @router.post("/clues/stage-path/{kind}")
-async def stage_from_path(kind: str, body: PathBody):
+async def stage_from_path(kind: str, body: PathBody, request: Request):
     """Same as above for a file already on this machine (the backend runs locally)."""
     p = Path(body.path.strip().strip('"'))
     if not p.is_file():
         raise HTTPException(404, f"No file at {p}")
-    return await run_in_threadpool(_stage, kind, p.name, p.read_bytes())
+    local = get_ctx(request).local_geo
+    return await run_in_threadpool(
+        _stage, kind, p.name, p.read_bytes(), _cc(body.cc) if body.cc else None, local, p.parent
+    )
 
 
 @router.get("/clues/staged/{token}/{kind}")
