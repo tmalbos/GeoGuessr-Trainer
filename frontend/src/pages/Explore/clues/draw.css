@@ -36,3 +36,12 @@
 .ed-mode button { height: 28px; padding: 0 10px; background: none; border: 0; color: var(--mute); font-size: 13px; font-weight: 600; cursor: pointer; }
 .ed-mode button:hover { color: var(--ink); }
 .ed-mode button.on { background: var(--sea); color: #fff; }
+
+/* Real map behind the drawing (the "map" button in the toolbar) */
+.dm-tiles { position: absolute; inset: 0; z-index: 0; overflow: hidden; border-radius: 8px; background: var(--paper); pointer-events: none; }
+.dm-tiles img { position: absolute; display: block; max-width: none; user-select: none; }
+.dm-attr { position: absolute; right: 6px; bottom: 4px; padding: 0 4px; border-radius: 3px; background: #ffffffb3; color: #333; font-size: 10px; }
+.dm.tiles .dm-svg { position: relative; z-index: 1; max-height: none; background: transparent; }
+.dm.tiles .cl-r { fill: none; stroke: #fff; stroke-opacity: .9; }
+.dm.tiles .dm-unit { stroke: #fff; stroke-opacity: .6; }
+.dm.tiles .dm-paint { opacity: .65; }

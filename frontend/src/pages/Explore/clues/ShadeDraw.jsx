@@ -5,10 +5,10 @@ import { bboxOf, shadeFactor, shapes } from "./geoDraw.js";
 import { discardStaged } from "./imageTools.js";
 import PaintedLayer, { Units } from "./PaintedLayer.jsx";
 import { setDrawBusy } from "./drawBusy.js";
+import { TileBackdrop, TilesIcon, makeProjection } from "./drawTiles.jsx";
 import "./draw.css";
 
 const W = 1000;
-const PAD = 6;
 const MAX_ZOOM = 80;
 const DRAG_PX = 4;
 const SHADES = 4; // keep equal to MAX_SHADE + 1 in src/api/routers/clues.py
@@ -20,22 +20,6 @@ const TOOLS = [
   ["paint", "Freeform paint", <svg key="p" {...ico}><path d="M18 3l3 3-9 9-3-3z" /><path d="M9 12c-3 0-4 2-4 4s-1 3-2 4c3 1 8 0 8-5" /></svg>],
   ["erase", "Eraser (hold Shift and click to erase a whole subdivision)", <svg key="e" {...ico}><path d="M4 16l9-9 6 6-6 6H8z" /><path d="M8 20h12" /></svg>],
 ];
-
-function makeProjection(bb) {
-  const [x0, y0, x1, y1] = bb;
-  const k = Math.cos((((y0 + y1) / 2) * Math.PI) / 180) || 1;
-  const w = Math.max((x1 - x0) * k, 1e-6);
-  const h = Math.max(y1 - y0, 1e-6);
-  const H = Math.round(Math.min(1400, Math.max(200, (W * h) / w)));
-  const s = Math.min((W - 2 * PAD) / w, (H - 2 * PAD) / h);
-  const ox = (W - w * s) / 2;
-  const oy = (H - h * s) / 2;
-  return {
-    H, s,
-    fwd: ([lon, lat]) => [ox + (lon - x0) * k * s, oy + (y1 - lat) * s],
-    inv: ([x, y]) => [x0 + (x - ox) / (k * s), y1 - (y - oy) / s],
-  };
-}
 
 const clampView = (v, H) => ({ w: v.w, x: Math.min(Math.max(v.x, 0), W - v.w), y: Math.min(Math.max(v.y, 0), H - (v.w * H) / W) });
 const zoomView = (v, px, py, f, H) => {
@@ -66,6 +50,7 @@ export default function ShadeDraw({ cc, stage, onResult, stored, storedView, onV
   const [color, setColor] = useState(DEFAULT_COLOR);
   const [view, setView] = useState({ x: 0, y: 0, w: W });
   const [busy, setBusy] = useState(false);
+  const [tiles, setTiles] = useState(false); // show the real map behind the drawing
   const [locked, setLocked] = useState(storedView ?? null);
   const viewApplied = useRef(false);
   const svg = useRef(null);
@@ -295,15 +280,16 @@ export default function ShadeDraw({ cc, stage, onResult, stored, storedView, onV
     if (!d || d.kind !== "draw") return;
     setLive(null);
     // The brush is a screen size: zoomed in, the same brush covers less of the map.
-    const item = { op: tool === "erase" ? "erase" : "stroke", width: (size * view.w) / W / proj.s, points: d.pts.map(proj.inv), w: (size * view.w) / W, d: pathOf(d.pts) };
+    const item = { op: tool === "erase" ? "erase" : "stroke", width: ((size * view.w) / W / proj.s) * Math.cos((proj.inv(d.pts[0])[1] * Math.PI) / 180), points: d.pts.map(proj.inv), w: (size * view.w) / W, d: pathOf(d.pts) };
     setItems((it) => [...it, tool === "erase" ? item : { ...item, slot: sel }]);
   };
 
   const unit = (view.w / W) * size;
 
   return <>
-    <div className="dm">
+    <div className={`dm ${tiles ? "tiles" : ""}`}>
       {proj ? <>
+        {tiles && <TileBackdrop proj={proj} view={view} />}
         <div className="dm-levels" role="group" aria-label="Subdivision level">
           {(nLevels ? Array.from({ length: nLevels }, (_, i) => [i + 1, `Adm ${i + 1}`]) : [[0, "National"]]).map(([v, l]) =>
             <button key={l} type="button" className={level === v ? "on" : ""} aria-pressed={level === v} onClick={() => setLevel(v)}>{l}</button>)}
@@ -313,7 +299,7 @@ export default function ShadeDraw({ cc, stage, onResult, stored, storedView, onV
           onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={up}>
           <path className="cl-r" d={landD} fillRule="evenodd" />
           <Units paths={unitPaths} click={tool === "fill"} onPick={onPick} />
-          <PaintedLayer items={items} fwd={proj.fwd} H={proj.H} land={landD} fillOf={fillOf} />
+          <g className="dm-paint"><PaintedLayer items={items} fwd={proj.fwd} H={proj.H} land={landD} fillOf={fillOf} /></g>
           {lockBox && <rect x={lockBox.x} y={lockBox.y} width={lockBox.w} height={(lockBox.w * proj.H) / W} fill="none" stroke="#ffd04d"
             strokeWidth="2" strokeDasharray="8 5" vectorEffect="non-scaling-stroke" style={{ pointerEvents: "none" }} />}
           {live && <path d={pathOf(live)} fill="none" strokeLinecap="round" strokeLinejoin="round" strokeWidth={unit}
@@ -331,6 +317,8 @@ export default function ShadeDraw({ cc, stage, onResult, stored, storedView, onV
       <button type="button" className="ed-tool" aria-pressed={!!locked} aria-label={locked ? "Unlock view" : "Lock view"} disabled={!proj}
         title={locked ? "Unlock view (the card shows the whole map)" : "Lock view: the card opens on the zoom and position on screen now"} onClick={toggleLock}>
         <svg {...ico}><rect x="5" y="11" width="14" height="9" rx="2" /><path d={locked ? "M8 11V8a4 4 0 0 1 8 0v3" : "M8 11V8a4 4 0 0 1 7.5-2"} /></svg></button>
+      <button type="button" className="ed-tool" aria-pressed={tiles} aria-label="Show the map behind the drawing" disabled={!proj}
+        title="Show the map behind the drawing" onClick={() => setTiles((v) => !v)}><TilesIcon /></button>
       <span className={`dm-status ${err && proj ? "err" : "muted"}`}>{proj && err ? err : busy ? "Saving…" : ""}</span>
     </div>
     {proj && <div className="dm-cats">
