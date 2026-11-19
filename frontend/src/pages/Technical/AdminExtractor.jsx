@@ -47,6 +47,7 @@ export default function AdminExtractor() {
   const [extracting, setExtracting] = useState(false);
   const [busy, setBusy] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
+  const [places, setPlaces] = useState(false);
   const [over, setOver] = useState(false);
   const [err, setErr] = useState("");
   const [ver, setVer] = useState(0);
@@ -305,6 +306,14 @@ export default function AdminExtractor() {
     setExportOpen(false);
   };
 
+  const exportPoints = async () => {
+    setErr("");
+    try {
+      const fc = await api("/technical/pbf/points", { method: "POST", body: { token: ds.token, country, levels, places } });
+      download(new Blob([JSON.stringify(fc)], { type: "application/geo+json" }), `${country}-points.geojson`);
+    } catch (e) { setErr(errorText(e)); }
+  };
+
   const shown = useMemo(() => {
     const s = search.trim().toLowerCase();
     return (ds?.countries ?? []).filter((c) => !s || c.name.toLowerCase().includes(s) || c.code.toLowerCase().includes(s));
@@ -395,7 +404,11 @@ export default function AdminExtractor() {
           </div>}
 
           <h3>Export</h3>
-          <button type="button" className="btn ghost" disabled={!levels.length} onClick={() => setExportOpen(true)}>TopoJSON</button>
+          <div className="tp-row">
+            <button type="button" className="btn ghost" disabled={!levels.length} onClick={() => setExportOpen(true)}>TopoJSON</button>
+            <button type="button" className="btn ghost" disabled={!levels.length} onClick={exportPoints}>Points (GeoJSON)</button>
+          </div>
+          <label className="tp-chk"><input type="checkbox" checked={places} onChange={(e) => setPlaces(e.target.checked)} />Also include place nodes (level unknown)</label>
         </>}
       </>}
     </div>

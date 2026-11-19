@@ -69,6 +69,10 @@ SMALL_SHARE = (
 )
 TOUCH_TOL = 1e-5  # deg (~1 m): "touching" tolerance for gaps against the country edge / a boundary
 MIN_PIECE = 1e-7  # deg2: smaller filled pieces are dropped
+# place=* values read as points (besides every relation's admin_centre / label node)
+POINT_PLACES = frozenset(
+    {"state", "province", "region", "county", "district", "municipality", "city", "town"}
+)
 CACHE_DIR = Path(tempfile.gettempdir()) / "geoguessr-pbf-admin"
 UNNAMED_COLOR = (
     "#e5484d"  # filled-in gaps that still have their default name (keep equal to the frontend)
@@ -185,11 +189,16 @@ def _scan(path: Path) -> tuple[list[dict], dict[int, dict]]:
                 countries.append({"id": str(obj.id), "name": str(name), "code": code})
 
         outer, inner = array("q"), array("q")
+        centre = 0
         for m in obj.members:
+            if str(m.type) in {"n", "node"}:
+                if m.role == "admin_centre" or (m.role == "label" and not centre):
+                    centre = m.ref
+                continue
             if str(m.type) not in {"w", "way"}:
                 continue
             (inner if m.role == "inner" else outer).append(m.ref)
-        if outer:
+        if outer or centre:
             rels[obj.id] = {
                 "level": level,
                 "name": str(name or "?"),
@@ -201,6 +210,7 @@ def _scan(path: Path) -> tuple[list[dict], dict[int, dict]]:
                 ),
                 "outer": outer,
                 "inner": inner,
+                "centre": centre,
             }
 
     countries.sort(key=lambda c: c["name"].casefold())
@@ -287,8 +297,14 @@ def _open(path_text: str, temporary: bool = False, display_name: str | None = No
 # ── step 2: build one country ──────────────────────────────────────────────
 
 
-def _read_ways(path: Path, wanted: set[int]) -> dict[int, np.ndarray]:
+def _read_ways(
+    path: Path,
+    wanted: set[int],
+    points: dict[int, dict] | None = None,
+    centres: set[int] | frozenset = frozenset(),
+) -> dict[int, np.ndarray]:
     """One pass over the file. Returns {way id: (n, 2) lon/lat array} for the wanted ways only.
+    With `points` (a dict that gets filled), place=* nodes and the `centres` node ids are collected too.
     osmium filters out untagged nodes and unwanted ways before Python sees them (the node locations are still
     cached for the ways), so Python only touches the boundary ways.
     Ways with a missing node (extract edge) are skipped, and so are the relations that need them.
@@ -297,13 +313,28 @@ def _read_ways(path: Path, wanted: set[int]) -> dict[int, np.ndarray]:
 
     fp = osmium.FileProcessor(str(path), osmium.osm.NODE | osmium.osm.WAY).with_locations()
     try:
-        fp = fp.with_filter(osmium.filter.EmptyTagFilter().enable_for(osmium.osm.NODE))
+        node_filter = (
+            osmium.filter.KeyFilter("place")
+            if points is not None
+            else osmium.filter.EmptyTagFilter()
+        )
+        fp = fp.with_filter(node_filter.enable_for(osmium.osm.NODE))
         fp = fp.with_filter(osmium.filter.IdFilter(list(wanted)).enable_for(osmium.osm.WAY))
     except Exception:  # older pyosmium: slower, same result
         log.warning("osmium filters unavailable, reading without them", exc_info=True)
 
     out: dict[int, np.ndarray] = {}
     for o in fp:
+        if points is not None and o.is_node():
+            place = o.tags.get("place")
+            if o.id in centres or place in POINT_PLACES:
+                points[o.id] = {
+                    "lon": o.location.lon,
+                    "lat": o.location.lat,
+                    "name": o.tags.get("name:en") or o.tags.get("name") or "",
+                    "place": place or "",
+                }
+            continue
         if not o.is_way() or o.id not in wanted:
             continue
         try:
@@ -405,6 +436,44 @@ def _assemble(rel: dict, ways: dict[int, np.ndarray]):
     return _polys(g)
 
 
+def _build_points(rels: dict[int, dict], polygons: set[int], nodes: dict[int, dict]) -> dict:
+    """Points of the file: one per admin relation (its admin_centre / label node, exact level, `polygon` says
+    whether the relation also produced a polygon) and the other place=* nodes (level unknown).
+    """
+    relation, used = [], set()
+    for rid, r in rels.items():
+        n = nodes.get(r.get("centre"))
+        if n is None:
+            continue
+        used.add(r["centre"])
+        relation.append(
+            {
+                "name": r["name"],
+                "admin_level": r["level"],
+                "osm_id": str(rid),
+                "iso": r["iso"],
+                "source": "relation",
+                "polygon": rid in polygons,
+                "lon": n["lon"],
+                "lat": n["lat"],
+            }
+        )
+    place = [
+        {
+            "name": n["name"],
+            "admin_level": None,
+            "place": n["place"],
+            "osm_id": str(i),
+            "source": "place",
+            "lon": n["lon"],
+            "lat": n["lat"],
+        }
+        for i, n in nodes.items()
+        if i not in used and n["place"] in POINT_PLACES
+    ]
+    return {"relation": relation, "place": place}
+
+
 def _extract(ds: dict, country: str) -> dict:
     country_name = next((c["name"] for c in ds["countries"] if c["id"] == country), None)
     if country_name is None:
@@ -416,7 +485,9 @@ def _extract(ds: dict, country: str) -> dict:
         wanted.update(r["outer"])
         wanted.update(r["inner"])
 
-    ways = _read_ways(ds["path"], wanted)
+    centres = {r["centre"] for r in rels.values() if r.get("centre")}
+    nodes: dict[int, dict] = {}
+    ways = _read_ways(ds["path"], wanted, nodes, centres)
     if not ways:
         raise HTTPException(422, "No boundary geometry could be read from this file.")
 
@@ -457,6 +528,7 @@ def _extract(ds: dict, country: str) -> dict:
 
     return {
         "country": country_name,
+        "points": _build_points(rels, set(ids), nodes),
         "by_level": by_level,
         "levels": [{"level": level, "count": len(v["props"])} for level, v in by_level.items()],
         "diag": max(math.hypot(cmaxx - cminx, cmaxy - cminy), 1e-9),
@@ -1313,6 +1385,11 @@ class DeleteBody(CountryBody):
     idxs: list[int] = Field(min_length=1, max_length=1000)
 
 
+class PointsBody(CountryBody):
+    levels: list[int] = Field(default_factory=list)
+    places: bool = False
+
+
 class ParentSpec(BaseModel):
     adm: int = Field(ge=0, le=MAX_ADM)  # which coarser ADM number this source provides
     level: int | None = None  # an OSM level of the open country...
@@ -1423,6 +1500,29 @@ async def delete_pbf(body: DeleteBody):
         raise HTTPException(422, "That admin level is not in this country.")
     await run_in_threadpool(_delete, data, body.level, body.idxs)
     return {"ok": True}
+
+
+@router.post("/technical/pbf/points")
+async def points_pbf(body: PointsBody):
+    """Points of the chosen admin levels (exact: the relations' admin_centre / label nodes), plus the other
+    place=* nodes when `places` is set (their level is unknown).
+    """
+    data = await run_in_threadpool(_load, _dataset(body.token), body.country)
+    levels = set(_levels(body.levels))
+    pts = [p for p in data["points"]["relation"] if p["admin_level"] in levels]
+    if body.places:
+        pts += data["points"]["place"]
+    return {
+        "type": "FeatureCollection",
+        "features": [
+            {
+                "type": "Feature",
+                "properties": {k: v for k, v in p.items() if k not in {"lon", "lat"}},
+                "geometry": {"type": "Point", "coordinates": [p["lon"], p["lat"]]},
+            }
+            for p in pts
+        ],
+    }
 
 
 @router.post("/technical/pbf/undo")
