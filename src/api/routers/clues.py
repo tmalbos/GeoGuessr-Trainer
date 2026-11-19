@@ -495,6 +495,8 @@ def _process_geo(data: bytes, suffix: str, token: str) -> tuple[str, dict]:
     cols = {}
     if kind == "polygons" and shades.any():
         cols["shade"] = shades
+    if kind == "polygons" and "drawn" in gdf.columns:
+        cols["drawn"] = np.ones(len(parts), dtype=bool)  # made with the shade draw tool
     if kind == "polygons" and {"name", "color"} <= set(gdf.columns):
         cols["name"] = gdf["name"].astype(str).to_numpy()[rows]
         cols["color"] = gdf["color"].astype(str).to_numpy()[rows]
@@ -958,9 +960,9 @@ def list_clues(cc: str):
             "polygons"
         ):  # drawn areas (name + color columns): the editor opens them straight in Draw
             with contextlib.suppress(Exception):
-                c["drawn"] = {"name", "color"} <= set(
-                    pq.read_schema(CLUES_DIR / cc / c["polygons"]).names
-                )
+                names = set(pq.read_schema(CLUES_DIR / cc / c["polygons"]).names)
+                c["drawn"] = {"name", "color"} <= names
+                c["shaded"] = "drawn" in names  # made with the shade draw tool (photo clues)
         if any(c.get(k) for k in ("image", "svg", "overlay", "polygons", "lines", "points")):
             # rev (the file's mtime) busts the browser cache for ?v=: a file overwritten in place
             # keeps its name, so without this the card could show the old picture after an update.

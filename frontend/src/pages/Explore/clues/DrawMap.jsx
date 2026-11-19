@@ -191,7 +191,12 @@ export default function DrawMap({ cc, stage, onResult, trailing, optionsEl, show
     fetch(`/api/clues/${cc}/geo/${stored}`)
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(r.statusText))))
       .then((g) => {
-        if (off || !g.names) return;
+        if (off) return;
+        if (!g.names) { // not made with this tool: all of it becomes one category to repaint or erase
+          const coordinates = g.geometries.flatMap((geom) => (geom.type === "Polygon" ? [geom.coordinates] : geom.type === "MultiPolygon" ? geom.coordinates : []));
+          if (coordinates.length) setItems([{ op: "shape", slot: 0, geometry: { type: "MultiPolygon", coordinates } }]);
+          return;
+        }
         const names = [...new Set(g.names)]; // each saved category takes a color slot, in the order it was saved
         const parts = names.map(() => []);
         g.geometries.forEach((geom, i) => {

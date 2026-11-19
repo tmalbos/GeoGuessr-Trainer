@@ -115,7 +115,7 @@ export default function AreaPicker({ cc, value, current, onChange, stage, initia
   const [mmErr, setMmErr] = useState("");
   const [warn, setWarn] = useState(false);  // tried to leave out the last stain
   const warnTimer = useRef(null);
-  const [mode, setMode] = useState("import"); // region source: import | draw
+  const [mode, setMode] = useState(clue?.shaded ? "draw" : "import"); // region source: import | draw
 
   const strip = (s) => String(s ?? "").trim().replace(/^"|"$/g, "");
 
@@ -359,7 +359,7 @@ export default function AreaPicker({ cc, value, current, onChange, stage, initia
     {mode === "draw"
       ? <div className="fp">
           <div className="fp-head"><b>Region</b>{toggle}</div>
-          <ShadeDraw cc={cc} stage={stage} onResult={onChange} storedView={view} onView={onView} />
+          <ShadeDraw cc={cc} stage={stage} onResult={onChange} stored={clue?.polygons ?? null} storedView={view} onView={onView} />
         </div>
       : <FilePicker kind="geometry" label="Region" hint={HINT} accept={ACCEPT} value={value} current={current}
           onChange={onChange} stage={stageArea} onImage={takePicture} cc={cc} preview={note} inside={inside}

@@ -51,7 +51,7 @@ const alpha = (shade) => 0.85 * shadeFactor(shade);
  *  Shift + wheel changes the shade. Nothing is named and nothing is clickable on the card, so there is no renaming or images.
  *  The drawing is built by the same endpoint as DrawMap, turned into a GeoJSON with a `shade` per feature, staged through
  *  `stage` and handed to `onResult` (null when nothing is drawn). */
-export default function ShadeDraw({ cc, stage, onResult, storedView, onView }) {
+export default function ShadeDraw({ cc, stage, onResult, stored, storedView, onView }) {
   const [base, setBase] = useState(null);
   const [err, setErr] = useState("");
   const [level, setLevel] = useState(0);
@@ -103,6 +103,29 @@ export default function ShadeDraw({ cc, stage, onResult, storedView, onView }) {
     return () => { off = true; };
   }, [cc, level]);
 
+  // Editing a saved region (made with this tool or not): its polygons come back as shapes, one per shade,
+  // so they can be repainted or erased.
+  useEffect(() => {
+    if (!stored) return undefined;
+    let off = false;
+    fetch(`/api/clues/${cc}/geo/${stored}`)
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(r.statusText))))
+      .then((g) => {
+        if (off) return;
+        const byShade = new Map();
+        g.geometries.forEach((geom, i) => {
+          const polys = geom.type === "Polygon" ? [geom.coordinates] : geom.type === "MultiPolygon" ? geom.coordinates : [];
+          if (!polys.length) return;
+          const s = Math.min(SHADES - 1, g.shades?.[i] ?? 0);
+          byShade.set(s, [...(byShade.get(s) ?? []), ...polys]);
+        });
+        setItems([...byShade].sort((a, b) => a[0] - b[0])
+          .map(([slot, coordinates]) => ({ op: "shape", slot, geometry: { type: "MultiPolygon", coordinates } })));
+      })
+      .catch((e) => !off && setErr(errorText(e)));
+    return () => { off = true; };
+  }, [cc, stored]);
+
   useEffect(() => {
     if (!items.length) {
       setBusy(false);
@@ -121,7 +144,7 @@ export default function ShadeDraw({ cc, stage, onResult, storedView, onView }) {
         if (stale) return;
         const features = fc.features.map((f) => ({
           type: "Feature",
-          properties: { shade: Number(f.properties.name.slice(1)) },
+          properties: { shade: Number(f.properties.name.slice(1)), drawn: true },
           geometry: f.geometry,
         }));
         if (!features.length) { resultRef.current(null); return; }
