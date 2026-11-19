@@ -16,12 +16,14 @@ import colorsys
 import csv
 import io
 import re
+from difflib import get_close_matches
 from pathlib import Path
 
 import numpy as np
 import shapely
 from PIL import Image, ImageOps
 from shapely import STRtree
+from unidecode import unidecode
 
 LEVEL_COLUMNS = ("state", "subregion", "city")
 IMAGE_EXT = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".avif", ".tif", ".tiff"}
@@ -29,7 +31,13 @@ EXTRA_MAX_PX = 640
 EXTRA_QUALITY = 80
 ADJ_TOL_DEG = 0.005  # areas closer than this (~500 m) count as neighbours
 MIN_DISTANCE = 40.0  # Lab distance a color should keep from its neighbours' colors
+FUZZY_MIN = 0.9  # a name that isn't equal still matches from this much coincidence on
 ABS_PATH = re.compile(r'^"?([a-zA-Z]:[\\/]|/|\\\\)')
+
+
+def normalize_name(value: str) -> str:
+    """Lowercase, unaccented, spaces as underscores: 'São Paulo' -> 'sao_paulo'."""
+    return re.sub(r"\s+", "_", unidecode(str(value)).strip().lower())
 
 
 def level_columns(layer) -> list[str]:
@@ -178,38 +186,66 @@ def read_rows(data: bytes) -> list[list[str]]:
     return rows
 
 
+def _match(values: np.ndarray, uniques: list[str], wanted: str) -> np.ndarray:
+    """Select the units of `wanted`, or of the closest name that still coincides with it.
+
+    The closest name only counts when it coincides by at least FUZZY_MIN; otherwise nothing is
+    selected.
+    """
+    hit = values == wanted
+    if hit.any():
+        return hit
+    near = get_close_matches(wanted, uniques, n=1, cutoff=FUZZY_MIN)
+    return values == near[0] if near else np.zeros(values.shape, dtype=bool)
+
+
+def _row_units(
+    row: list[str], level_i: list[int], levels: list[tuple[np.ndarray, list[str]]], n: int
+) -> np.ndarray:
+    """Select the units a CSV row points at; none when one of its levels names nothing."""
+    mask = np.ones(len(levels[0][0]), dtype=bool)
+    for k, i in enumerate(level_i):
+        v = row[i].strip()
+        if not v:
+            continue
+        if k >= len(levels):
+            msg = f"Row {n}: Level{k + 1} isn't available ({len(levels)} levels for this country)"
+            raise AreasError(msg)
+        mask &= _match(levels[k][0], levels[k][1], normalize_name(v))
+    return mask
+
+
 def build_areas(rows: list[list[str]], layer, base_dir: Path | None = None):
-    """-> (names, colors, extras, geometries): one entry per group, geometries in lon/lat."""
+    """-> (names, colors, extras, geometries): one entry per group, geometries in lon/lat.
+
+    Rows that match no subdivision are skipped: the rest are still built, the user fixes the CSV if
+    one of them was wrong.
+    """
     cols = level_columns(layer)
     if not cols:
         msg = "This country has no subdivisions in the local data."
         raise AreasError(msg)
-    head = [h.strip().lower().replace(" ", "_") for h in rows[0]]
+    head = [normalize_name(h) for h in rows[0]]
     extra_i = head.index("extra_info") if "extra_info" in head else None
     level_i = [i for i in range(1, len(head)) if i != extra_i]
-    norm = {c: layer[c].fillna("").astype(str).str.strip().str.lower().to_numpy() for c in cols}
+    norm = {c: layer[c].fillna("").astype(str).map(normalize_name).to_numpy() for c in cols}
+    uniques = {c: sorted({v for v in norm[c] if v}) for c in cols}
+    levels = [(norm[c], uniques[c]) for c in cols]
 
     groups: dict[str, int] = {}
     extras: list[str] = []
     entries: list[tuple[int, np.ndarray]] = []  # (group, mask of the units the row selects)
     specific: list[int] = []
-    unmatched: list[str] = []
     cache: dict = {}
     for n, row in enumerate(rows[1:], start=2):
         row = [*row, *[""] * (len(head) - len(row))]
         name = row[0].strip()
-        vals = [(k, row[i].strip()) for k, i in enumerate(level_i) if row[i].strip()]
-        if not name or not vals:
+        filled = [i for i in level_i if row[i].strip()]
+        if not name or not filled:
             msg = f"Row {n}: needs a GroupName and at least Level1"
             raise AreasError(msg)
-        mask = np.ones(len(layer), dtype=bool)
-        for k, v in vals:
-            if k >= len(cols):
-                msg = f"Row {n}: Level{k + 1} isn't available ({len(cols)} levels for this country)"
-                raise AreasError(msg)
-            mask &= norm[cols[k]] == v.lower()
+        mask = _row_units(row, level_i, levels, n)
         if not mask.any():
-            unmatched.append(f"row {n} ({name}: {', '.join(v for _, v in vals)})")
             continue
         g = groups.setdefault(name, len(groups))
         if g == len(extras):
@@ -217,11 +253,7 @@ def build_areas(rows: list[list[str]], layer, base_dir: Path | None = None):
         if not extras[g] and extra_i is not None:
             extras[g] = _extra(row[extra_i], base_dir, cache)
         entries.append((g, mask))
-        specific.append(len(vals))
-    if unmatched:
-        more = f" and {len(unmatched) - 5} more" if len(unmatched) > 5 else ""
-        msg = "No subdivision matches " + "; ".join(unmatched[:5]) + more
-        raise AreasError(msg)
+        specific.append(len(filled))
 
     owner = np.full(len(layer), -1)
     for k in sorted(

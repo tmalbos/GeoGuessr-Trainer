@@ -293,9 +293,12 @@ def _to_geojson(
     extras: np.ndarray | None = None,
     blurs: np.ndarray | None = None,
     heights: np.ndarray | None = None,
+    precision: float | None = PREVIEW_PRECISION,
 ) -> dict:
     """GeometryCollection for the browser. When `shades` (one per geometry) has anything above 0 it is sent
     along as `shades`, in the same order as `geometries`.
+
+    `precision` rounds the coordinates (`None` keeps them exact, for the editor that builds on them).
     """
     if limit and len(geoms) > limit:
         step = -(-len(geoms) // limit)
@@ -308,7 +311,7 @@ def _to_geojson(
             extras = extras[::step]
         if blurs is not None:
             blurs, heights = blurs[::step], heights[::step]
-    g = shapely.set_precision(geoms, PREVIEW_PRECISION)
+    g = shapely.set_precision(geoms, precision) if precision else geoms
     keep = ~shapely.is_empty(g)
     g = g[keep]
     out = {
@@ -1072,7 +1075,7 @@ def clue_geo(cc: str, name: str):
         )
     if named and "extra" in gdf.columns:
         named["extras"] = gdf["extra"].fillna("").astype(str).to_numpy()
-    return _to_geojson(gdf.geometry.to_numpy(), shades=_shades_of(gdf), **named)
+    return _to_geojson(gdf.geometry.to_numpy(), shades=_shades_of(gdf), precision=None, **named)
 
 
 @router.post("/clues/{cc}", status_code=201)
