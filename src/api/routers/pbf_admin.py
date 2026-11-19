@@ -639,6 +639,30 @@ def _cut_level(data: dict, level: int) -> dict:
     lv = data["by_level"][level]
     if data["tree"] is None:
         return lv
+    ref = min((k for k, v in data["by_level"].items() if len(v["geoms"]) == 1), default=None)
+    if ref is not None and level > ref:
+        if (
+            "ref_land" not in data
+        ):  # the coastline cut of the single-polygon reference level, done once
+            r = _cut_level(data, ref)
+            data["ref_land"] = r["geoms"][0] if len(r["geoms"]) else None
+        land = data["ref_land"]
+        if land is not None:
+            shapely.prepare(land)
+            out = lv["geoms"].copy()
+            edge = ~shapely.covers(land, out)  # polygons fully inside the land need no cut
+            if edge.any():
+                try:
+                    out[edge] = shapely.intersection(out[edge], land)
+                except Exception:  # noqa: BLE001
+                    out[edge] = shapely.intersection(
+                        shapely.make_valid(out[edge]), shapely.make_valid(land)
+                    )
+            keep = [(p, _polys(g)) for p, g in zip(lv["props"], out, strict=True)]
+            keep = [(p, g) for p, g in keep if g is not None]
+            arr = np.empty(len(keep), dtype=object)
+            arr[:] = [g for _, g in keep]
+            return {"props": [p for p, _ in keep], "geoms": arr}
     props, geoms = [], []
     for p, g in zip(lv["props"], lv["geoms"], strict=True):
         try:
