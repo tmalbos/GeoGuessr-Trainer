@@ -18,11 +18,12 @@ export function depthOptions(names) {
   return out;
 }
 
-/** One colour per name, as the card shows them at its lowest depth (null when the names can't be told apart). */
+/** One colour per name, at the highest depth (the draw editor uses it so every area gets a colour of its own;
+ *  null when the names can't be told apart). */
 export function nameColors(names) {
   const options = depthOptions(names);
   if (!options.length) return null;
-  const d = options[0];
+  const d = options[options.length - 1];
   const g = groupLayer({ names, geometries: names.map(() => ({ type: "Polygon", coordinates: [] })) }, d, options);
   const by = new Map(g.names.map((k, i) => [k, g.colors[i]]));
   return names.map((n) => by.get(prefixes(n, d)[0] ?? ""));
