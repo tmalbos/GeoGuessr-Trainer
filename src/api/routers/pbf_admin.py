@@ -51,7 +51,7 @@ from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 from starlette.responses import Response
 
-from src.geo import osmium_tool
+from src.geo import mapshaper_tool, osmium_tool
 
 log = logging.getLogger(
     "uvicorn.error"
@@ -1222,11 +1222,6 @@ def _import_parent(ds: dict, raw: bytes, filename: str) -> dict:
 def _export(
     ds: dict, data: dict, levels: list[int], simplify: int, name: str, adm: int, parents: list
 ) -> tuple[str, str]:
-    try:
-        from topojson import Topology
-    except ImportError as e:  # pragma: no cover
-        raise HTTPException(503, "The topojson package is not installed on the server.") from e
-
     chosen = [lv for lv in levels if lv in data["by_level"]]
     if not chosen:
         raise HTTPException(422, "Pick at least one admin level")
@@ -1265,19 +1260,14 @@ def _export(
     if len(feats) == 1 and feat_levels[0] < 6:
         del feats[0]["properties"][field]
 
-    topology = Topology(
-        {"type": "FeatureCollection", "features": feats}, object_name="ADM", ignore_index=True
-    )
-
-    topo_str = topology.to_json()
-    topo_dict = json.loads(topo_str)
-
-    # Iterate through the geometries and remove the 'id' key
-    for geom in topo_dict["objects"]["ADM"]["geometries"]:
-        geom.pop("id", None)  # Removes 'id' if it exists, does nothing if it doesn't
-
-    # If you need the string back:
-    cleaned_topo_str = json.dumps(topo_dict)
+    try:
+        cleaned_topo_str = mapshaper_tool.to_topojson(
+            {"type": "FeatureCollection", "features": feats}, "ADM"
+        )
+    except mapshaper_tool.MapshaperMissingError as e:
+        raise HTTPException(422, str(e)) from e
+    except mapshaper_tool.MapshaperError as e:
+        raise HTTPException(500, e.message) from e
 
     stem = "".join(c if c.isascii() and (c.isalnum() or c in "._-") else "_" for c in name.strip())
     stem = stem.removesuffix(".topojson") or f"ADM{adm}"
