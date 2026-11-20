@@ -46,7 +46,6 @@ MAX_CLUES = 2
 MIN_WASTE_MS = 20_000
 AREA_WEIGHT = 10.0  # the biggest polygon adds this much (the three ratings add up to 30 at most)
 SEARCH_AREA_SHARE = 0.5  # replay region clues must be this share of the searched area or smaller
-INFO_MAX = 180
 PINPOINT_URL: str | None = None  # where to send people to practise pinpointing (not decided yet)
 PINPOINT_LABEL = "Practice pinpointing"
 CLUES_DIR = Path(__file__).parents[2] / "data" / "clues"
@@ -80,19 +79,15 @@ def _loc_ok(clue: dict, area_type: str) -> bool:
     return loc in {want, "Anywhere", None}
 
 
-def _short(text: str) -> str:
-    text = " ".join(str(text).split())
-    return text if len(text) <= INFO_MAX else text[: INFO_MAX - 1].rstrip() + "…"
-
-
-def _clue_out(cc: str, clue: dict, note: str | None = None) -> dict:
+def _clue_out(cc: str, clue: dict, note: str | None = None, depth: int | None = None) -> dict:
     out = {
         "id": clue["id"],
         "cc": cc,
-        "info": _short(clue.get("info", "")),
+        "info": clue.get("info", ""),
         "image": clue.get("image"),
         "tags": clue.get("tags", []),
         "note": note,
+        "depth": depth,
         # What the Explore card needs to draw a regional clue (see ClueMap.jsx).
         "svg": clue.get("svg"),
         "overlay": clue.get("overlay"),
@@ -113,25 +108,31 @@ def _clue_out(cc: str, clue: dict, note: str | None = None) -> dict:
     return out
 
 
-def _area_notes(src, cc: str, ranked: list[dict], real_pt, guess_pt) -> dict[str, str]:
-    """Map-only clues with named areas: 'You guessed in A, but it was in B.' by clue id."""
-    out: dict[str, str] = {}
+def _area_notes(src, cc: str, ranked: list[dict], real_pt, guess_pt) -> dict[str, tuple]:
+    """Map-only clues with named areas: clue id -> (sentence, depth to open it at).
+
+    A clue with several depths (prefix levels) is read from the lowest depth at which the real spot and
+    the guess fall in different areas, and the card opens on that depth (None = the clue has no depths).
+    """
+    out: dict[str, tuple] = {}
     for c in ranked[:MAX_CLUES]:
         if c.get("image"):
             continue
         try:
-            named = src.named(cc, c)
+            levels = src.levels(cc, c) or [(None, src.named(cc, c))]
         except Exception:
             logger.exception("Could not name the areas of clue %s/%s", cc, c.get("id"))
             continue
-        real_name = next((n for n, g in named if g.intersects(real_pt)), None)
-        if not real_name:
-            continue
-        guess_name = next((n for n, g in named if g.intersects(guess_pt)), None)
-        if guess_name == real_name:
-            continue
-        where = f"in {guess_name}" if guess_name else "outside the marked areas"
-        out[c["id"]] = f"You guessed {where}, but it was in {real_name}."
+        for depth, named in levels:
+            real_name = next((n for n, g in named if g.intersects(real_pt)), None)
+            if not real_name:
+                continue
+            guess_name = next((n for n, g in named if g.intersects(guess_pt)), None)
+            if guess_name == real_name:
+                continue
+            where = f"on the {guess_name} region" if guess_name else "outside of any region"
+            out[c["id"]] = (f"You guessed {where} but it was on the {real_name} region.", depth)
+            break
     return out
 
 
@@ -350,7 +351,10 @@ def _action(c: dict, text: str, scope: str, ranked: list[dict], notes: dict | No
         "type": c["kind"],
         "round": c["round"]["n"],
         "text": text,
-        "clues": [_clue_out(real["cc"], x, (notes or {}).get(x["id"])) for x in ranked[:MAX_CLUES]],
+        "clues": [
+            _clue_out(real["cc"], x, *(notes or {}).get(x["id"], (None, None)))
+            for x in ranked[:MAX_CLUES]
+        ],
         "link": _link(real["cc"], scope, real["area_type"], ranked),
         "link_label": label[0].upper() + label[1:],
     }
@@ -377,7 +381,7 @@ def _region_action(c: dict, src) -> dict:
     real, g = r["real"], r["guess"]
     cc, point = real["cc"], Point(real["lng"], real["lat"])
     x = _area_label(real["state"], real["city"], cc, real["country"])
-    notes: dict[str, str] = {}
+    notes: dict[str, tuple] = {}
     if g:  # a guess pin to compare against
         y = _area_label(g["state"], g["city"], cc, real["country"])
         if y and y != x:

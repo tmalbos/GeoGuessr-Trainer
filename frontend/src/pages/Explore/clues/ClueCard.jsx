@@ -33,7 +33,7 @@ export function SourceChip({ source }) {
 }
 
 // The extra_info of a clicked area: an embedded image, or text.
-function AreaInfo({ pick }) {
+export function AreaInfo({ pick }) {
   return <div className="area-info">
     {pick.extra.startsWith("data:image/")
       ? <img src={pick.extra} alt={pick.name} className={pick.blur ? "clue-blur" : undefined} tabIndex={pick.blur ? 0 : undefined}

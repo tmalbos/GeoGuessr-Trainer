@@ -86,10 +86,20 @@ class ClueSource:
             _PIECES[key] = out
         return _PIECES[key]
 
-    def named(self, cc: str, clue: dict) -> list[tuple]:
-        """[(area name, geometry)] of a map-only clue with named areas; [] for any other clue."""
+    def levels(self, cc: str, clue: dict) -> list[tuple[int, list[tuple]]]:
+        """[(depth, [(area name, geometry)])] of a prefix-coloured map-only clue, lowest depth first."""
+        files = clue.get("levels") or {}
+        if clue.get("image") or not files:
+            return []
+        return [(int(d), self.named(cc, clue, files[d])) for d in sorted(files, key=int)]
+
+    def named(self, cc: str, clue: dict, file: str | None = None) -> list[tuple]:
+        """[(area name, geometry)] of a map-only clue with named areas; [] for any other clue.
+
+        `file` = the per-depth map to read instead of the clue's own geometry.
+        """
         cc = cc.strip().upper()
-        name = clue.get("polygons") or clue.get("csv")
+        name = file or clue.get("polygons") or clue.get("csv")
         if not name or clue.get("image"):
             return []
         path = CLUES_DIR / cc / name
@@ -100,7 +110,7 @@ class ClueSource:
         key = (cc, name, stamp)
         if key not in _NAMES:
             try:
-                _NAMES[key] = self._names(cc, path, bool(clue.get("polygons")))
+                _NAMES[key] = self._names(cc, path, bool(file or clue.get("polygons")))
             except Exception:
                 logger.exception("Could not name the areas of clue %s/%s", cc, clue.get("id"))
                 _NAMES[key] = []

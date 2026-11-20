@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { api } from "../../lib/api.js";
 import { num, time, tone } from "../../lib/format.js";
+import { AreaInfo } from "../Explore/clues/ClueCard.jsx";
 import ClueMap from "../Explore/clues/ClueMap.jsx";
 import { useCountries } from "../Explore/clues/countries.js";
 import fileUrl from "../Explore/clues/fileUrl.js";
@@ -41,6 +42,8 @@ const hasSaved = (x) => x.time_saved_ms > 0 || x.steps_saved > 0;
 /** A clue like the Explore page shows it: the photo (with its region on top), or the region map for map-only clues. */
 function ClueItem({ c }) {
   const { idOf } = useCountries();
+  const [pick, setPick] = useState(null); // the area of a map-only clue that was clicked
+  const pickArea = (a) => setPick((p) => (p?.name === a.name ? null : a)); // click again to close
   const region = c.svg || c.overlay;
   let media = null;
   if (c.image) {
@@ -51,13 +54,15 @@ function ClueItem({ c }) {
   } else if (c.svg) {
     media = <div className="rr-clue-media"><img src={fileUrl(c.cc, c.svg)} alt="" loading="lazy" /></div>;
   } else if (c.overlay || c.polygons || c.lines || c.points || c.csv) {
-    media = <div className="rr-clue-media map"><ClueMap cc={idOf(c.cc)} clue={c} /></div>;
+    media = <div className="rr-clue-media map"><ClueMap cc={idOf(c.cc)} clue={c} onArea={pickArea} selected={pick?.name} /></div>;
   }
   return <li>
     {media}
     <div className="rr-act-info">
       {c.note && <b className="rr-act-note">{c.note}</b>}
       <RichText text={c.info} />
+      {pick && !pick.extra && <p className="clue-note"><b>NOTE:</b> {pick.name}</p>}
+      {pick?.extra && <AreaInfo pick={pick} />}
     </div>
   </li>;
 }
