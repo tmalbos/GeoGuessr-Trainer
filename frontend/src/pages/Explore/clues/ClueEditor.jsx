@@ -373,7 +373,7 @@ export default function ClueEditor({ cc, name, clue, prefill, onClose, onSaved, 
       ? ["image", ...GEOM_FIELDS, "svg", "csv"].filter((k) => clue[k] && !used.has(k)) : [];
     return {
         scope, info, tags: [location, general], deck, blur: isImage && blur,
-      max_height: isImage ? maxH : null,
+      max_height: isImage || drawing ? maxH : null,
       show_names: isImage || showNames,
       prefix_colors: namedAreas && prefixColors,
       view: drawing || showArea ? view : null,
@@ -458,7 +458,7 @@ export default function ClueEditor({ cc, name, clue, prefill, onClose, onSaved, 
       {/* Same grid as the clue card: media on the left, body on the right. */}
       <div className="clue ed-clue">
         <div className="ed-left" ref={colRef}>
-          {drawing ? <DrawMap cc={cc} stage={stageInput} onResult={takeDrawn} trailing={modeToggle} optionsEl={chkEl} showNames={showNames} prefixColors={prefixColors} stored={clue?.polygons ?? null} storedView={view} onView={setView} /> : <ClueImage ref={imgApi} current={imageGone ? null : clue?.image ? fileUrl(cc, clue.image, clue.rev) : null} colRef={colRef} overlay={badges}
+          {drawing ? <DrawMap cc={cc} stage={stageInput} onResult={takeDrawn} trailing={modeToggle} optionsEl={chkEl} showNames={showNames} prefixColors={prefixColors} stored={clue?.polygons ?? null} storedView={view} onView={setView} maxH={maxH} onMaxH={setMaxH} /> : <ClueImage ref={imgApi} current={imageGone ? null : clue?.image ? fileUrl(cc, clue.image, clue.rev) : null} colRef={colRef} overlay={badges}
             preview={mediaPreview} incoming={incoming}
             regionSlot={showArea} onOverlay={setOvEl} loading={mediaBusy || (!!prefill?.pending && !mainKind)} reserve={reserve}
             onOtherFile={(f) => takeMedia({ file: f })} onOtherText={(t) => takeMedia({ text: t })} onRemove={removeMedia}

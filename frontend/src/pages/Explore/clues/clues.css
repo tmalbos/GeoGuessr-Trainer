@@ -6,6 +6,9 @@
 .clue-media img { display: block; width: 100%; height: auto; }
 .clue-ov { position: absolute; right: 8px; bottom: 8px; width: 38%; filter: drop-shadow(0 2px 6px rgba(0,0,0,.6)); pointer-events: none; }
 .clue-full { padding: 14px; }
+/* Map-only clue with a height set in the editor: the map is capped at that height (without one: the .cl-svg cap below). */
+.clue-full.limited .cl-svg { max-height: var(--mh); }
+.clue-full.limited .cl-overlay-img { max-height: var(--mh); }
 .clue-tags { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 10px; }
 .cp-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .cp-edit { padding: 6px 10px; display: inline-grid; place-items: center; }

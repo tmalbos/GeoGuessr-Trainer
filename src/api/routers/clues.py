@@ -17,7 +17,7 @@ Relations: a clue has `relations: [{type, cc, id}]` (same_as | similar_to | grou
            group       stays inside one country and is transitive (see _close_group).
          Removing a link only removes that link.
          `relation_notes: {same_as|similar_to: {verb, text}}` is the sentence the card shows.
-         `max_height`: px cap for the clue image on the card (only kept when the clue has an image).
+         `max_height`: px cap for the height of the clue image on the card, or of the map of a map-only clue.
 Shades:  a polygons file may carry a `shade` column (0 = the main tone, 1..3 = lighter = rarer part of the region).
          The geo preview / GET /clues/{CC}/geo/{file} then adds a `shades` list next to the geometries.
 Stats:   staging a geometry file also returns `stats` (see src/geo/region_stats.py): the editor uses them to
@@ -702,7 +702,7 @@ class ClueBody(BaseModel):
     blur: bool = False  # blur the clue image until hovered (only kept when the clue has an image)
     max_height: int | None = Field(
         None, ge=100, le=2000
-    )  # px cap for the image on the card (only kept with an image)
+    )  # px cap for the height of the image (or of a map-only clue's map) on the card
     show_names: bool = True  # drawn regional clue: print the area names on the map where they fit (False = hide them)
     view: ViewIn | None = (
         None  # drawn regional clue: zoom / pan the card opens on (None = the whole country)
@@ -1122,7 +1122,6 @@ def add_clue(cc: str, body: ClueBody, request: Request):
             entry = {k: v for k, v in entry.items() if v is not None}
             if "image" not in entry:
                 entry.pop("blur", None)
-                entry.pop("max_height", None)
             geo_kind = next((k for k in GEOM_KINDS if k in names), None)
             if body.scope == "reg" and geo_kind:
                 svg = _render_overlay(cc, folder / names[geo_kind], get_ctx(request).local_geo)
@@ -1333,7 +1332,6 @@ def update_clue(cc: str, clue_id: str, body: ClueBody, request: Request):
             entry = {k: v for k, v in entry.items() if v is not None}
             if "image" not in entry:
                 entry.pop("blur", None)
-                entry.pop("max_height", None)
             geo_kind = next((k for k in GEOM_KINDS if entry.get(k)), None)
             if entry["scope"] == "reg" and geo_kind:
                 # A geometry file that is being overwritten is still the staged one at this point.

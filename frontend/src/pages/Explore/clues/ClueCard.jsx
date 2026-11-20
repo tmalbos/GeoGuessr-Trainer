@@ -52,6 +52,7 @@ function Media({ cc, clue, children, onArea, selected }) {
   const hasSvg = !!clue.svg;
   const map = isReg && !clue.image && <ClueMap cc={cc} clue={clue} onArea={onArea} selected={selected} />;
   const limited = !!clue.image && !!clue.max_height;
+  const mapLimited = !clue.image && !clue.svg && !!clue.max_height; // map-only clue with a height set in the editor
   const [ovNode, setOvNode] = useState(null);
   const ovH = useBoxHeight(ovNode);
   return <div className={`clue-media ${limited ? "limited" : ""}`} style={limited ? { "--mh": `${clue.max_height}px` } : undefined}>
@@ -67,7 +68,7 @@ function Media({ cc, clue, children, onArea, selected }) {
           </>
         : clue.svg
           ? <img src={fileUrl(cc, clue.svg, clue.rev)} alt="" loading="lazy" />
-          : <div className="clue-full">{map}</div>}
+          : <div className={`clue-full ${mapLimited ? "limited" : ""}`} style={mapLimited ? { "--mh": `${clue.max_height}px` } : undefined}>{map}</div>}
     </div>
     {children}
   </div>;

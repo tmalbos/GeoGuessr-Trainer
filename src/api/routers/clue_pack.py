@@ -233,7 +233,6 @@ def _build(c: dict, cc: str, z: zipfile.ZipFile, folder: Path) -> tuple[dict, li
         return None
     if "image" not in entry:
         entry.pop("blur", None)
-        entry.pop("max_height", None)
     return entry, mine
 
 

@@ -2,6 +2,13 @@
 .dm { position: relative; }
 .dm-svg { display: block; width: 100%; height: auto; max-height: 640px; background: var(--paper); border: 1px solid var(--line);
   border-radius: 8px; touch-action: none; user-select: none; -webkit-user-select: none; }
+/* Same box as the card's map (.clue-full: 14px of paper around it), so the map has the same width and height here as there.
+   Off while the real map is shown behind it: the tiles need the box to be exactly the map. */
+.dm:not(.tiles) { padding: 14px; background: var(--paper); border-radius: 8px; }
+.dm:not(.tiles) .dm-svg { border: 0; border-radius: 0; background: transparent; }
+.dm:not(.tiles) .ed-hh { bottom: 14px; }
+.dm:not(.tiles) .ed-hval { bottom: 40px; }
+.dm:hover .ed-hh { opacity: 1; }
 .dm-levels { position: absolute; top: 8px; left: 8px; right: 8px; z-index: 3; display: flex; flex-wrap: wrap; gap: 4px; pointer-events: none; }
 .dm-levels button { pointer-events: auto; padding: 2px 10px; font-size: 12px; border: 1px solid var(--line); border-radius: 999px;
   background: #161b22cc; cursor: pointer; }

@@ -18,6 +18,8 @@ import "./draw.css";
 const W = 1000;
 const MAX_ZOOM = 80;
 const DRAG_PX = 4;
+const MIN_H = 120; // smallest map height the handle can set (px)
+const DEFAULT_H = 336; // height the card gives a map when none is set (keep equal to the .cl-svg max-height in clues.css)
 const PALE = "#f6f4e4"; // keep equal to PALE in src/api/routers/clue_draw.py
 
 const ico = { width: 19, height: 19, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 2, strokeLinecap: "round", strokeLinejoin: "round", "aria-hidden": true };
@@ -94,7 +96,7 @@ function CategoryImage({ name, value, look, onChange, onLook }) {
  *  (null when nothing is drawn). `trailing` goes at the end of the toolbar row (the Import | Draw switch).
  *  Lock (toolbar): remembers the zoom and position on screen as `{ k, fx, fy }` (see ZoomableRegion) and hands it to `onView`;
  *  the card then opens on that framing instead of the whole country. `storedView` is the framing already locked (null = none). */
-export default function DrawMap({ cc, stage, onResult, trailing, optionsEl, showNames, prefixColors, stored, storedView, onView }) {
+export default function DrawMap({ cc, stage, onResult, trailing, optionsEl, showNames, prefixColors, stored, storedView, onView, maxH, onMaxH }) {
   const [base, setBase] = useState(null);
   const [err, setErr] = useState("");
   const [level, setLevel] = useState(0);
@@ -118,6 +120,8 @@ export default function DrawMap({ cc, stage, onResult, trailing, optionsEl, show
   const [looks, setLooks] = useState({}); // color slot -> { blur, maxH } of that category's image
   const [locked, setLocked] = useState(storedView ?? null); // { k, fx, fy }: the framing the card opens on
   const viewApplied = useRef(false);
+  const [hh, setHh] = useState(null); // live height readout while dragging the height handle
+  const hdrag = useRef(null);
   const colorRef = useRef(null);
   const wrap = useRef(null);
   const shiftAt = useRef(0);
@@ -235,17 +239,21 @@ export default function DrawMap({ cc, stage, onResult, trailing, optionsEl, show
   const unitPaths = useMemo(() => (proj && units ? units.map((u) => ({ id: u.id, name: u.name, d: shapes(u.geometry, proj.fwd).polys })) : []), [proj, units]);
   const fillOf = useMemo(() => (colored ? colorOf : () => PALE), [colored, palette, slotColors]); // eslint-disable-line react-hooks/exhaustive-deps
   // Names on the drawn areas (the "Show category names" setting): printed where they fit, so zooming in adds more.
-  const [svgW, setSvgW] = useState(0);
+  const [svgBox, setSvgBox] = useState([0, 0]);
   useEffect(() => {
     const el = svg.current;
     if (!el || typeof ResizeObserver !== "function") return undefined;
-    const read = () => setSvgW(el.getBoundingClientRect().width);
+    const read = () => {
+      const r = el.getBoundingClientRect();
+      setSvgBox((b) => (b[0] === r.width && b[1] === r.height ? b : [r.width, r.height]));
+    };
     read();
     const ro = new ResizeObserver(read);
     ro.observe(el);
     return () => ro.disconnect();
   }, [proj]);
-  const nameScale = svgW ? Math.round((svgW / view.w) * 1000) / 1000 : 0;
+  // The map is fitted inside its box (height cap), so the tighter side sets the screen px per map unit.
+  const nameScale = svgBox[0] && proj ? Math.round(Math.min(svgBox[0] / view.w, svgBox[1] / ((view.w * proj.H) / W)) * 1000) / 1000 : 0;
   const labels = useMemo(() => (showNames && proj && nameScale > 0
     ? shown.map((f) => ({ name: f.properties.name, spot: areaNameSpot(f.geometry, f.properties.name, proj.fwd, NAME_PX / nameScale, `${proj.H}|${proj.s}`) })).filter((l) => l.spot)
     : []), [showNames, proj, shown, nameScale]);
@@ -392,7 +400,8 @@ export default function DrawMap({ cc, stage, onResult, trailing, optionsEl, show
         d.moved = true;
         e.currentTarget.setPointerCapture(e.pointerId);
       }
-      const k = d.v.w / svg.current.getBoundingClientRect().width;
+      const r = svg.current.getBoundingClientRect(); // fitted inside the box: the tighter side sets the scale
+      const k = Math.max(d.v.w / r.width, (d.v.w * proj.H) / W / r.height);
       setView(clampView({ ...d.v, x: d.v.x - dx * k, y: d.v.y - dy * k }, proj.H));
       return;
     }
@@ -417,6 +426,28 @@ export default function DrawMap({ cc, stage, onResult, trailing, optionsEl, show
 
   const unit = (view.w / W) * size;
 
+  // The map's height on the card is the height of this box: drag the bottom handle to set it (the card then shows the same).
+  const cap = maxH ?? DEFAULT_H;
+  const fullH = () => { const r = svg.current?.getBoundingClientRect(); return r && proj ? Math.round((r.width * proj.H) / W) : 9999; };
+  const hDown = (e) => {
+    e.preventDefault();
+    e.currentTarget.setPointerCapture(e.pointerId);
+    hdrag.current = { y: e.clientY, h: svg.current.getBoundingClientRect().height };
+  };
+  const hMove = (e) => {
+    const d = hdrag.current;
+    if (!d) return;
+    const h = Math.min(Math.max(Math.round(d.h + e.clientY - d.y), MIN_H), fullH());
+    setHh(h);
+    onMaxH?.(h);
+  };
+  const hUp = () => { hdrag.current = null; setHh(null); };
+  const hKey = (e) => {
+    if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
+    e.preventDefault();
+    onMaxH?.(Math.min(Math.max(cap + (e.key === "ArrowUp" ? -20 : 20), MIN_H), fullH()));
+  };
+
   return <>
     <div className={`dm ${tiles ? "tiles" : ""}`} ref={wrap}>
       {proj ? <>
@@ -426,7 +457,7 @@ export default function DrawMap({ cc, stage, onResult, trailing, optionsEl, show
             <button key={l} type="button" className={level === v ? "on" : ""} aria-pressed={level === v} onClick={() => setLevel(v)}>{l}</button>)}
         </div>
         <svg ref={svg} className="dm-svg" viewBox={`${view.x} ${view.y} ${view.w} ${(view.w * proj.H) / W}`} role="img" aria-label="Map to draw on"
-          style={{ cursor: painting ? "crosshair" : undefined }} onContextMenu={(e) => e.preventDefault()}
+          style={{ cursor: painting ? "crosshair" : undefined, maxHeight: tiles ? undefined : cap }} onContextMenu={(e) => e.preventDefault()}
           onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={up}>
           <path className="cl-r" d={landD} fillRule="evenodd" />
           <Units paths={unitPaths} click={tool === "fill"} onPick={onPick} />
@@ -437,6 +468,12 @@ export default function DrawMap({ cc, stage, onResult, trailing, optionsEl, show
           {live && <path d={pathOf(live)} fill="none" strokeLinecap="round" strokeLinejoin="round" strokeWidth={unit}
             stroke={tool === "erase" ? "#ff7357" : "#ffffff"} strokeOpacity=".5" style={{ pointerEvents: "none" }} />}
         </svg>
+        {!tiles && <>
+          {hh != null && <span className="ed-hval">{hh} px</span>}
+          <div className={`ed-hh ${maxH ? "set" : ""} ${hh != null ? "on" : ""}`} role="slider" tabIndex={0} aria-orientation="vertical"
+            aria-label="Maximum map height" aria-valuemin={MIN_H} aria-valuenow={cap} title="Drag to set the map height (double-click to reset)"
+            onPointerDown={hDown} onPointerMove={hMove} onPointerUp={hUp} onKeyDown={hKey} onDoubleClick={() => onMaxH?.(null)} />
+        </>}
       </> : err ? <p className="err">{err}</p> : <p className="muted">Loading map…</p>}
     </div>
     <div className="ed-tools dm-tools" role="toolbar" aria-label="Draw tools">
