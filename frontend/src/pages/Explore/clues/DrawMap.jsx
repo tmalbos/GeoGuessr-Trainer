@@ -449,7 +449,7 @@ export default function DrawMap({ cc, stage, onResult, trailing, optionsEl, show
   };
 
   return <>
-    <div className={`dm ${tiles ? "tiles" : ""}`} ref={wrap}>
+    <div className={`dm named ${tiles ? "tiles" : ""}`} ref={wrap}>
       {proj ? <>
         {tiles && <TileBackdrop proj={proj} view={view} />}
         <div className="dm-levels" role="group" aria-label="Subdivision level">

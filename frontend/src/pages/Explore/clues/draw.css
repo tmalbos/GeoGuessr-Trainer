@@ -31,6 +31,8 @@
 .dm-unit { fill: transparent; stroke: #8b98a8; stroke-opacity: .6; stroke-width: 1px; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
 .dm-unit.click { cursor: pointer; }
 .dm-unit.click:hover { fill: #ffffff26; }
+/* Painted areas look like the card's .cl-area (dark outline, slight transparency). Brush strokes (fill="none") are left alone. */
+.dm.named .dm-paint path:not([fill="none"]) { stroke: #0d1117; stroke-width: 1px; stroke-linejoin: round; fill-opacity: .92; vector-effect: non-scaling-stroke; }
 .dm-res { stroke: #0d1117; stroke-width: 1px; fill-opacity: .92; vector-effect: non-scaling-stroke; }
 .dm-res.click { cursor: pointer; }
 .dm-tools input[type="range"] { width: 110px; padding: 0; border: 0; background: none; margin: 0 4px; }
