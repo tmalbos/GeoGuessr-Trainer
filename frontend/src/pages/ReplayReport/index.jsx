@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import { api } from "../../lib/api.js";
 import { num, time, tone } from "../../lib/format.js";
+import ClueMap from "../Explore/clues/ClueMap.jsx";
+import { useCountries } from "../Explore/clues/countries.js";
 import fileUrl from "../Explore/clues/fileUrl.js";
 import RichText from "../Explore/clues/richText.jsx";
 import GradeIcon from "./GradeIcon.jsx";
@@ -36,6 +38,30 @@ const savedTitle = (parts) => [...Object.entries(PART_LABELS)
   .map(([k, l]) => `${l}: ${saved(parts[k].time_ms)} · ${stepsText(parts[k].steps)}`)].join("\n");
 const hasSaved = (x) => x.time_saved_ms > 0 || x.steps_saved > 0;
 
+/** A clue like the Explore page shows it: the photo (with its region on top), or the region map for map-only clues. */
+function ClueItem({ c }) {
+  const { idOf } = useCountries();
+  const region = c.svg || c.overlay;
+  let media = null;
+  if (c.image) {
+    media = <div className="rr-clue-media">
+      <img src={fileUrl(c.cc, c.image)} alt="" loading="lazy" />
+      {region && <div className="rr-clue-ov"><img src={fileUrl(c.cc, region)} alt="" /></div>}
+    </div>;
+  } else if (c.svg) {
+    media = <div className="rr-clue-media"><img src={fileUrl(c.cc, c.svg)} alt="" loading="lazy" /></div>;
+  } else if (c.overlay || c.polygons || c.lines || c.points || c.csv) {
+    media = <div className="rr-clue-media map"><ClueMap cc={idOf(c.cc)} clue={c} /></div>;
+  }
+  return <li>
+    {media}
+    <div className="rr-act-info">
+      {c.note && <b className="rr-act-note">{c.note}</b>}
+      <RichText text={c.info} />
+    </div>
+  </li>;
+}
+
 /** The (at most two) things worth working on after this game. Computed by the backend (report_actions.py). */
 function Actions({ list }) {
   if (!list?.length) return null;
@@ -43,10 +69,7 @@ function Actions({ list }) {
     <h3>What to work on</h3>
     {list.map((a, i) => <div className="rr-act" key={i}>
       <p className="rr-act-text">{a.round != null && <span className="muted">Round {a.round} · </span>}{a.text}</p>
-      {a.clues.length > 0 && <ul className="rr-act-clues">{a.clues.map((c) => <li key={c.id}>
-        {c.image && <img src={fileUrl(c.cc, c.image)} alt="" loading="lazy" />}
-        <span><RichText text={c.info} /></span>
-      </li>)}</ul>}
+      {a.clues.length > 0 && <ul className="rr-act-clues">{a.clues.map((c) => <ClueItem key={c.id} c={c} />)}</ul>}
       {a.link && <a className="btn ghost" href={a.link}>{a.link_label}</a>}
     </div>)}
   </section>;

@@ -21,6 +21,7 @@ logger = logging.getLogger("uvicorn.error")
 
 _SHAPES: dict[tuple, tuple | None] = {}
 _PIECES: dict[tuple, list[tuple]] = {}
+_NAMES: dict[tuple, list[tuple]] = {}
 
 
 def _norm(s) -> str:
@@ -84,6 +85,44 @@ class ClueSource:
                 out = [one] if one else []
             _PIECES[key] = out
         return _PIECES[key]
+
+    def named(self, cc: str, clue: dict) -> list[tuple]:
+        """[(area name, geometry)] of a map-only clue with named areas; [] for any other clue."""
+        cc = cc.strip().upper()
+        name = clue.get("polygons") or clue.get("csv")
+        if not name or clue.get("image"):
+            return []
+        path = CLUES_DIR / cc / name
+        try:
+            stamp = path.stat().st_mtime_ns
+        except OSError:
+            return []
+        key = (cc, name, stamp)
+        if key not in _NAMES:
+            try:
+                _NAMES[key] = self._names(cc, path, bool(clue.get("polygons")))
+            except Exception:
+                logger.exception("Could not name the areas of clue %s/%s", cc, clue.get("id"))
+                _NAMES[key] = []
+        return _NAMES[key]
+
+    def _names(self, cc: str, path, is_polygons: bool) -> list[tuple]:
+        if is_polygons:
+            gdf = gpd.read_parquet(path)
+            if "name" not in gdf.columns:
+                return []
+            keys = gdf["name"].fillna("").astype(str)
+            return [
+                (n, shapely.union_all(shapely.make_valid(sub.geometry.to_numpy())))
+                for n, sub in gdf.groupby(keys, sort=True)
+                if n
+            ]
+        layer = self._local._admin_layer(cc)  # noqa: SLF001
+        try:
+            names, _, _, geoms = build_areas(read_rows(path.read_bytes()), layer, path.parent)
+        except AreasError:
+            return []
+        return [(n, g) for n, g in zip(names, geoms, strict=True) if not g.is_empty]
 
     def _named(self, cc: str, path, is_polygons: bool) -> list[tuple]:
         """One (geometry, area) per named area; [] when the clue has no named areas."""

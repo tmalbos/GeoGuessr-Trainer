@@ -23,7 +23,10 @@ Clues come from data/clues (through `src`, see src/api/clue_source.py):
 No clues found = the sentence and the link are still returned, with an empty clue list.
 """
 
+import csv
+import io
 import logging
+from pathlib import Path
 
 import geopandas as gpd
 import shapely
@@ -46,6 +49,7 @@ SEARCH_AREA_SHARE = 0.5  # replay region clues must be this share of the searche
 INFO_MAX = 180
 PINPOINT_URL: str | None = None  # where to send people to practise pinpointing (not decided yet)
 PINPOINT_LABEL = "Practice pinpointing"
+CLUES_DIR = Path(__file__).parents[2] / "data" / "clues"
 
 _LOC = {"urban": "Urban", "rural": "Rural"}
 
@@ -81,14 +85,54 @@ def _short(text: str) -> str:
     return text if len(text) <= INFO_MAX else text[: INFO_MAX - 1].rstrip() + "…"
 
 
-def _clue_out(cc: str, clue: dict) -> dict:
-    return {
+def _clue_out(cc: str, clue: dict, note: str | None = None) -> dict:
+    out = {
         "id": clue["id"],
         "cc": cc,
         "info": _short(clue.get("info", "")),
         "image": clue.get("image"),
         "tags": clue.get("tags", []),
+        "note": note,
+        # What the Explore card needs to draw a regional clue (see ClueMap.jsx).
+        "svg": clue.get("svg"),
+        "overlay": clue.get("overlay"),
+        "polygons": clue.get("polygons"),
+        "lines": clue.get("lines"),
+        "points": clue.get("points"),
+        "csv": clue.get("csv"),
+        "levels": clue.get("levels"),
+        "view": clue.get("view"),
+        "show_names": clue.get("show_names"),
     }
+    if clue.get("csv"):
+        try:
+            text = (CLUES_DIR / cc / clue["csv"]).read_text(encoding="utf-8")
+            out["csv_rows"] = list(csv.reader(io.StringIO(text)))
+        except OSError:
+            pass
+    return out
+
+
+def _area_notes(src, cc: str, ranked: list[dict], real_pt, guess_pt) -> dict[str, str]:
+    """Map-only clues with named areas: 'You guessed in A, but it was in B.' by clue id."""
+    out: dict[str, str] = {}
+    for c in ranked[:MAX_CLUES]:
+        if c.get("image"):
+            continue
+        try:
+            named = src.named(cc, c)
+        except Exception:
+            logger.exception("Could not name the areas of clue %s/%s", cc, c.get("id"))
+            continue
+        real_name = next((n for n, g in named if g.intersects(real_pt)), None)
+        if not real_name:
+            continue
+        guess_name = next((n for n, g in named if g.intersects(guess_pt)), None)
+        if guess_name == real_name:
+            continue
+        where = f"in {guess_name}" if guess_name else "outside the marked areas"
+        out[c["id"]] = f"You guessed {where}, but it was in {real_name}."
+    return out
 
 
 def _area_label(state: str, city: str, cc: str, country: str) -> str:
@@ -292,7 +336,7 @@ def _link(cc: str, scope: str, area_type: str, ranked: list[dict]) -> str:
     return f"#/explore/{cc}/clues?" + "&".join(q)
 
 
-def _action(c: dict, text: str, scope: str, ranked: list[dict]) -> dict:
+def _action(c: dict, text: str, scope: str, ranked: list[dict], notes: dict | None = None) -> dict:
     real = c["round"]["real"]
     loc = _LOC.get((real["area_type"] or "").lower())
     words = [
@@ -306,7 +350,7 @@ def _action(c: dict, text: str, scope: str, ranked: list[dict]) -> dict:
         "type": c["kind"],
         "round": c["round"]["n"],
         "text": text,
-        "clues": [_clue_out(real["cc"], x) for x in ranked[:MAX_CLUES]],
+        "clues": [_clue_out(real["cc"], x, (notes or {}).get(x["id"])) for x in ranked[:MAX_CLUES]],
         "link": _link(real["cc"], scope, real["area_type"], ranked),
         "link_label": label[0].upper() + label[1:],
     }
@@ -333,13 +377,16 @@ def _region_action(c: dict, src) -> dict:
     real, g = r["real"], r["guess"]
     cc, point = real["cc"], Point(real["lng"], real["lat"])
     x = _area_label(real["state"], real["city"], cc, real["country"])
+    notes: dict[str, str] = {}
     if g:  # a guess pin to compare against
         y = _area_label(g["state"], g["city"], cc, real["country"])
         if y and y != x:
             text = f"You confused {x} for {y} and it cost you {_cost(c)}."
         else:
             text = f"You guessed the wrong part of {x} and it cost you {_cost(c)}."
-        ranked = regional_clues(src, cc, real["area_type"], point, Point(g["lng"], g["lat"]))
+        guess_pt = Point(g["lng"], g["lat"])
+        ranked = regional_clues(src, cc, real["area_type"], point, guess_pt)
+        notes = _area_notes(src, cc, ranked, point, guess_pt)
     else:  # no guess: only what the player was searching
         text = (
             f"You searched {real['country'] or cc} for {_fmt_ms(c['time_ms'])} without a clear "
@@ -351,7 +398,7 @@ def _region_action(c: dict, src) -> dict:
             if area > 0
             else []
         )
-    return _action(c, text, "reg", ranked)
+    return _action(c, text, "reg", ranked, notes)
 
 
 def _replay_region_action(c: dict, src) -> dict:
