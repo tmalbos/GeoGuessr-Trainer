@@ -32,6 +32,7 @@ const tiers = (g) => {
 // scattered region (many small stains), not a handful of pinpoints, so they are all drawn as shapes.
 const MAX_PIN_SHARE = 0.001;
 const MAX_PINS = 12;
+const FOCUS_K = 4;
 
 const ringArea = (ring, project) => {
   const p = ring.map(project);
@@ -252,7 +253,7 @@ function Pin({ at: [x, y], className = "cl-poly", style, children, size = 1.5, .
  *  polygon. With `onStain(id)` each one can be clicked (or Enter / Space) to switch it off and on; an inactive stain is
  *  drawn grey, faint and dashed. A stain smaller than 2% of the country is drawn as a pin (see above).
  *  align="right": the country is drawn against the right edge of the box (used by the overlay on a clue photo). */
-export default function RegionPreview({ cc, layers, stains, onStain, onArea, selected, showNames, style, align, zoom, onZoom, pan, label = "Map of the country with the region painted on it" }) {
+export default function RegionPreview({ cc, layers, stains, onStain, onArea, selected, showNames, style, align, zoom, onZoom, pan, focus, onUnfocus, label = "Map of the country with the region painted on it" }) {
   const [base, setBase] = useState(undefined); // undefined = loading, null = not available
   const [stainColor, setStainColor] = useState(null);
   const [svgEl, setSvgEl] = useState(null);
@@ -274,7 +275,7 @@ export default function RegionPreview({ cc, layers, stains, onStain, onArea, sel
     const ro = new ResizeObserver(read);
     ro.observe(svgEl);
     return () => ro.disconnect();
-  }, [svgEl, zoom?.k]);
+  }, [svgEl, zoom?.k, focus]);
   useEffect(() => {
     let off = false;
     setBase(undefined);
@@ -296,14 +297,14 @@ export default function RegionPreview({ cc, layers, stains, onStain, onArea, sel
   const H = Math.round(Math.min(1400, Math.max(200, W * ratio)));
   // A tall country is narrower than the viewBox: fitProjection would centre it, so right-align it there
   // (and preserveAspectRatio below does the same when the box itself is wider than the drawing).
-  const project = fitProjection(bb, W, H, 6, align === "right" && !zoom);
+  const project = fitProjection(bb, W, H, 6, align === "right" && !zoom && !focus);
   const land = outline ? shapes(outline, project).polys : "";
   const borders = base?.borders ? shapes(base.borders, project).lines : "";
 
   const total = outline ? polyArea(outline, project) : 0;
   const plain = layers.filter((g) => !g.colors);
   const areaLayers = layers.filter((g) => g.colors); // named, colored areas (see areas.css)
-  const split = plain.map((g) => splitPins(g, total, project));
+  const split = plain.map((g) => (focus ? { rest: g, pins: [] } : splitPins(g, total, project)));
   const stainGeoms = (stains ?? []).map((s) => s.geometry);
   const tinyStains = stainGeoms.map((g, i) => (isSmall(g, total, project) ? i : -1)).filter((i) => i >= 0);
   const smallStains = aloneSmall(stainGeoms, tinyStains, project).map((i) => stains[i]);
@@ -311,11 +312,12 @@ export default function RegionPreview({ cc, layers, stains, onStain, onArea, sel
 
   // Zoom (see ZoomableRegion): the view is a 1/k window of the map centred on (fx, fy) and kept inside it.
   // `pan` = a ref object shared with the wrapper: { drag, moved }. A drag never counts as a click on an area.
-  const zk = zoom?.k ?? 1;
+  const zv = focus ? { k: FOCUS_K, fx: project(focus)[0] / W, fy: project(focus)[1] / H } : zoom;
+  const zk = zv?.k ?? 1;
   const vw = W / zk;
   const vh = H / zk;
-  const vx = Math.min(Math.max((zoom?.fx ?? 0.5) * W - vw / 2, 0), W - vw);
-  const vy = Math.min(Math.max((zoom?.fy ?? 0.5) * H - vh / 2, 0), H - vh);
+  const vx = Math.min(Math.max((zv?.fx ?? 0.5) * W - vw / 2, 0), W - vw);
+  const vy = Math.min(Math.max((zv?.fy ?? 0.5) * H - vh / 2, 0), H - vh);
   const fire = (a) => { if (!pan?.current.moved) onArea?.(a); };
   const panDown = (e) => {
     if (!pan) return;
@@ -348,10 +350,10 @@ export default function RegionPreview({ cc, layers, stains, onStain, onArea, sel
         {parts
           ? parts.map(([v, part]) => {
             const op = 0.85 * shadeFactor(v);
-            return <path key={v} className="cl-poly" d={shapes(part, project).polys} fillRule="evenodd"
+            return <path key={v} className={focus ? "cl-poly cl-back" : "cl-poly"} onClick={focus ? onUnfocus : undefined} d={shapes(part, project).polys} fillRule="evenodd"
               style={v ? { fillOpacity: op, strokeOpacity: op } : undefined} />;
           })
-          : <path className="cl-poly" d={s.polys} fillRule="evenodd" />}
+          : <path className={focus ? "cl-poly cl-back" : "cl-poly"} onClick={focus ? onUnfocus : undefined} d={s.polys} fillRule="evenodd" />}
         <path className="cl-line" d={s.lines} fill="none" />
         {s.pts.map(([x, y], j) => <circle key={j} className="cl-pt" cx={x} cy={y} r="5" />)}
         {mergePins(pins, 1.5 / zk).map((p, j) => {

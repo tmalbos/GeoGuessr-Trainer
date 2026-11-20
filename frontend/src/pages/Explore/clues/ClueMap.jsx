@@ -32,9 +32,11 @@ export default function ClueMap({ cc, clue, align, onArea, selected }) {
   const [map, setMap] = useState(null);
   const [geo, setGeo] = useState({});
   const [err, setErr] = useState("");
+  const [focus, setFocus] = useState(null);
+  const [ovSvg, setOvSvg] = useState("");
   const kinds = GEO_KINDS.filter((k) => clue[k]);
   const hasGeo = kinds.length > 0;
-  const overlay = hasGeo && !clue.areas && !clue.view ? clue.overlay : null;
+  const overlay = !focus && hasGeo && !clue.areas && !clue.view ? clue.overlay : null;
 
   // A prefix-coloured clue keeps one map per depth (clue.levels); the lowest one is shown until the user picks another.
   const depths = Object.keys(clue.levels ?? {}).map(Number).sort((a, b) => a - b);
@@ -72,12 +74,31 @@ export default function ClueMap({ cc, clue, align, onArea, selected }) {
     return () => { off = true; };
   }, [depth]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  useEffect(() => {
+    setOvSvg("");
+    if (!overlay) return undefined;
+    let off = false;
+    fetch(fileUrl(cc, overlay, clue.rev)).then((r) => r.text()).then((t) => !off && setOvSvg(t)).catch(() => {});
+    return () => { off = true; };
+  }, [cc, overlay, clue.rev]);
+
   const pickDepth = (d) => {
     setSaved(d);
     if (clue.id) api(`/clues/${cc}/${clue.id}/depth`, { method: "PUT", body: { depth: d } }).catch(() => {});
   };
 
   if (overlay) {
+    if (ovSvg.includes('class="ov-pin"')) {
+      const svgText = align === "right" ? ovSvg.replace("<svg ", '<svg preserveAspectRatio="xMaxYMid meet" ') : ovSvg;
+      return <div className="cl-overlay-svg" role="img" aria-label="Map showing where this clue applies"
+        onClick={(e) => {
+          const pin = e.target.closest?.(".ov-pin");
+          if (!pin) return;
+          e.stopPropagation();
+          setFocus([Number(pin.dataset.lon), Number(pin.dataset.lat)]);
+        }}
+        dangerouslySetInnerHTML={{ __html: svgText }} />;
+    }
     return <img className={`cl-overlay-img ${align === "right" ? "right" : ""}`} src={fileUrl(cc, overlay, clue.rev)}
       alt="Map showing where this clue applies" draggable={false} />;
   }
@@ -86,11 +107,11 @@ export default function ClueMap({ cc, clue, align, onArea, selected }) {
 
   if (hasGeo) {
     if (!kinds.every((k) => geo[k])) return <p className="muted">Loading map…</p>;
-    const Preview = onArea && !clue.view ? ZoomableRegion : RegionPreview; // map-only clues with clickable areas get zoom, unless the view is locked
+    const Preview = onArea && !clue.view && !focus ? ZoomableRegion : RegionPreview; // map-only clues with clickable areas get zoom, unless the view is locked
     // A locked view (drawn clues) is fixed: the map stays there (areas are still clickable, but no zoom / pan).
     return <>
       <Preview cc={cc} layers={kinds.map((k) => geo[k])} align={align} onArea={onArea} selected={selected} showNames={clue.show_names !== false}
-        {...(clue.view ? { zoom: clue.view } : {})} />
+        {...(clue.view ? { zoom: clue.view } : {})} focus={focus} onUnfocus={() => setFocus(null)} />
       {depths.length > 1 && <div className="tabs" style={{ margin: "8px 0 0" }} role="group" aria-label="Characters of the names to show">
         {depths.map((d) => <button key={d} type="button" className={d === depth ? "on" : ""} aria-pressed={d === depth} onClick={() => pickDepth(d)}>{d}</button>)}
       </div>}

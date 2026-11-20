@@ -2,3 +2,6 @@
    full width, at most 336px tall, the picture contained inside it. On a photo (align="right") it sits on the right. */
 .cl-overlay-img { display: block; width: 100%; height: auto; max-height: 300px; object-fit: contain; object-position: center; }
 .cl-overlay-img.right { object-position: right center; }
+.cl-overlay-svg svg { display: block; width: 100%; height: auto; max-height: 300px; }
+.ov-pin, .cl-back { cursor: pointer; }
+.clue-ov .ov-pin, .clue-ov .cl-back { pointer-events: auto; }

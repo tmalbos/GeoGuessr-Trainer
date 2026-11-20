@@ -31,13 +31,13 @@ MAX_PINS = 12
 NEAR_UNITS = (
     40  # a small polygon this close (map units) to a bigger one is drawn as a shape, not a pin
 )
-PIN_D = "M0 0C-3 -9 -15 -18 -15 -30A15 15 0 1 1 15 -30C15 -18 3 -9 0 0Z"
-PIN_HALF_W = 30
-PIN_H = 50
+PIN_D = "M0 0C-4.5 -13.5 -22.5 -27 -22.5 -45A22.5 22.5 0 1 1 22.5 -45C22.5 -27 4.5 -13.5 0 0Z"
+PIN_HALF_W = 45
+PIN_H = 75
 PIN_W = (
-    30  # pins whose boxes (PIN_W wide, PIN_TALL tall, tip at the bottom) overlap are drawn as one
+    45  # pins whose boxes (PIN_W wide, PIN_TALL tall, tip at the bottom) overlap are drawn as one
 )
-PIN_TALL = 45
+PIN_TALL = 68
 
 LAND = 'fill="#f6f4e4" stroke="#8b98a8" stroke-width="1" stroke-linejoin="round"'
 STAIN_FILL = "#c8283a"
@@ -257,10 +257,12 @@ def render_overlay(
 
         for (x, y), v in pins:
             op = 0.85 * shade_factor(v) if v else None
+            lon = x0 + (x - PAD) / (k * s)
+            lat = y1 - (y - PAD) / s
             parts.append(
-                f'<g transform="translate({x:.1f} {y:.1f})" fill="#c8283a" '
+                f'<g class="ov-pin" data-lon="{lon:.6f}" data-lat="{lat:.6f}" transform="translate({x:.1f} {y:.1f})" fill="#c8283a" '
                 f'stroke="#c8283a" stroke-width="1"{_opacity(op) or ' fill-opacity=".85"'}>'
-                f'<path d="{PIN_D}" {NSS}/><circle cy="-30" r="5.5" fill="#fff" stroke="none"/></g>'
+                f'<circle cy="-45" r="36" fill="transparent" stroke="none"/><path d="{PIN_D}" {NSS}/><circle cy="-45" r="8.3" fill="#fff" stroke="none"/></g>'
             )
             grow(x - PIN_HALF_W, y - PIN_H, x + PIN_HALF_W, y)
 
