@@ -86,6 +86,28 @@ class ClueSource:
             _PIECES[key] = out
         return _PIECES[key]
 
+    def depth_pieces(self, cc: str, clue: dict) -> list[tuple[int, list[tuple]]]:
+        """[(depth, pieces)], lowest depth first, of a prefix-coloured clue ([] for any other clue)."""
+        cc = cc.strip().upper()
+        out = []
+        levels = clue.get("levels") if clue.get("prefix_colors") else None
+        for depth, name in sorted((levels or {}).items(), key=lambda kv: int(kv[0])):
+            path = CLUES_DIR / cc / name
+            try:
+                stamp = path.stat().st_mtime_ns
+            except OSError:
+                continue
+            key = (cc, name, stamp)
+            if key not in _PIECES:
+                try:
+                    _PIECES[key] = self._named(cc, path, True)
+                except Exception:
+                    logger.exception("Could not read the areas of %s", name)
+                    _PIECES[key] = []
+            if _PIECES[key]:
+                out.append((int(depth), _PIECES[key]))
+        return out
+
     def levels(self, cc: str, clue: dict) -> list[tuple[int, list[tuple]]]:
         """[(depth, [(area name, geometry)])] of a prefix-coloured map-only clue, lowest depth first."""
         files = clue.get("levels") or {}

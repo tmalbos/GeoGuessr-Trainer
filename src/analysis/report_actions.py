@@ -170,11 +170,47 @@ def _rank_regional(pool: list[tuple[dict, float]]) -> list[dict]:
     return [c for _, c in scored]
 
 
+def _level_ease(areas: int) -> int:
+    """Ease of one depth of a prefix-coloured clue: 2 * areas, one point lost per doubling (128-256 -> 2, 16-32 -> 5)."""
+    return max(1, min(10, 10 - (2 * areas).bit_length()))
+
+
+def _prefix_hit(levels: list, clue: dict, real_pt, guess_pt) -> tuple | None:
+    """(is_good, the clue at that depth, area): the lowest depth that tells the real spot from the guess.
+    It only goes deeper while both points are in the same area; a guess-only area is the fallback.
+    """
+    fallback = None
+    for _, pieces in levels:
+        for geom, area in pieces:
+            has_real, has_guess = geom.intersects(real_pt), geom.intersects(guess_pt)
+            if has_real != has_guess:
+                at = {**clue, "ease": _level_ease(len(pieces))}
+                if has_real:
+                    return True, at, area
+                fallback = fallback or (False, at, area)
+    return fallback
+
+
+def _prefix_within(levels: list, clue: dict, real_pt, max_area: float) -> list[tuple]:
+    """The lowest depth with an area holding the real spot that is small enough (see regional_clues_within)."""
+    for _, pieces in levels:
+        for geom, area in pieces:
+            if area <= max_area and geom.intersects(real_pt):
+                return [({**clue, "ease": _level_ease(len(pieces))}, area)]
+    return []
+
+
 def regional_clues(src, cc: str, area_type: str, real_pt, guess_pt) -> list[dict]:
     """Regional clues that tell the real region from the guessed one (fallback: the reverse)."""
     good, fallback = [], []
     for c in src.clues(cc):
         if c.get("scope") != "reg" or not _loc_ok(c, area_type):
+            continue
+        levels = src.depth_pieces(cc, c)
+        if levels:
+            hit = _prefix_hit(levels, c, real_pt, guess_pt)
+            if hit:
+                (good if hit[0] else fallback).append(hit[1:])
             continue
         # A map-only clue has several areas: each one is judged on its own, not merged.
         # The clue counts once: as "good" if any area has the real spot without the guess, else as a fallback.
@@ -195,6 +231,10 @@ def regional_clues_within(src, cc: str, area_type: str, real_pt, max_area: float
     pool = []
     for c in src.clues(cc):
         if c.get("scope") != "reg" or not _loc_ok(c, area_type):
+            continue
+        levels = src.depth_pieces(cc, c)
+        if levels:
+            pool.extend(_prefix_within(levels, c, real_pt, max_area))
             continue
         piece = next(
             ((g, a) for g, a in src.pieces(cc, c) if a <= max_area and g.intersects(real_pt)),
