@@ -50,7 +50,7 @@ export function groupLayer(g, depth, options) {
   for (const [key, v] of [...groups].sort((a, b) => a[0].localeCompare(b[0]))) {
     const sib = siblings[v.top].sort();
     const hue = Math.round((top.indexOf(v.top) * 137.5) % 360);
-    const light = sib.length < 2 ? 55 : Math.round(38 + (34 * sib.indexOf(key)) / (sib.length - 1));
+    const light = sib.length < 2 ? 55 : Math.round(75 - (50 * sib.indexOf(key)) / (sib.length - 1));
     const one = v.idx.length === 1 ? v.idx[0] : null;
     out.geometries.push(one != null ? g.geometries[one] : merge(v.idx.map((i) => g.geometries[i])));
     out.names.push(key);

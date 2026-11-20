@@ -88,7 +88,7 @@ def build_levels(src: Path, folder: Path, geo_name: str) -> dict[int, str]:
             light = (
                 55
                 if len(siblings) < 2
-                else round(38 + 34 * siblings.index(key) / (len(siblings) - 1))
+                else round(75 - 50 * siblings.index(key) / (len(siblings) - 1))
             )
             single = len(members) == 1 and depth == options[-1]
             row = {
