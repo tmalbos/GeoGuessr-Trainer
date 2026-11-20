@@ -3,9 +3,10 @@
 Score (0..10), a rating that is not set counts as 0:
   national   (frequency + ease + reliability) / 3
   regional   (freq_part + area_part + ease + reliability) / 4
-             freq_part = each shade's frequency * (n-k)/n (darkest full, lightest 1/n),
-                         weighted by that shade's share of the total stain area
-             area_part = area_score of the mean stain area share of the country (0 if none)
+             with an image: freq_part = each shade's frequency * (n-k)/n (darkest full, lightest 1/n),
+                            weighted by that shade's share of the total stain area
+             map-only:      freq_part = frequency, area_part = mean area_score of the stains
+             area_part = area_score of the stain area share of the country (0 if none)
 area_score: share of the country's area, 37-63% -> 10, one point less per 4% further away
             (1-5% -> 1, below 1% -> 0, same on the other side).
 Medal: ==10 platinum, >=9 gold, >=6 silver, >=2 bronze, else none.
@@ -13,7 +14,6 @@ A regional clue without a measurable region (SVG only, no local geo layers) has 
 """
 
 import math
-from statistics import median
 
 import geopandas as gpd
 import pandas as pd
@@ -26,8 +26,10 @@ from src.geo.local_geo import CountryAreaMissingError
 def area_score(share_pct: float) -> int:
     """Share of the country (0..100 %) -> 0..10."""
     d = abs(min(100.0, max(0.0, share_pct)) - 50.0)
+
     if d <= 13:
         return 10
+
     return max(0, 10 - math.ceil((d - 13) / 4))
 
 
@@ -40,7 +42,38 @@ def medal_of(score: float) -> str | None:
         return "silver"
     if score >= 2:
         return "bronze"
+
     return None
+
+
+def _ponder_stain_area_score(stains: list[float], country_km2: float) -> float:
+    """Mean area_score of the stains, darkest most important: weights n-1..0 are 2^(n-1) .. 1."""
+    amount_stains = len(stains)
+    weights = [2 ** (amount_stains - 1 - stain) for stain in range(amount_stains)]
+    denominator = sum(weights) - 1
+
+    return sum(
+        weight / denominator * area_score(100 * area / country_km2)
+        for weight, area in zip(weights, stains, strict=False)
+    )
+
+
+def _ponder_frequency_score(stains: list[float], total_area: float, freq: int) -> float:
+    amount_stains = len(stains)
+    return sum(
+        freq * (amount_stains - stain) / amount_stains * (area / total_area)
+        for stain, area in enumerate(stains)
+    )
+
+
+def _get_multiple_stain_score(
+    stains: list[float], freq: int, ease: int, rel: int, country_km2: float
+) -> float:
+    total_area = sum(stains)
+    pond_area_sum = _ponder_stain_area_score(stains, country_km2)
+    pond_freq_sum = _ponder_frequency_score(stains, total_area, freq)
+
+    return (pond_area_sum + pond_freq_sum + ease + rel) / 4
 
 
 def clue_score(clue: dict, paints: list[tuple[int, float]], country_km2: float) -> float:
@@ -50,22 +83,25 @@ def clue_score(clue: dict, paints: list[tuple[int, float]], country_km2: float) 
     if clue.get("scope") != "reg":
         return (freq + ease + rel) / 3
 
-    if not paints or country_km2 <= 0:
+    if not paints:
         return (freq + ease + rel) / 4
 
     stains = [sum(a for s, a in paints if s == v) for v in sorted({s for s, _ in paints})]
 
-    n = len(stains)
-    total = sum(stains)
+    if clue.get("image") is not None and len(stains) == 1:
+        area_part = area_score(100 * stains[0] / country_km2) if country_km2 > 0 else 0
 
-    if total <= 0:
-        return (freq + ease + rel) / 4
+        print(area_part)
 
-    freq_part = sum(freq * (n - k) / n * (a / total) for k, a in enumerate(stains))
-    med = median(a for _, a in paints)
-    area_part = area_score(100 * med / country_km2)
+        return (area_part + freq + ease + rel) / 4
 
-    return (freq_part + area_part + ease + rel) / 4
+    if clue.get("image") is not None and len(stains) > 1:
+        print(stains)
+        return _get_multiple_stain_score(stains, freq, ease, rel, country_km2)
+
+    area_part = sum(area_score(100 * a / country_km2) for a in stains) / len(stains)
+
+    return (area_part + freq + ease + rel) / 4
 
 
 def _stain_areas(src, folder, cc: str, clue: dict, override: dict) -> list[tuple[int, float]]:
@@ -76,8 +112,6 @@ def _stain_areas(src, folder, cc: str, clue: dict, override: dict) -> list[tuple
     name = clue.get("polygons")
     if name:
         gdf = gpd.read_parquet(override.get(name) or folder / name)
-
-        print("shade" in gdf.columns)
 
         if "shade" in gdf.columns:
             shades = pd.to_numeric(gdf["shade"], errors="coerce").fillna(0).astype(int)
