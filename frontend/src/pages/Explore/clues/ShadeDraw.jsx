@@ -43,7 +43,7 @@ export default function ShadeDraw({ cc, stage, onResult, stored, storedView, onV
   const [levelKeys, setLevelKeys] = useState(DEFAULT_DRAW_LEVEL_SHORTCUTS);
   const [units, setUnits] = useState(null);
   const [tool, setTool] = useState("fill");
-  const [size, setSize] = useState(24);
+  const [size, setSize] = useState(40);
   const [items, setItems] = useState([]);
   const [live, setLive] = useState(null);
   const [sel, setSel] = useState(0);

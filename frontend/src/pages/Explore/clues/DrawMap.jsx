@@ -104,7 +104,7 @@ export default function DrawMap({ cc, stage, onResult, trailing, optionsEl, show
   const [levelKeys, setLevelKeys] = useState(DEFAULT_DRAW_LEVEL_SHORTCUTS);
   const [units, setUnits] = useState(null);
   const [tool, setTool] = useState("fill");
-  const [size, setSize] = useState(24);
+  const [size, setSize] = useState(40);
   const [items, setItems] = useState([]);
   const [shown, setShown] = useState([]);
   const [live, setLive] = useState(null);
