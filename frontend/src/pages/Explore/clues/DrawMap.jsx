@@ -3,6 +3,7 @@ import { api, errorText } from "../../../lib/api.js";
 import { DEFAULT_DRAW_LEVEL_SHORTCUTS, sameShortcut } from "../../../lib/shortcut.js";
 import { bboxOf, shapes } from "./geoDraw.js";
 import { discardStaged, loadImage, stagedUrl } from "./imageTools.js";
+import { markKnown, newGid, reuseGeometry, sendItems, wire } from "./drawItems.js";
 import { AreaName, NAME_PX, areaNameSpot } from "./RegionPreview.jsx";
 import ClueImage from "./ClueImage.jsx";
 import PaintedLayer, { Units } from "./PaintedLayer.jsx";
@@ -120,6 +121,8 @@ export default function DrawMap({ cc, stage, onResult, trailing, optionsEl, show
   const [looks, setLooks] = useState({}); // color slot -> { blur, maxH } of that category's image
   const [locked, setLocked] = useState(storedView ?? null); // { k, fx, fy }: the framing the card opens on
   const viewApplied = useRef(false);
+  const known = useRef(new Set()); // gids of the shapes the server already holds: their geometry is not sent again
+  const geoSeen = useRef(new Map()); // area name -> { s, g }: an unchanged area keeps its geometry object, so its name spot is not recomputed
   const [hh, setHh] = useState(null); // live height readout while dragging the height handle
   const hdrag = useRef(null);
   const colorRef = useRef(null);
@@ -183,19 +186,20 @@ export default function DrawMap({ cc, stage, onResult, trailing, optionsEl, show
         if (off) return;
         if (!g.names) { // not made with this tool: all of it becomes one category to repaint or erase
           const coordinates = g.geometries.flatMap((geom) => (geom.type === "Polygon" ? [geom.coordinates] : geom.type === "MultiPolygon" ? geom.coordinates : []));
-          if (coordinates.length) setItems([{ op: "shape", slot: 0, geometry: { type: "MultiPolygon", coordinates } }]);
+          if (coordinates.length) setItems([{ op: "shape", slot: 0, gid: newGid(), geometry: { type: "MultiPolygon", coordinates } }]);
           return;
         }
         const names = [...new Set(g.names)]; // each saved category takes a color slot, in the order it was saved
+        const at = new Map(names.map((n, k) => [n, k]));
         const parts = names.map(() => []);
         g.geometries.forEach((geom, i) => {
           const polys = geom.type === "Polygon" ? [geom.coordinates] : geom.type === "MultiPolygon" ? geom.coordinates : [];
-          parts[names.indexOf(g.names[i])].push(...polys);
+          parts[at.get(g.names[i])].push(...polys);
         });
         setCustom(Object.fromEntries(names.map((n, slot) => [slot, n])));
-        setItems(parts.map((coordinates, slot) => ({ op: "shape", slot, geometry: { type: "MultiPolygon", coordinates } })));
-        setImages(Object.fromEntries((g.extras ?? []).map((x, i) => [names.indexOf(g.names[i]), x]).filter(([, x]) => x.startsWith("data:image/"))));
-        setLooks(Object.fromEntries(g.names.map((n, i) => [names.indexOf(n), { blur: !!g.extra_blurs?.[i], maxH: g.extra_heights?.[i] || null }])));
+        setItems(parts.map((coordinates, slot) => ({ op: "shape", slot, gid: newGid(), geometry: { type: "MultiPolygon", coordinates } })));
+        setImages(Object.fromEntries((g.extras ?? []).map((x, i) => [at.get(g.names[i]), x]).filter(([, x]) => x.startsWith("data:image/"))));
+        setLooks(Object.fromEntries(g.names.map((n, i) => [at.get(n), { blur: !!g.extra_blurs?.[i], maxH: g.extra_heights?.[i] || null }])));
         setColored(g.colors.some((c) => c.toLowerCase() !== PALE));
       })
       .catch((e) => !off && setErr(errorText(e)));
@@ -214,14 +218,17 @@ export default function DrawMap({ cc, stage, onResult, trailing, optionsEl, show
     setBusy(true); setErr("");
     const t = setTimeout(async () => {
       try {
-        const sent = items.map(({ d: _d, w: _w, ...i }, k) => {
-          const first = items.findIndex((x) => x.slot === i.slot && x.op !== "erase") === k;
+        const firstOf = new Map(); // color slot -> index of the first item that paints it (that item carries the category's image)
+        items.forEach((x, k) => { if (x.op !== "erase" && !firstOf.has(x.slot)) firstOf.set(x.slot, k); });
+        const sent = () => items.map((it, k) => {
+          const i = wire(it, known.current);
           const look = looks[i.slot];
-          return { ...i, name: i.op === "erase" ? "" : nameOf(i.slot), ...(first && images[i.slot] ? { extra: images[i.slot], extra_blur: !!look?.blur, extra_max_height: look?.maxH ?? null } : {}) };
+          return { ...i, name: i.op === "erase" ? "" : nameOf(i.slot), ...(firstOf.get(i.slot) === k && images[i.slot] ? { extra: images[i.slot], extra_blur: !!look?.blur, extra_max_height: look?.maxH ?? null } : {}) };
         });
-        const fc = await api(`/clues/${cc}/draw/build`, { method: "POST", body: { items: sent, colored }, signal: ac.signal });
+        const fc = await sendItems(known.current, `/clues/${cc}/draw/build`, () => ({ items: sent(), colored }), { signal: ac.signal });
         if (stale) return;
-        setShown(fc.features);
+        markKnown(items, known.current);
+        setShown(reuseGeometry(geoSeen.current, fc.features));
         if (!fc.features.length) { resultRef.current(null); return; }
         const file = new File([JSON.stringify(fc)], "drawing.geojson", { type: "application/geo+json" });
         const up = await stageRef.current({ file });
@@ -346,9 +353,11 @@ export default function DrawMap({ cc, stage, onResult, trailing, optionsEl, show
     if (!p) return;
     const slot = sel;
     try {
-      const sent = items.map(({ d: _d, w: _w, ...i }) => ({ ...i, name: i.op === "erase" ? "" : nameOf(i.slot) }));
-      const r = await api(`/clues/${cc}/draw/fill`, { method: "POST", body: { items: sent, level, id: u.id, point: proj.inv(p) } });
-      setItems((it) => [...it, { op: "shape", slot, geometry: r.geometry }]);
+      const sent = () => items.map((it) => ({ ...wire(it, known.current), name: it.op === "erase" ? "" : nameOf(it.slot) }));
+      const r = await sendItems(known.current, `/clues/${cc}/draw/fill`, () => ({ items: sent(), level, id: u.id, point: proj.inv(p) }));
+      markKnown(items, known.current);
+      known.current.add(r.gid);
+      setItems((it) => [...it, { op: "shape", slot, gid: r.gid, geometry: r.geometry }]);
     } catch (ex) { setErr(errorText(ex)); }
   };
   const onPick = useMemo(() => (u, e) => pickRef.current(u, e), []);
@@ -363,9 +372,13 @@ export default function DrawMap({ cc, stage, onResult, trailing, optionsEl, show
   // Shift + eraser on a subdivision works like the fill bucket: it removes only the connected painted part under the click.
   const eraseIn = async (id, p) => {
     try {
-      const sent = items.map(({ d: _d, w: _w, ...i }) => ({ ...i, name: i.op === "erase" ? "" : nameOf(i.slot) }));
-      const r = await api(`/clues/${cc}/draw/fill`, { method: "POST", body: { items: sent, level, id, point: proj.inv(p), erase: true } });
-      if (r.geometry) setItems((it) => [...it, { op: "erase", name: "", level, id, geometry: r.geometry }]);
+      const sent = () => items.map((it) => ({ ...wire(it, known.current), name: it.op === "erase" ? "" : nameOf(it.slot) }));
+      const r = await sendItems(known.current, `/clues/${cc}/draw/fill`, () => ({ items: sent(), level, id, point: proj.inv(p), erase: true }));
+      markKnown(items, known.current);
+      if (r.geometry) {
+        known.current.add(r.gid);
+        setItems((it) => [...it, { op: "erase", name: "", level, id, gid: r.gid, geometry: r.geometry }]);
+      }
     } catch (ex) { setErr(errorText(ex)); }
   };
 

@@ -3,6 +3,7 @@ import { api, errorText } from "../../../lib/api.js";
 import { DEFAULT_DRAW_LEVEL_SHORTCUTS, sameShortcut } from "../../../lib/shortcut.js";
 import { bboxOf, shadeFactor, shapes } from "./geoDraw.js";
 import { discardStaged } from "./imageTools.js";
+import { markKnown, newGid, sendItems, wire } from "./drawItems.js";
 import PaintedLayer, { Units } from "./PaintedLayer.jsx";
 import { setDrawBusy } from "./drawBusy.js";
 import { TileBackdrop, TilesIcon, makeProjection } from "./drawTiles.jsx";
@@ -53,6 +54,7 @@ export default function ShadeDraw({ cc, stage, onResult, stored, storedView, onV
   const [tiles, setTiles] = useState(false); // show the real map behind the drawing
   const [locked, setLocked] = useState(storedView ?? null);
   const viewApplied = useRef(false);
+  const known = useRef(new Set()); // gids of the shapes the server already holds: their geometry is not sent again
   const svg = useRef(null);
   const drag = useRef(null);
   const had = useRef(false);
@@ -105,7 +107,7 @@ export default function ShadeDraw({ cc, stage, onResult, stored, storedView, onV
           byShade.set(s, [...(byShade.get(s) ?? []), ...polys]);
         });
         setItems([...byShade].sort((a, b) => a[0] - b[0])
-          .map(([slot, coordinates]) => ({ op: "shape", slot, geometry: { type: "MultiPolygon", coordinates } })));
+          .map(([slot, coordinates]) => ({ op: "shape", slot, gid: newGid(), geometry: { type: "MultiPolygon", coordinates } })));
       })
       .catch((e) => !off && setErr(errorText(e)));
     return () => { off = true; };
@@ -124,9 +126,10 @@ export default function ShadeDraw({ cc, stage, onResult, stored, storedView, onV
     const t = setTimeout(async () => {
       try {
         // One "category" per shade (named s0..s4); the server keeps them disjoint, a later item wins.
-        const sent = items.map(({ d: _d, w: _w, ...i }) => ({ ...i, name: i.op === "erase" ? "" : `s${i.slot}` }));
-        const fc = await api(`/clues/${cc}/draw/build`, { method: "POST", body: { items: sent, colored: false }, signal: ac.signal });
+        const sent = () => items.map((it) => ({ ...wire(it, known.current), name: it.op === "erase" ? "" : `s${it.slot}` }));
+        const fc = await sendItems(known.current, `/clues/${cc}/draw/build`, () => ({ items: sent(), colored: false }), { signal: ac.signal });
         if (stale) return;
+        markKnown(items, known.current);
         const features = fc.features.map((f) => ({
           type: "Feature",
           properties: { shade: Number(f.properties.name.slice(1)), drawn: true },
@@ -156,9 +159,11 @@ export default function ShadeDraw({ cc, stage, onResult, stored, storedView, onV
     if (!p) return;
     const slot = sel;
     try {
-      const sent = items.map(({ d: _d, w: _w, ...i }) => ({ ...i, name: i.op === "erase" ? "" : `s${i.slot}` }));
-      const r = await api(`/clues/${cc}/draw/fill`, { method: "POST", body: { items: sent, level, id: u.id, point: proj.inv(p) } });
-      setItems((it) => [...it, { op: "shape", slot, geometry: r.geometry }]);
+      const sent = () => items.map((it) => ({ ...wire(it, known.current), name: it.op === "erase" ? "" : `s${it.slot}` }));
+      const r = await sendItems(known.current, `/clues/${cc}/draw/fill`, () => ({ items: sent(), level, id: u.id, point: proj.inv(p) }));
+      markKnown(items, known.current);
+      known.current.add(r.gid);
+      setItems((it) => [...it, { op: "shape", slot, gid: r.gid, geometry: r.geometry }]);
     } catch (ex) { setErr(errorText(ex)); }
   };
   const onPick = useMemo(() => (u, e) => pickRef.current(u, e), []);
@@ -236,9 +241,13 @@ export default function ShadeDraw({ cc, stage, onResult, stored, storedView, onV
   // Shift + eraser on a subdivision works like the fill bucket: it removes only the connected painted part under the click.
   const eraseIn = async (id, p) => {
     try {
-      const sent = items.map(({ d: _d, w: _w, ...i }) => ({ ...i, name: i.op === "erase" ? "" : `s${i.slot}` }));
-      const r = await api(`/clues/${cc}/draw/fill`, { method: "POST", body: { items: sent, level, id, point: proj.inv(p), erase: true } });
-      if (r.geometry) setItems((it) => [...it, { op: "erase", name: "", level, id, geometry: r.geometry }]);
+      const sent = () => items.map((it) => ({ ...wire(it, known.current), name: it.op === "erase" ? "" : `s${it.slot}` }));
+      const r = await sendItems(known.current, `/clues/${cc}/draw/fill`, () => ({ items: sent(), level, id, point: proj.inv(p), erase: true }));
+      markKnown(items, known.current);
+      if (r.geometry) {
+        known.current.add(r.gid);
+        setItems((it) => [...it, { op: "erase", name: "", level, id, gid: r.gid, geometry: r.geometry }]);
+      }
     } catch (ex) { setErr(errorText(ex)); }
   };
 
