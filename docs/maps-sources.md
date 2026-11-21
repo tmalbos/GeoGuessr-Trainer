@@ -18,6 +18,7 @@
 **Bahrain**: OSM extract for ADM0 and ADM1 (28-10-2026)
 **Bangladesh**: https://www.geoboundaries.org/countryDownloads.html for ADM0 through ADM4 (15-11-2026)
 **Barbados**: OSM extract for ADM0 and ADM1 (28-10-2026)
+**Belarus**: OSM extract for ADM0 through ADM2 (20-11-2026)
 **Belgium**: OSM extract for ADM0 through ADM5 (16-11-2026)
 **Benin**: OSM extract for ADM0 through ADM2 (17-11-2026). Missing ADM3
 **Bermuda**: OSM extract for ADM0 and ADM1 (28-10-2026)
