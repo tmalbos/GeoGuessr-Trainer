@@ -230,17 +230,25 @@ def _grade_map(phases: list[dict], panos: list, t0: float, real: dict, locate) -
             s_far = s_near if hit else score_at(*far)
             zoom = p.get("zoom") or 0
             level = p.get("level")
-            progress = p["key"] != "zoom_out"  # zooming out is never praised
+            progress = (
+                p["key"] != "zoom_out"  # zooming out is never praised
+                and level not in {"world", "wide"}
+                and p.get("in_real_country", True)
+            )
+            pinned = prev_pin is not None and is_5k(prev_pin["km"])
 
-            miss = (prev_view_hit and not hit) or (
-                prev_pin is not None and prev_pin["km"] <= PINPOINT_KM and near_km > PINPOINT_KM
+            miss = not pinned and (
+                (prev_view_hit and not hit)
+                or (
+                    prev_pin is not None and prev_pin["km"] <= PINPOINT_KM and near_km > PINPOINT_KM
+                )
             )
             grade = ""
             if miss:
                 grade = "miss"
-            elif s_near < good_cut:
+            elif s_near < good_cut and not pinned:
                 grade = _error_grade(s_near)  # even the best part of what they see is wrong
-            elif progress:
+            elif progress and not pinned:
                 if hit and kind == "zoom" and level not in {"world", "wide", "", None}:
                     grade = "best"  # zoomed in with the real spot in view
                 elif s_far >= excellent_cut:

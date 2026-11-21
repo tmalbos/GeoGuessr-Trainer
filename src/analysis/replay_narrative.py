@@ -184,8 +184,13 @@ def _zoom_in(c) -> str:
 def _zoom_in_core(c) -> str:
     """WHERE the zoom went. The speed adverb is merged in here unless the speed has its own line."""
     place, level = c["place"], c.get("level")
+    world = level == "world"
     verb, after = _verb(
-        "zoomed back" if c.get("revisit") else ("zoomed further" if c.get("further") else "zoomed"),
+        "zoomed out"
+        if world
+        else "zoomed back"
+        if c.get("revisit")
+        else ("zoomed further" if c.get("further") else "zoomed"),
         c.get("speed_adverb", ""),
     )
     if _prefixed(c):
@@ -194,7 +199,7 @@ def _zoom_in_core(c) -> str:
         head = "You opened the map and"
     else:
         head = "You"
-    base = f"{head} {verb}{after} into {place}"
+    base = f"{head} {verb}{after} {'to' if world else 'into'} {place}"
     if c.get("grade") == "miss":
         if c.get("near_pin"):
             return (
@@ -202,10 +207,12 @@ def _zoom_in_core(c) -> str:
                 "putting the real location out of view"
             )
         return f"{base}, putting the real location out of view"
-    if c.get("hit") and not c.get("opened"):
+    if c.get("hit") and c.get("in_real_country", True) and not c.get("opened"):
         if level == "country":
             return f"You zoomed straight into {place}, the country of the real location"
         if level == "region":
+            if not c.get("in_real_region"):
+                return f"You zoomed into {place}, an area that includes the real location"
             named = "" if place.startswith("the ") else f", {place}"
             return f"You zoomed further into the region of the real location{named}"
         if level in {"city", "point"}:
@@ -217,7 +224,7 @@ def _zoom_in_core(c) -> str:
 
 def _zoom_speed(c) -> str:
     """HOW FAST the zoom was. Only told (on its own line, badge = inaccuracy) when it was slow."""
-    return f"Although you did it {ZOOM_ADVERB.get(c['speed_grade']) or 'slowly'}"
+    return f"You zoomed {ZOOM_ADVERB.get(c['speed_grade']) or 'slowly'}"
 
 
 def _zoom_out(c) -> str:
@@ -308,8 +315,8 @@ def _align(c) -> str:
 
 # ── Pins ────────────────────────────────────────────────────────────────────
 _PIN_CLASS = {
-    "pin_right_region": "the right region",
-    "pin_wrong_region": "the wrong region",
+    "pin_right_region": "near the real spot",
+    "pin_wrong_region": "outside the real area",
     "pin_wrong_country": "the wrong country",
     "pin_off": "",
 }
@@ -336,9 +343,9 @@ def _pin(c) -> str:
     }.get(c.get("diff", ""))
     if not moved:
         if key == "pin_right_region" and wrong_side:
-            text = f"You placed a pin in {place}, the right region, although {km} off and in {wrong_side}"
+            text = f"You placed a pin in {place}, {km} from the real spot and in {wrong_side}"
         elif key == "pin_right_region":
-            text = f"You placed a pin in {place}, the right region but {km} off"
+            text = f"You placed a pin in {place}, {km} from the real spot"
         elif cls:
             text = f"You placed a pin in {place}, {cls}, {km} off"
         else:
@@ -357,6 +364,8 @@ def _pin(c) -> str:
 
 
 def _guess(c) -> str:
+    if c.get("ended"):
+        return f"The round ended on your pin: {c['score']} points"
     if c.get("timed_out"):
         return f"Time ran out: {c['score']} points"
     return f"You confirmed your guess: {c['score']} points"

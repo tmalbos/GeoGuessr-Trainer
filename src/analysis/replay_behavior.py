@@ -203,7 +203,7 @@ def _pin_place(admin, with_country: bool) -> str:
     if not admin:
         return ""
     parts = [admin.get("city"), admin.get("state")]
-    if with_country:
+    if with_country or not any(parts):
         parts.append(admin.get("country"))
     return ", ".join(dict.fromkeys(p for p in parts if p))
 
@@ -630,6 +630,15 @@ def analyze_round(
             dist_km=result["distance_km"],
             timed_out=timed_out,
         )
+    elif result.get("has_guess"):
+        add(
+            events[-1]["time"],
+            "guess",
+            "guess",
+            score=result["score"],
+            dist_km=result["distance_km"],
+            ended=True,
+        )
     else:
         add(events[-1]["time"], "guess", "no_guess")
 
@@ -921,6 +930,7 @@ def _map_session(
         place, level, view, dom = view_at(c, r["z1"]) if c else ("the map", "", {}, None)
         focus = {"bbox": list(view["view_boxes"][0])} if view else None
         adm = where(c[1], c[2]) if c else None
+        region_admin = where(dom["lat"], dom["lng"]) if dom else adm
         if dom:
             country, country_code = dom["name"], dom["code"]
         else:
@@ -944,6 +954,12 @@ def _map_session(
                 focus=focus,
                 country=country,
                 in_real_country=bool(country_code and country_code == real["country_code"]),
+                in_real_region=bool(
+                    real["state"]
+                    and region_admin
+                    and region_admin.get("country_code") == real["country_code"]
+                    and region_admin.get("state") == real["state"]
+                ),
                 **view,
             )
             add(
@@ -1127,6 +1143,7 @@ def _scan(pans, sg, real, where, countries_in=None, dominant=None) -> dict:
         "n_regions": len(regions),
         "place": sg["name"],
         "parts": "",
+        "in_real_country": sg["code"] == real["country_code"],
         # Every map window seen during the search (west, south, east, north), for grading.
         "view_boxes": boxes,
         "zoom": max(z for _, _, _, z in pans),
@@ -1152,7 +1169,7 @@ def _scan(pans, sg, real, where, countries_in=None, dominant=None) -> dict:
     else:
         top = [k for k, _ in regions.most_common(3)]
         want = real["state"] or real["country"]
-        hit = sg["code"] == real["country_code"] and want in top
+        hit = sg["code"] == real["country_code"] and (not real["state"] or want in top)
         base["key"] = "scan_regions_hit" if hit else "scan_regions_miss"
         base["place"] = ", ".join(top)
     return base

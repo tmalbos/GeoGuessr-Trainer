@@ -85,6 +85,7 @@ def _round_payload(row: dict, locate, countries_in, region_bounds) -> dict:
         "score": row["score"],
         "distance_km": dist,
         "time_limit_ms": limit_s * 1000 if limit_s else None,
+        "has_guess": row["guess_latitude"] is not None,
     }
     phases = analyze_round(events, real, result, locate, countries_in, region_bounds)
     # Street-view looks (stare / zoom / look around). Old replays without PanoPov/PanoZoom add nothing.
