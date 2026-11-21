@@ -24,6 +24,7 @@
 **Bhutan**: https://www.geoboundaries.org/countryDownloads.html for ADM0 through ADM2 (20-11-2026)
 **Bolivia**: OSM extract for ADM0 through ADM2 (17-11-2026). Missing ADM3
 **Bosnia and Herzegovina**: OSM extract for ADM0 through ADM3 (13-11-2026)
+**Botswana**: OSM extract for ADM0 and ADM1 (20-11-2026). Missing ADM2 and ADM3
 **Brazil**: OSM extract for ADM0 through ADM2 (17-11-2026). Missing ADM3
 **Brunei**: OSM extract for ADM0 and ADM1 (12-10-2026). Missing ADM2 and ADM3
 **Bulgaria**: OSM extract for ADM0 through ADM2 (17-11-2026)
