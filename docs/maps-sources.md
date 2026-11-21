@@ -25,6 +25,7 @@
 **Bolivia**: OSM extract for ADM0 through ADM2 (17-11-2026). Missing ADM3
 **Bosnia and Herzegovina**: OSM extract for ADM0 through ADM3 (13-11-2026)
 **Botswana**: OSM extract for ADM0 and ADM1 (20-11-2026). Missing ADM2 and ADM3
+**Bouvet Island**: OSM extract for ADM0 (28-10-2026)
 **Brazil**: OSM extract for ADM0 through ADM2 (17-11-2026). Missing ADM3
 **Brunei**: OSM extract for ADM0 and ADM1 (12-10-2026). Missing ADM2 and ADM3
 **Bulgaria**: OSM extract for ADM0 through ADM2 (17-11-2026)
