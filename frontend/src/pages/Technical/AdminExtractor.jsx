@@ -323,6 +323,9 @@ export default function AdminExtractor() {
 
   const admin = mode === "admin";
   const other = view?.res;
+  const cacheKey = ds && country ? `${ds.token}|${country}` : "";
+  const active = (l) => cache.current.get(`${cacheKey}|${l}|${pct}`)?.length;
+  const unnamed = (fc?.features ?? []).map((f) => f.properties).filter((p) => p.unnamed);
 
   return <div className="tp">
     <div className="tp-side">
@@ -372,13 +375,17 @@ export default function AdminExtractor() {
             {info.levels.map((l) => <label className="tp-tag" key={l.level} title={`admin_level=${l.level}`}>
               <input type="checkbox" checked={levels.includes(l.level)} onChange={() => toggleLevel(l.level)} />
               <span className="tp-dot" style={{ background: colorOf(l.level) }} />
-              <span>Level {l.level}</span><span className="muted">{l.count.toLocaleString()}</span>
+              <span>Level {l.level}</span><span className="muted">{levels.includes(l.level) && active(l.level) != null ? `${active(l.level).toLocaleString()} / ` : ""}{l.count.toLocaleString()}</span>
             </label>)}
           </div>
 
-          {!!levels.length && <>
-            <h3>Gaps</h3>
+          {!!levels.length && (!!unnamed.length || levels.some((l) => fills[l] != null)) && <>
+            <h3>Gaps <span className="muted">· {unnamed.length} unnamed</span></h3>
             <p className="muted">Land a level doesn't cover appears in red as "Unnamed N". Click one on the map to rename it, or fill the gaps with another level.</p>
+            {!!unnamed.length && <div className="tp-tags">
+              {unnamed.map((p) => <button type="button" key={p.tag} className="link-btn" style={{ textAlign: "left", fontWeight: sel?.tag === p.tag ? 700 : 400 }}
+                onClick={() => onPick(p, false)}>Level {p.admin_level} · {p.name}</button>)}
+            </div>}
             {levels.map((l) => <div className="tp-field" key={l}>
               <label htmlFor={`fill-${l}`}>Level {l} gaps filled with</label>
               <select id={`fill-${l}`} value={fills[l] ?? ""} onChange={(e) => setFill(l, e.target.value)}>
