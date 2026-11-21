@@ -188,17 +188,20 @@ def _scan(path: Path) -> tuple[list[dict], dict[int, dict]]:
                     seen_codes.add(code)
                 countries.append({"id": str(obj.id), "name": str(name), "code": code})
 
-        outer, inner = array("q"), array("q")
+        outer, inner, subs = array("q"), array("q"), array("q")
         centre = 0
         for m in obj.members:
             if str(m.type) in {"n", "node"}:
                 if m.role == "admin_centre" or (m.role == "label" and not centre):
                     centre = m.ref
                 continue
+            if str(m.type) in {"r", "relation"}:  # sub-areas of this relation
+                subs.append(m.ref)
+                continue
             if str(m.type) not in {"w", "way"}:
                 continue
             (inner if m.role == "inner" else outer).append(m.ref)
-        if outer or centre:
+        if outer or centre or subs:
             rels[obj.id] = {
                 "level": level,
                 "name": str(name or "?"),
@@ -211,15 +214,17 @@ def _scan(path: Path) -> tuple[list[dict], dict[int, dict]]:
                 "outer": outer,
                 "inner": inner,
                 "centre": centre,
+                "subs": subs,
             }
 
     countries.sort(key=lambda c: c["name"].casefold())
     return countries, rels
 
 
-def _relations_file(path: Path) -> Path:
-    """The file to scan for admin relations: a small cached copy holding only boundary=administrative relations
-    (made by osmium-tool in one fast pass, no nodes / ways), or the original when osmium-tool isn't available.
+def _geometry_file(path: Path) -> Path:
+    """The file everything is read from: a small cached copy with the boundary=administrative relations, the
+    natural=coastline ways, the place=* nodes and everything those reference (made by osmium-tool in ONE fast
+    pass of the big file), or the original when osmium-tool isn't available. Python never touches the big file.
     """
     try:
         osmium_tool.require()
@@ -227,18 +232,19 @@ def _relations_file(path: Path) -> Path:
         return path
     st = path.stat()
     key = hashlib.sha1(f"{path.resolve()}|{st.st_size}|{st.st_mtime_ns}".encode()).hexdigest()[:16]
-    out = CACHE_DIR / f"admin-rels-{key}.osm.pbf"
+    out = CACHE_DIR / f"admin-geo-{key}.osm.pbf"
     if out.is_file() and out.stat().st_size > 0:
         return out
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
-    part = CACHE_DIR / f"admin-rels-{key}.part.osm.pbf"
+    part = CACHE_DIR / f"admin-geo-{key}.part.osm.pbf"
     try:
         osmium_tool.run(
             [
                 "tags-filter",
-                "--omit-referenced",
                 str(path),
                 "r/boundary=administrative",
+                "w/natural=coastline",
+                "n/place=" + ",".join(sorted(POINT_PLACES)),
                 "--output",
                 str(part),
                 "--overwrite",
@@ -259,7 +265,8 @@ def _open(path_text: str, temporary: bool = False, display_name: str | None = No
     if not path.name.lower().endswith(".pbf"):
         raise HTTPException(422, "That is not an .osm.pbf file")
     try:
-        countries, rels = _scan(_relations_file(path))
+        geo_path = _geometry_file(path)
+        countries, rels = _scan(geo_path)
     except HTTPException:
         raise
     except Exception as e:
@@ -274,6 +281,7 @@ def _open(path_text: str, temporary: bool = False, display_name: str | None = No
     ds = {
         "token": token,
         "path": path,
+        "geo_path": geo_path,
         "name": display_name or path.name,
         "size": path.stat().st_size,
         "countries": countries,
@@ -474,31 +482,92 @@ def _build_points(rels: dict[int, dict], polygons: set[int], nodes: dict[int, di
     return {"relation": relation, "place": place}
 
 
+COUNTRY_SLACK_DEG = 0.01  # ~1 km: a boundary on the coast still counts as inside the country
+
+
+def _geo_data(ds: dict) -> dict:
+    """Ways (lon/lat arrays), their bounding boxes and the point nodes of the geometry file. Read once per opened
+    file and kept, so picking another country reads nothing again. Caller holds _COMPUTE.
+    """
+    hit = ds.get("geo")
+    if hit is None:
+        rels = ds["rels"]
+        wanted: set[int] = set()
+        for r in rels.values():
+            wanted.update(r["outer"])
+            wanted.update(r["inner"])
+        centres = {r["centre"] for r in rels.values() if r.get("centre")}
+        nodes: dict[int, dict] = {}
+        ways = _read_ways(ds["geo_path"], wanted, nodes, centres)
+        boxes = {
+            i: (xy[:, 0].min(), xy[:, 1].min(), xy[:, 0].max(), xy[:, 1].max())
+            for i, xy in ways.items()
+        }
+        hit = ds["geo"] = {"ways": ways, "nodes": nodes, "boxes": boxes}
+    return hit
+
+
+def _descendants(rels: dict[int, dict], root: int) -> set[int]:
+    """The relation and every relation reachable through its sub-area members."""
+    seen = {root}
+    stack = [root]
+    while stack:
+        for sub in rels[stack.pop()].get("subs", ()):
+            if sub in rels and sub not in seen:
+                seen.add(sub)
+                stack.append(sub)
+    return seen
+
+
 def _extract(ds: dict, country: str) -> dict:
     country_name = next((c["name"] for c in ds["countries"] if c["id"] == country), None)
     if country_name is None:
         raise HTTPException(404, "That country is no longer in the open file.")
 
     rels: dict[int, dict] = ds["rels"]
-    wanted: set[int] = set()
-    for r in rels.values():
-        wanted.update(r["outer"])
-        wanted.update(r["inner"])
-
-    centres = {r["centre"] for r in rels.values() if r.get("centre")}
-    nodes: dict[int, dict] = {}
-    ways = _read_ways(ds["path"], wanted, nodes, centres)
+    geo = _geo_data(ds)
+    ways, nodes, boxes = geo["ways"], geo["nodes"], geo["boxes"]
     if not ways:
         raise HTTPException(422, "No boundary geometry could be read from this file.")
 
-    ids: list[int] = []
-    geoms: list = []
-    for rid, r in rels.items():
-        g = _assemble(r, ways)
-        if g is not None:
-            ids.append(rid)
-            geoms.append(g)
-    del ways
+    # Only this country is built: its own boundary first, then its sub-areas and every boundary that lies inside it.
+    # When the country's own boundary is incomplete in the file, everything is built (as before).
+    cid = int(country) if country.isdigit() else None
+    country_geom = _assemble(rels[cid], ways) if cid in rels else None
+    scope = wide = None
+    assembled: dict[int, object] = {}
+    if country_geom is not None:
+        assembled[cid] = country_geom
+        scope = _descendants(rels, cid)
+        w, s, e, n = country_geom.bounds
+        wide = shapely.buffer(country_geom, COUNTRY_SLACK_DEG)
+        shapely.prepare(wide)
+        for rid, r in rels.items():
+            if rid in assembled:
+                continue
+            listed = rid in scope
+            if not listed:
+                bs = [boxes[i] for i in r["outer"] if i in boxes]
+                if not bs or (
+                    min(b[0] for b in bs) > e
+                    or max(b[2] for b in bs) < w
+                    or min(b[1] for b in bs) > n
+                    or max(b[3] for b in bs) < s
+                ):
+                    continue
+            g = _assemble(r, ways)
+            if g is None:
+                continue
+            if not listed and not shapely.intersects(wide, shapely.point_on_surface(g)):
+                continue
+            assembled[rid] = g
+    else:
+        for rid, r in rels.items():
+            g = _assemble(r, ways)
+            if g is not None:
+                assembled[rid] = g
+    ids = list(assembled)
+    geoms = list(assembled.values())
     if not geoms:
         raise HTTPException(422, "No complete administrative boundaries were found in this file.")
 
@@ -523,16 +592,28 @@ def _extract(ds: dict, country: str) -> dict:
     cminx, cminy, cmaxx, cmaxy = (float(v) for v in shapely.total_bounds(arr))
     cbox = (cminx - BBOX_PAD, cminy - BBOX_PAD, cmaxx + BBOX_PAD, cmaxy + BBOX_PAD)
 
-    cid = int(country) if country.isdigit() else None
-    country_geom = geoms[ids.index(cid)] if cid in ids else None
+    country_geom = assembled.get(cid)
+
+    pts_rels, pts_nodes = rels, nodes
+    if scope is not None:
+        pts_rels = {i: rels[i] for i in scope | set(ids)}
+        keep = {r["centre"] for r in pts_rels.values() if r.get("centre")}
+        inside = shapely.contains_xy(
+            wide,
+            np.array([v["lon"] for v in nodes.values()], dtype=float),
+            np.array([v["lat"] for v in nodes.values()], dtype=float),
+        )
+        pts_nodes = {
+            i: v for (i, v), ok in zip(nodes.items(), inside, strict=True) if ok or i in keep
+        }
 
     return {
         "country": country_name,
-        "points": _build_points(rels, set(ids), nodes),
+        "points": _build_points(pts_rels, set(ids), pts_nodes),
         "by_level": by_level,
         "levels": [{"level": level, "count": len(v["props"])} for level, v in by_level.items()],
         "diag": max(math.hypot(cmaxx - cminx, cmaxy - cminy), 1e-9),
-        "path": ds["path"],
+        "path": ds["geo_path"],
         "coast_loaded": False,  # coastlines are read the first time a level is finished
         "coast": None,
         "coast_ids": None,
