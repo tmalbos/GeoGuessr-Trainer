@@ -1442,8 +1442,8 @@ def _export(
                 {
                     "COUNTRY": data["country"],
                     "ISO": p["iso"],
-                    **{f"{_NAME_PREFIX}{k}": v for k, v in sorted(coarser.items())},
-                    field: label,
+                    **{f"{_NAME_PREFIX}{k}": v for k, v in sorted(coarser.items()) if k > 0},
+                    **({field: label} if adm > 0 else {}),
                 }
             )
             feat_levels.append(lv)
@@ -1452,7 +1452,7 @@ def _export(
         raise HTTPException(422, "Nothing of these levels is on land.")
 
     if len(feats) == 1 and feat_levels[0] < 6:
-        del feats[0][field]
+        feats[0].pop(field, None)
 
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
     out = CACHE_DIR / f"export-{uuid4().hex}.topojson"

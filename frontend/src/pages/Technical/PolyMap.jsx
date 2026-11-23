@@ -15,14 +15,31 @@ function featureBounds(fc) {
   return Number.isFinite(w) ? { w, s, e, n } : null;
 }
 
-function geomBox(g) {
-  let w = Infinity, s = Infinity, e = -Infinity, n = -Infinity;
-  const walk = (c) => {
-    if (typeof c[0] === "number") { w = Math.min(w, c[0]); e = Math.max(e, c[0]); s = Math.min(s, c[1]); n = Math.max(n, c[1]); }
-    else c.forEach(walk);
-  };
-  walk(g.coordinates);
-  return [w, s, e, n];
+/** Path2Ds in normalized mercator space (fx / fy), built once per feature set. The view is applied as a canvas transform. */
+function buildShapes(fc) {
+  const top = {}; // rarest shade of each tag
+  for (const f of fc?.features ?? []) top[f.properties.tag] = Math.max(top[f.properties.tag] ?? 0, f.properties.shade ?? 0);
+  return (fc?.features ?? []).map((f) => {
+    const g = f.geometry;
+    const path = new Path2D();
+    const line = g.type === "LineString" || g.type === "MultiLineString";
+    const point = g.type === "Point" || g.type === "MultiPoint";
+    const box = [Infinity, Infinity, -Infinity, -Infinity];
+    const to = ([lng, lat]) => {
+      const x = fx(lng), y = fy(lat);
+      box[0] = Math.min(box[0], x); box[1] = Math.min(box[1], y); box[2] = Math.max(box[2], x); box[3] = Math.max(box[3], y);
+      return [x, y];
+    };
+    const trace = (pts) => pts.forEach((c, i) => { const [x, y] = to(c); if (i) path.lineTo(x, y); else path.moveTo(x, y); });
+    if (point) {
+      for (const c of g.type === "Point" ? [g.coordinates] : g.coordinates) { const [x, y] = to(c); path.moveTo(x, y); path.lineTo(x, y); }
+    } else if (line) {
+      for (const pts of g.type === "LineString" ? [g.coordinates] : g.coordinates) trace(pts);
+    } else {
+      for (const rings of g.type === "Polygon" ? [g.coordinates] : g.coordinates) for (const ring of rings) { trace(ring); path.closePath(); }
+    }
+    return { path, line, point, box, props: f.properties, tag: f.properties.tag, k: shadeFactor(f.properties.shade ?? 0, top[f.properties.tag]) };
+  });
 }
 
 const CLICK_PX = 4; // a press that moves less than this is a click, not a pan
@@ -40,7 +57,7 @@ export default function PolyMap({ features, fitKey, onPick, selected = null, mar
   pickRef.current = onPick;
 
   useEffect(() => {
-    const st = { features: null, hits: [], dpr: 1, selected: null, marked: null, boxes: [], top: {} };
+    const st = { shapes: [], hits: [], dpr: 1, xf: { S: 1, ox: 0, oy: 0 }, selected: null, marked: null };
     const cv = canvas.current;
 
     const draw = (v, size) => {
@@ -52,73 +69,61 @@ export default function PolyMap({ features, fitKey, onPick, selected = null, mar
       st.dpr = dpr;
       const ctx = cv.getContext("2d");
       const S = TILE * 2 ** v.z;
-      const X = (lng) => (fx(lng) - v.cx) * S + size.w / 2;
-      const Y = (lat) => (fy(lat) - v.cy) * S + size.h / 2;
+      const ox = size.w / 2 - v.cx * S;
+      const oy = size.h / 2 - v.cy * S;
+      st.xf = { S, ox, oy };
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.clearRect(0, 0, size.w, size.h);
+      ctx.setTransform(dpr * S, 0, 0, dpr * S, dpr * ox, dpr * oy); // paths are in normalized mercator: the view is just this transform
+      const px = 1 / S; // one screen pixel, in path units
       st.hits = [];
       ctx.lineJoin = "round";
-      const top = st.top; // rarest shade of each tag
       let chosen = null;
       const extra = [];
-      for (const [fi, f] of (st.features?.features ?? []).entries()) {
-        const g = f.geometry;
-        const bx = st.boxes[fi];
-        if (bx) { // off screen: skipped. Under 1 px: a dot instead of a path.
-          const x0 = X(bx[0]), x1 = X(bx[2]), y0 = Y(bx[3]), y1 = Y(bx[1]);
-          if (x1 < -8 || x0 > size.w + 8 || y1 < -8 || y0 > size.h + 8) continue;
-          if (x1 - x0 < 1 && y1 - y0 < 1 && !g.type.endsWith("Point")) {
-            ctx.globalAlpha = 0.8 * shadeFactor(f.properties.shade ?? 0, top[f.properties.tag]);
-            ctx.fillStyle = f.properties.color;
-            ctx.fillRect(x0, y0, 1.5, 1.5);
-            continue;
-          }
+      for (const sh of st.shapes) {
+        const { path, line, point, props } = sh;
+        const x0 = sh.box[0] * S + ox, x1 = sh.box[2] * S + ox, y0 = sh.box[1] * S + oy, y1 = sh.box[3] * S + oy;
+        if (x1 < -8 || x0 > size.w + 8 || y1 < -8 || y0 > size.h + 8) continue; // off screen
+        if (x1 - x0 < 1 && y1 - y0 < 1 && !point) { // under 1 px: a dot instead of a path
+          ctx.globalAlpha = 0.8 * sh.k;
+          ctx.fillStyle = props.color;
+          ctx.fillRect(sh.box[0], sh.box[1], 1.5 * px, 1.5 * px);
+          continue;
         }
-        const path = new Path2D();
-        const line = g.type === "LineString" || g.type === "MultiLineString";
-        const point = g.type === "Point" || g.type === "MultiPoint";
-        if (point) {
-          for (const [lng, lat] of g.type === "Point" ? [g.coordinates] : g.coordinates) {
-            path.moveTo(X(lng) + 3.5, Y(lat));
-            path.arc(X(lng), Y(lat), 3.5, 0, Math.PI * 2);
-          }
-        } else if (line) {
-          for (const pts of g.type === "LineString" ? [g.coordinates] : g.coordinates) {
-            pts.forEach(([lng, lat], i) => (i ? path.lineTo(X(lng), Y(lat)) : path.moveTo(X(lng), Y(lat))));
-          }
-        } else {
-          const polys = g.type === "Polygon" ? [g.coordinates] : g.coordinates;
-          for (const rings of polys) {
-            for (const ring of rings) {
-              ring.forEach(([lng, lat], i) => (i ? path.lineTo(X(lng), Y(lat)) : path.moveTo(X(lng), Y(lat))));
-              path.closePath();
-            }
-          }
-        }
-        const k = shadeFactor(f.properties.shade ?? 0, top[f.properties.tag]);
         if (line) {
-          ctx.globalAlpha = 0.9 * k;
-          ctx.strokeStyle = f.properties.color;
-          ctx.lineWidth = 2;
+          ctx.globalAlpha = 0.9 * sh.k;
+          ctx.strokeStyle = props.color;
+          ctx.lineWidth = 2 * px;
           ctx.stroke(path);
-        } else {
-          ctx.globalAlpha = (point ? 0.9 : 0.6) * k;
-          ctx.fillStyle = f.properties.color;
-          ctx.fill(path, "evenodd");
-          ctx.globalAlpha = 0.7 * k;
+        } else if (point) { // a zero-length segment with a round cap is a dot that keeps its size on screen
+          ctx.lineCap = "round";
+          ctx.globalAlpha = 0.7 * sh.k;
           ctx.strokeStyle = "#1a1a1a";
-          ctx.lineWidth = 1.2;
+          ctx.lineWidth = 9.4 * px;
+          ctx.stroke(path);
+          ctx.globalAlpha = 0.9 * sh.k;
+          ctx.strokeStyle = props.color;
+          ctx.lineWidth = 7 * px;
+          ctx.stroke(path);
+          ctx.lineCap = "butt";
+        } else {
+          ctx.globalAlpha = 0.6 * sh.k;
+          ctx.fillStyle = props.color;
+          ctx.fill(path, "evenodd");
+          ctx.globalAlpha = 0.7 * sh.k;
+          ctx.strokeStyle = "#1a1a1a";
+          ctx.lineWidth = 1.2 * px;
           ctx.stroke(path);
         }
-        if (st.selected && f.properties.tag === st.selected) chosen = path;
-        if (st.marked?.some((m) => m.admin_level === f.properties.admin_level && m.idx === f.properties.idx)) extra.push(path);
-        st.hits.push({ path, tag: f.properties.tag, props: f.properties, line });
+        if (st.selected && sh.tag === st.selected) chosen = path;
+        if (st.marked?.some((m) => m.admin_level === props.admin_level && m.idx === props.idx)) extra.push(path);
+        st.hits.push(sh);
       }
       if (chosen) extra.push(chosen);
       if (extra.length) { // the selected shapes get a bright outline on top of everything
         ctx.globalAlpha = 1;
         ctx.strokeStyle = "#ffffff";
-        ctx.lineWidth = 2.5;
+        ctx.lineWidth = 2.5 * px;
         for (const q of extra) ctx.stroke(q);
       }
     };
@@ -128,8 +133,9 @@ export default function PolyMap({ features, fitKey, onPick, selected = null, mar
     const el = box.current;
     const hitAt = (x, y) => {
       const ctx = cv.getContext("2d");
-      ctx.setTransform(st.dpr, 0, 0, st.dpr, 0, 0);
-      ctx.lineWidth = 8; // forgiving hit area for lines
+      const { S, ox, oy } = st.xf;
+      ctx.setTransform(st.dpr * S, 0, 0, st.dpr * S, st.dpr * ox, st.dpr * oy);
+      ctx.lineWidth = 8 / S; // forgiving hit area for lines
       for (let i = st.hits.length - 1; i >= 0; i--) {
         const h = st.hits[i];
         if (h.line ? ctx.isPointInStroke(h.path, x * st.dpr, y * st.dpr) : ctx.isPointInPath(h.path, x * st.dpr, y * st.dpr, "evenodd")) return h;
@@ -182,10 +188,7 @@ export default function PolyMap({ features, fitKey, onPick, selected = null, mar
   useEffect(() => {
     if (!api.current) return;
     const st = api.current.st;
-    st.features = features;
-    st.boxes = (features?.features ?? []).map((f) => geomBox(f.geometry));
-    st.top = {};
-    for (const f of features?.features ?? []) st.top[f.properties.tag] = Math.max(st.top[f.properties.tag] ?? 0, f.properties.shade ?? 0);
+    st.shapes = buildShapes(features);
     api.current.engine.render(true);
   }, [features]);
 
