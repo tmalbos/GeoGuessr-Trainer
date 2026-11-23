@@ -47,7 +47,7 @@ const CLICK_PX = 4; // a press that moves less than this is a click, not a pan
 /** features: GeoJSON FeatureCollection | null. fitKey: refit the view to the features when it changes.
  *  A feature with properties.shade > 0 is a rarer part of its tag: drawn lighter. Lines are stroked, points are dots.
  *  onPick(properties | null): called when a shape (or empty map) is clicked. selected: tag to highlight. */
-export default function PolyMap({ features, fitKey, onPick, selected = null, marked = null }) {
+export default function PolyMap({ features, fitKey, onPick, selected = null, marked = null, focus = null }) {
   const box = useRef(null);
   const tiles = useRef(null);
   const canvas = useRef(null);
@@ -115,7 +115,7 @@ export default function PolyMap({ features, fitKey, onPick, selected = null, mar
           ctx.lineWidth = 1.2 * px;
           ctx.stroke(path);
         }
-        if (st.selected && sh.tag === st.selected) chosen = path;
+        if (st.selected && (typeof st.selected === "string" ? sh.tag === st.selected : props.admin_level === st.selected.admin_level && props.idx === st.selected.idx)) chosen = path;
         if (st.marked?.some((m) => m.admin_level === props.admin_level && m.idx === props.idx)) extra.push(path);
         st.hits.push(sh);
       }
@@ -131,16 +131,17 @@ export default function PolyMap({ features, fitKey, onPick, selected = null, mar
     const engine = createMapEngine({ box: box.current, tiles: tiles.current, layer: draw, tileClass: "tp-tile", layerClass: "tp-tl" });
 
     const el = box.current;
-    const hitAt = (x, y) => {
+    const hitAt = (x, y, all = false) => {
       const ctx = cv.getContext("2d");
       const { S, ox, oy } = st.xf;
       ctx.setTransform(st.dpr * S, 0, 0, st.dpr * S, st.dpr * ox, st.dpr * oy);
       ctx.lineWidth = 8 / S; // forgiving hit area for lines
+      const found = [];
       for (let i = st.hits.length - 1; i >= 0; i--) {
         const h = st.hits[i];
-        if (h.line ? ctx.isPointInStroke(h.path, x * st.dpr, y * st.dpr) : ctx.isPointInPath(h.path, x * st.dpr, y * st.dpr, "evenodd")) return h;
+        if (h.line ? ctx.isPointInStroke(h.path, x * st.dpr, y * st.dpr) : ctx.isPointInPath(h.path, x * st.dpr, y * st.dpr, "evenodd")) { if (!all) return h; found.push(h); }
       }
-      return null;
+      return all ? found : null;
     };
 
     // Tooltip with the tag name under the cursor.
@@ -165,7 +166,11 @@ export default function PolyMap({ features, fitKey, onPick, selected = null, mar
       down = null;
       if (!d || Math.hypot(e.clientX - d.x, e.clientY - d.y) > CLICK_PX) return;
       const r = el.getBoundingClientRect();
-      const hit = hitAt(e.clientX - r.left, e.clientY - r.top);
+      const all = hitAt(e.clientX - r.left, e.clientY - r.top, true);
+      let hit = all[0] ?? null;
+      const s = st.selected;
+      const at = s && typeof s === "object" && !e.shiftKey ? all.findIndex((h) => h.props.admin_level === s.admin_level && h.props.idx === s.idx) : -1;
+      if (at >= 0) hit = all[(at + 1) % all.length]; // clicking again on stacked shapes cycles through them
       pickRef.current?.(hit ? hit.props : null, e.shiftKey);
     };
 
@@ -212,6 +217,13 @@ export default function PolyMap({ features, fitKey, onPick, selected = null, mar
     const b = featureBounds(latest.current.features);
     if (b) api.current.engine.fit(b, 30, 10, true);
   }, [fitKey]);
+
+  useEffect(() => {
+    if (!api.current || !focus) return;
+    const f = latest.current.features?.features.find((x) => x.properties.admin_level === focus.level && x.properties.idx === focus.idx);
+    const b = f && featureBounds({ features: [f] });
+    if (b) api.current.engine.fit(b, 60, 14, true);
+  }, [focus]);
 
   return <div ref={box} className="tp-map" role="img" aria-label="Map with the features">
     <div ref={tiles} className="tp-tiles" />

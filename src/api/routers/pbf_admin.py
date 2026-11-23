@@ -1145,7 +1145,7 @@ def _undo(data: dict) -> int:
         return level
 
 
-def _merge(data: dict, level: int, idxs: list[int]) -> None:
+def _merge(data: dict, level: int, idxs: list[int]) -> dict:
     """Merge any number of polygons of a finished level into one (the first one that keeps its name wins)."""
     with _LAND:
         item = _current(data, level)
@@ -1169,7 +1169,32 @@ def _merge(data: dict, level: int, idxs: list[int]) -> None:
         props[ids[0] - sum(1 for d in drop if d < ids[0])] = keep
         geoms[ids[0]] = merged
         data["land"][level] = {"props": props, "geoms": np.delete(geoms, list(drop))}
-        _drop_preview(data, level)
+        for k in [k for k in data["cache"] if k[0] == level]:
+            if (
+                len(k) == 3 and k[2] == "geoms"
+            ):  # simplified polygons: join the simplified ones instead of simplifying the whole level again
+                s = data["cache"][k].copy()
+                try:
+                    joined = shapely.union_all(s[ids])
+                except Exception:  # noqa: BLE001
+                    joined = shapely.union_all(shapely.make_valid(s[ids]))
+                joined = _polys(joined)
+                if joined is not None:
+                    s[ids[0]] = joined
+                data["cache"][k] = np.delete(s, list(drop))
+            else:
+                del data["cache"][k]
+        s = data["cache"].get((level, PREVIEW_PCT, "geoms"))
+        if s is None:
+            return {"geometry": None, "props": None}
+        props_out = {
+            **keep,
+            "idx": ids[0],
+            "tag": f"ADM{level} · {keep['name']}",
+            "color": UNNAMED_COLOR if keep.get("unnamed") else _color(level),
+            "shade": 0,
+        }
+        return {"geometry": json.loads(shapely.to_geojson(s[ids[0]])), "props": props_out}
 
 
 # ── step 3: preview / export (from memory) ─────────────────────────────────
@@ -1209,6 +1234,30 @@ def _simplified(data: dict, level: int, pct: int) -> np.ndarray:
     return hit
 
 
+def _overlaps(data: dict, level: int, pct: int) -> dict[int, list[int]]:
+    """For every polygon of a level, the polygons of the same level it overlaps. Touching along an edge doesn't count."""
+    key = (level, pct, "overlaps")
+    hit = data["cache"].get(key)
+    if hit is None:
+        hit = {}
+        geoms = _simplified(data, level, pct)
+        if len(geoms) > 1:
+            a, b = shapely.STRtree(geoms).query(geoms, predicate="intersects")
+            keep = a < b
+            a, b = a[keep], b[keep]
+            inner = np.asarray(
+                _safe(lambda x, y: shapely.relate_pattern(x, y, "T********"), geoms[a], geoms[b]),
+                dtype=bool,
+            )
+            a, b = a[inner], b[inner]
+            big = shapely.area(_safe(shapely.intersection, geoms[a], geoms[b])) > MIN_PIECE
+            for i, j in zip(a[big].tolist(), b[big].tolist(), strict=True):
+                hit.setdefault(i, []).append(j)
+                hit.setdefault(j, []).append(i)
+        data["cache"][key] = hit
+    return hit
+
+
 def _preview_features(data: dict, level: int, pct: int) -> list[str]:
     """Serialised GeoJSON features of one level at one simplification; computed once, then cached."""
     key = (level, pct)
@@ -1216,6 +1265,7 @@ def _preview_features(data: dict, level: int, pct: int) -> list[str]:
     if hit is None:
         lv = _current(data, level)
         gj = shapely.to_geojson(_simplified(data, level, pct))
+        over = _overlaps(data, level, pct)
         hit = [
             '{"type":"Feature","properties":'
             + json.dumps(
@@ -1225,6 +1275,7 @@ def _preview_features(data: dict, level: int, pct: int) -> list[str]:
                     "tag": f"ADM{level} · {p['name']}",
                     "color": UNNAMED_COLOR if p.get("unnamed") else _color(level),
                     "shade": 0,
+                    **({"overlaps": over[i]} if i in over else {}),
                 },
                 ensure_ascii=False,
                 separators=(",", ":"),
@@ -1590,8 +1641,7 @@ async def merge_pbf(body: MergeBody):
     data = await run_in_threadpool(_load, _dataset(body.token), body.country)
     if body.level not in data["by_level"]:
         raise HTTPException(422, "That admin level is not in this country.")
-    await run_in_threadpool(_merge, data, body.level, body.idxs)
-    return {"ok": True}
+    return await run_in_threadpool(_merge, data, body.level, body.idxs)
 
 
 def _delete(data: dict, level: int, idxs: list[int]) -> None:

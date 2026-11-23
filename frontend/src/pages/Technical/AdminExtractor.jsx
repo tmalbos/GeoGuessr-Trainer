@@ -37,6 +37,7 @@ export default function AdminExtractor() {
   const [info, setInfo] = useState(null); // { levels: [{ level, count }] } of the selected country only
   const [fills, setFills] = useState({}); // level -> level whose polygons fill its gaps (absent = "Unnamed N")
   const [picked, setPicked] = useState(null); // properties of the clicked polygon
+  const [focus, setFocus] = useState(null); // polygon the map should fly to ({ level, idx })
   const [marks, setMarks] = useState([]); // polygons picked with click / Shift+click, to merge
   const [mergeShortcut, setMergeShortcut] = useState(DEFAULT_MERGE_SHORTCUT);
   const [nameDraft, setNameDraft] = useState("");
@@ -184,9 +185,11 @@ export default function AdminExtractor() {
     setErr("");
     pushUndo(snap);
     if (feats) {
+      const shift = (i) => i - gone.filter((g) => g < i).length;
       cache.current.set(key, feats.filter((f) => !gone.includes(f.properties.idx)).map((f) => {
-        const n = gone.filter((g) => g < f.properties.idx).length;
-        return n ? { ...f, properties: { ...f.properties, idx: f.properties.idx - n } } : f;
+        const { overlaps, ...rest } = f.properties;
+        const o = overlaps?.filter((x) => !gone.includes(x)).map(shift);
+        return { ...f, properties: { ...rest, idx: shift(f.properties.idx), ...(o?.length ? { overlaps: o } : {}) } };
       }));
     }
     setMarks([]); setPicked(null);
@@ -239,6 +242,8 @@ export default function AdminExtractor() {
     });
   };
 
+  const jump = (p) => { onPick(p, false); setFocus({ level: p.admin_level, idx: p.idx }); };
+
   const mergeMarked = async () => {
     const first = marks[0];
     const key = `${ds.token}|${country}|${first.admin_level}|${pct}`;
@@ -246,11 +251,26 @@ export default function AdminExtractor() {
     setErr("");
     pushUndo(snap);
     try {
-      await enqueue(() => api("/technical/pbf/merge", { method: "POST", body: { token: ds.token, country, level: first.admin_level, idxs: marks.map((m) => m.idx) } }));
-      cache.current.delete(key);
+      const r = await enqueue(() => api("/technical/pbf/merge", { method: "POST", body: { token: ds.token, country, level: first.admin_level, idxs: marks.map((m) => m.idx) } }));
+      if (snap.feats && r.geometry) { // join them here too: no need to download the whole level again
+        const ids = [...new Set(marks.map((m) => m.idx))].sort((a, b) => a - b);
+        const head = ids[0];
+        const drop = new Set(ids.slice(1));
+        const mapIdx = (i) => (drop.has(i) ? head : i - ids.slice(1).filter((g) => g < i).length);
+        const joined = new Set(snap.feats.filter((f) => ids.includes(f.properties.idx)).flatMap((f) => (f.properties.overlaps ?? []).map(mapIdx)));
+        joined.delete(head);
+        cache.current.set(key, snap.feats.filter((f) => !drop.has(f.properties.idx)).map((f) => {
+          const { overlaps, ...rest } = f.properties;
+          const isHead = f.properties.idx === head;
+          const ov = isHead ? [...joined] : [...new Set((overlaps ?? []).map(mapIdx))];
+          return { ...f, properties: { ...(isHead ? r.props : rest), idx: mapIdx(f.properties.idx), ...(ov.length ? { overlaps: ov } : {}) }, ...(isHead ? { geometry: r.geometry } : {}) };
+        }));
+      } else {
+        cache.current.delete(key);
+        setBump((n) => n + 1);
+      }
       setMarks([]); setPicked(null);
       setVer((v) => v + 1);
-      setBump((n) => n + 1);
     } catch (e) { dropUndo(snap); setErr(errorText(e)); }
   };
 
@@ -326,6 +346,8 @@ export default function AdminExtractor() {
   const cacheKey = ds && country ? `${ds.token}|${country}` : "";
   const active = (l) => cache.current.get(`${cacheKey}|${l}|${pct}`)?.length;
   const unnamed = (fc?.features ?? []).map((f) => f.properties).filter((p) => p.unnamed);
+  const overlapping = (fc?.features ?? []).map((f) => f.properties).filter((p) => p.overlaps?.length);
+  const byIdx = new Map((fc?.features ?? []).map((f) => [`${f.properties.admin_level}|${f.properties.idx}`, f.properties.name]));
 
   return <div className="tp">
     <div className="tp-side">
@@ -384,7 +406,7 @@ export default function AdminExtractor() {
             <p className="muted">Land a level doesn't cover appears in red as "Unnamed N". Click one on the map to rename it, or fill the gaps with another level.</p>
             {!!unnamed.length && <div className="tp-tags">
               {unnamed.map((p) => <button type="button" key={p.tag} className="link-btn" style={{ textAlign: "left", fontWeight: sel?.tag === p.tag ? 700 : 400 }}
-                onClick={() => onPick(p, false)}>Level {p.admin_level} · {p.name}</button>)}
+                onClick={() => jump(p)}>Level {p.admin_level} · {p.name}</button>)}
             </div>}
             {levels.map((l) => <div className="tp-field" key={l}>
               <label htmlFor={`fill-${l}`}>Level {l} gaps filled with</label>
@@ -393,6 +415,15 @@ export default function AdminExtractor() {
                 {info.levels.filter((x) => x.level !== l).map((x) => <option key={x.level} value={x.level}>Level {x.level} polygons</option>)}
               </select>
             </div>)}
+          </>}
+
+          {!!overlapping.length && <>
+            <h3>Overlaps <span className="muted">· {overlapping.length} polygons</span></h3>
+            <p className="muted">Polygons of the same level that cover the same land. Click one to select it, or click again on the map to cycle through the ones stacked there.</p>
+            <div className="tp-tags">
+              {overlapping.map((p) => <button type="button" key={`${p.admin_level}|${p.idx}`} className="link-btn" style={{ textAlign: "left", fontWeight: sel?.admin_level === p.admin_level && sel?.idx === p.idx ? 700 : 400 }}
+                onClick={() => jump(p)}>Level {p.admin_level} · {p.name} <span className="muted">↔ {p.overlaps.slice(0, 3).map((i) => byIdx.get(`${p.admin_level}|${i}`) ?? "?").join(", ")}{p.overlaps.length > 3 ? "…" : ""}</span></button>)}
+            </div>
           </>}
 
           {sel && <div className="tp-field">
@@ -424,7 +455,7 @@ export default function AdminExtractor() {
       {exportOpen && info && <ExportDialog ds={ds} levels={info.levels} selected={levels} onClose={() => setExportOpen(false)} onExport={exportTopo} />}
       {err && <ErrorBox message={err} />}
       {admin && (extracting || busy) && <p className="muted" role="status"><StatusIcon kind="wait" />{extracting ? "Building this country…" : "Loading… a new level is cut to the coast and its gaps are filled the first time."}</p>}
-      {admin && ds && country && <PolyMap features={fc} fitKey={fc ? `${ds.token}|${country}` : null} onPick={onPick} selected={sel?.tag ?? null} marked={marks} />}
+      {admin && ds && country && <PolyMap features={fc} fitKey={fc ? `${ds.token}|${country}` : null} onPick={onPick} selected={sel} marked={marks} focus={focus} />}
       {!admin && ds && <>
         <PolyMap features={other?.geojson?.features.length ? other.geojson : null} fitKey={other?.key} />
         <div className="tp-stats muted">
