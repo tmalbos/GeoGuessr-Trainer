@@ -15,6 +15,16 @@ function featureBounds(fc) {
   return Number.isFinite(w) ? { w, s, e, n } : null;
 }
 
+function geomBox(g) {
+  let w = Infinity, s = Infinity, e = -Infinity, n = -Infinity;
+  const walk = (c) => {
+    if (typeof c[0] === "number") { w = Math.min(w, c[0]); e = Math.max(e, c[0]); s = Math.min(s, c[1]); n = Math.max(n, c[1]); }
+    else c.forEach(walk);
+  };
+  walk(g.coordinates);
+  return [w, s, e, n];
+}
+
 const CLICK_PX = 4; // a press that moves less than this is a click, not a pan
 
 /** features: GeoJSON FeatureCollection | null. fitKey: refit the view to the features when it changes.
@@ -30,7 +40,7 @@ export default function PolyMap({ features, fitKey, onPick, selected = null, mar
   pickRef.current = onPick;
 
   useEffect(() => {
-    const st = { features: null, hits: [], dpr: 1, selected: null, marked: null };
+    const st = { features: null, hits: [], dpr: 1, selected: null, marked: null, boxes: [], top: {} };
     const cv = canvas.current;
 
     const draw = (v, size) => {
@@ -48,12 +58,22 @@ export default function PolyMap({ features, fitKey, onPick, selected = null, mar
       ctx.clearRect(0, 0, size.w, size.h);
       st.hits = [];
       ctx.lineJoin = "round";
-      const top = {}; // rarest shade of each tag
-      for (const f of st.features?.features ?? []) top[f.properties.tag] = Math.max(top[f.properties.tag] ?? 0, f.properties.shade ?? 0);
+      const top = st.top; // rarest shade of each tag
       let chosen = null;
       const extra = [];
-      for (const f of st.features?.features ?? []) {
+      for (const [fi, f] of (st.features?.features ?? []).entries()) {
         const g = f.geometry;
+        const bx = st.boxes[fi];
+        if (bx) { // off screen: skipped. Under 1 px: a dot instead of a path.
+          const x0 = X(bx[0]), x1 = X(bx[2]), y0 = Y(bx[3]), y1 = Y(bx[1]);
+          if (x1 < -8 || x0 > size.w + 8 || y1 < -8 || y0 > size.h + 8) continue;
+          if (x1 - x0 < 1 && y1 - y0 < 1 && !g.type.endsWith("Point")) {
+            ctx.globalAlpha = 0.8 * shadeFactor(f.properties.shade ?? 0, top[f.properties.tag]);
+            ctx.fillStyle = f.properties.color;
+            ctx.fillRect(x0, y0, 1.5, 1.5);
+            continue;
+          }
+        }
         const path = new Path2D();
         const line = g.type === "LineString" || g.type === "MultiLineString";
         const point = g.type === "Point" || g.type === "MultiPoint";
@@ -161,7 +181,11 @@ export default function PolyMap({ features, fitKey, onPick, selected = null, mar
 
   useEffect(() => {
     if (!api.current) return;
-    api.current.st.features = features;
+    const st = api.current.st;
+    st.features = features;
+    st.boxes = (features?.features ?? []).map((f) => geomBox(f.geometry));
+    st.top = {};
+    for (const f of features?.features ?? []) st.top[f.properties.tag] = Math.max(st.top[f.properties.tag] ?? 0, f.properties.shade ?? 0);
     api.current.engine.render(true);
   }, [features]);
 

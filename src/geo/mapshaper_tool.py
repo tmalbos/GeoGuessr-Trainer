@@ -66,13 +66,15 @@ def require() -> Path:
     raise MapshaperMissingError(msg)
 
 
-def to_topojson(fc: dict, name: str) -> str:
+def to_topojson(fc: dict | str, name: str) -> str:
     """A GeoJSON FeatureCollection as TopoJSON (one object called `name`), as mapshaper writes it."""
     exe = require()
     with tempfile.TemporaryDirectory(prefix="mapshaper-") as tmp:
         src = Path(tmp) / f"{name}.json"
         out = Path(tmp) / f"{name}.topojson"
-        src.write_text(json.dumps(fc, ensure_ascii=False), encoding="utf-8")
+        src.write_text(
+            fc if isinstance(fc, str) else json.dumps(fc, ensure_ascii=False), encoding="utf-8"
+        )
         try:
             p = subprocess.run(
                 [str(exe), "-i", str(src), "-o", str(out), "format=topojson"],

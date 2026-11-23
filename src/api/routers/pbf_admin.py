@@ -402,27 +402,23 @@ def _faces(way_ids, ways: dict[int, np.ndarray]):
     lines = [shapely.linestrings(ways[i]) for i in way_ids if i in ways]
     if not lines:
         return None
-    merged = shapely.line_merge(shapely.multilinestrings(lines))
-    parts = shapely.get_parts(merged)
-    if (
-        len(parts)
-        and bool(np.all(shapely.is_closed(parts)))
-        and all(len(p.coords) >= 4 for p in parts)
-    ):
-        polys = [shapely.Polygon(p.coords) for p in parts]
-        return (
-            polys[0]
-            if len(polys) == 1
-            else shapely.union_all([g if g.is_valid else shapely.make_valid(g) for g in polys])
-        )
-    faces = [
-        p
-        for p in shapely.get_parts(
-            shapely.polygonize(shapely.get_parts(shapely.line_merge(shapely.union_all(lines))))
-        )
-        if p.geom_type == "Polygon" and not p.is_empty
-    ]
-    return shapely.union_all(faces) if faces else None
+    parts = shapely.get_parts(shapely.line_merge(shapely.multilinestrings(lines)))
+    closed = shapely.is_closed(parts) & (shapely.get_num_coordinates(parts) >= 4)
+    polys = [shapely.Polygon(p.coords) for p in parts[closed]]
+    if not closed.all():  # only the ways that don't chain into rings need noding + polygonize
+        loose = shapely.line_merge(shapely.union_all(parts[~closed]))
+        polys += [
+            p
+            for p in shapely.get_parts(shapely.polygonize(shapely.get_parts(loose)))
+            if p.geom_type == "Polygon" and not p.is_empty
+        ]
+    if len(polys) < 2:
+        return polys[0] if polys else None
+    arr = np.empty(len(polys), dtype=object)
+    arr[:] = polys
+    bad = ~shapely.is_valid(arr)
+    arr[bad] = shapely.make_valid(arr[bad])
+    return shapely.union_all(arr)
 
 
 def _assemble(rel: dict, ways: dict[int, np.ndarray]):
@@ -726,6 +722,39 @@ def _is_land(px: float, py: float, coast: np.ndarray, tree, cbox) -> tuple[bool 
     return None, None
 
 
+def _ring_key(ring) -> bytes:
+    return shapely.to_wkb(shapely.normalize(shapely.Polygon(ring)))
+
+
+def _classify(faces: list, coast: np.ndarray, tree, cbox) -> list[tuple[bool | None, int | None]]:
+    """(land, deciding coastline) for every face of a coastline split.
+
+    Crossing a coastline flips land / sea, and an island is a hole of the sea face around it, so the ring of a hole is
+    the outer ring of exactly one other face. Faces are therefore arranged in a tree by that ring, only the roots
+    (faces that are not a hole of another face) are tested with _is_land, and every child is the opposite of its
+    parent. Faces that match nothing are roots, so they are still tested one by one.
+    """
+    own = {_ring_key(f.exterior): i for i, f in enumerate(faces)}
+    kids: list[list[int]] = [[] for _ in faces]
+    child: set[int] = set()
+    for i, f in enumerate(faces):
+        for ring in f.interiors:
+            j = own.get(_ring_key(ring))
+            if j is not None and j != i and j not in child:
+                kids[i].append(j)
+                child.add(j)
+    out: list[tuple[bool | None, int | None]] = [(None, None)] * len(faces)
+    for root in (i for i in range(len(faces)) if i not in child):
+        pt = shapely.point_on_surface(faces[root])
+        land, way = _is_land(pt.x, pt.y, coast, tree, cbox)
+        stack = [(root, land)]
+        while stack:
+            i, v = stack.pop()
+            out[i] = (v, way)
+            stack.extend((j, None if v is None else not v) for j in kids[i])
+    return out
+
+
 def _land_only(g, coast: np.ndarray, tree, cbox) -> tuple:
     """(land part of boundary `g` or None when none of it is land, removed sea parts, coastline gaps).
     Each removed part is (area deg2, lat, lon, index of the coastline that decided it).
@@ -775,10 +804,9 @@ def _land_only(g, coast: np.ndarray, tree, cbox) -> tuple:
         parts = [q for q in shapely.get_parts(g) if q.geom_type == "Polygon" and not q.is_empty]
 
     land, sea = [], []
-    for q in parts:
-        pt = shapely.point_on_surface(q)
-        is_land, way = _is_land(pt.x, pt.y, coast, tree, cbox)
+    for q, (is_land, way) in zip(parts, _classify(parts, coast, tree, cbox), strict=True):
         if is_land is False:
+            pt = shapely.point_on_surface(q)
             sea.append((q.area, pt.y, pt.x, way))
         else:
             land.append(q)
@@ -823,6 +851,7 @@ def _cut_level(data: dict, level: int) -> dict:
         except Exception:
             log.warning("Coastline cut failed for %s", p["name"], exc_info=True)
             ng, sea, gaps = g, [], []
+        data.setdefault("cut", {})[id(g)] = (g, ng)
         if sea:
             kept = 0.0 if ng is None else 100 * ng.area / (g.area or 1e-12)
             log.info(
@@ -882,9 +911,12 @@ def _country_land(data: dict):
             return data["country_land"]
         g = data["country_geom"]
         if g is not None and data["tree"] is not None:
+            done = data.get("cut", {}).get(id(g))
             try:
-                ng, _sea, _gaps = _land_only(g, data["coast"], data["tree"], data["cbox"])
-                g = ng
+                if done is not None and done[0] is g:
+                    g = done[1]
+                else:
+                    g = _land_only(g, data["coast"], data["tree"], data["cbox"])[0]
             except Exception:
                 log.warning("Coastline cut failed for the country boundary", exc_info=True)
         data["country_land"] = g
@@ -902,15 +934,19 @@ def _level_tree(data: dict, level: int):
     return t
 
 
-def _neighbour(piece, geoms: list, tree) -> int | None:
-    """Index of the closest boundary to the gap `piece`, touching it or not (an island has nothing to touch).
-    Ties (several boundaries touching it) go to the one closest to the piece's centre.
+def _neighbours(pieces: np.ndarray, geoms: np.ndarray, tree) -> np.ndarray:
+    """Per gap piece, the index of the closest boundary, touching it or not (an island has nothing to touch); -1 when
+    there is none. Ties (several boundaries touching it) go to the one closest to the piece's centre.
     """
-    cand = tree.query_nearest(piece, all_matches=True)
-    if not len(cand):
-        return None
-    centre = shapely.centroid(piece)
-    return int(min(cand, key=lambda i: float(shapely.distance(centre, geoms[i]))))
+    out = np.full(len(pieces), -1, dtype=np.int64)
+    pair = tree.query_nearest(pieces, all_matches=True)
+    if pair.shape[1]:
+        dist = shapely.distance(shapely.centroid(pieces[pair[0]]), geoms[pair[1]])
+        order = np.lexsort((dist, pair[0]))
+        who = pair[0][order]
+        first = order[np.r_[True, who[1:] != who[:-1]]]
+        out[pair[0][first]] = pair[1][first]
+    return out
 
 
 def _fill_gaps(data: dict, level: int, base: dict) -> dict:
@@ -940,13 +976,12 @@ def _fill_gaps(data: dict, level: int, base: dict) -> dict:
 
     small = SMALL_SHARE * country.area
     edge = shapely.boundary(country)
-    fragments: list = []
-    rest: list = []
-    for q in pieces:
-        if q.area < small and shapely.dwithin(q, edge, TOUCH_TOL):
-            fragments.append(q)
-        else:
-            rest.append(q)
+    parr = np.empty(len(pieces), dtype=object)
+    parr[:] = pieces
+    frag = shapely.area(parr) < small
+    frag[frag] = shapely.dwithin(parr[frag], edge, TOUCH_TOL)
+    fragments: list = list(parr[frag])
+    rest: list = list(parr[~frag])
 
     props, out = list(base["props"]), list(geoms)
     gap = _polys(shapely.union_all(rest)) if rest else None
@@ -1003,10 +1038,10 @@ def _fill_gaps(data: dict, level: int, base: dict) -> dict:
 
     merged: dict[int, list] = {}
     if fragments and out:
-        tree = shapely.STRtree(np.array(out, dtype=object))
-        for q in fragments:
-            i = _neighbour(q, out, tree)
-            if i is not None:
+        oarr = np.array(out, dtype=object)
+        near = _neighbours(np.array(fragments, dtype=object), oarr, shapely.STRtree(oarr))
+        for q, i in zip(fragments, near.tolist(), strict=True):
+            if i >= 0:
                 merged.setdefault(i, []).append(q)
         for i, qs in merged.items():
             g = _polys(_safe(shapely.union, out[i], shapely.union_all(qs)))
@@ -1164,14 +1199,22 @@ def _tol(data: dict, pct: int) -> float:
     return 0.0 if pct <= 0 else data["diag"] * (pct / 100) * 0.01
 
 
+def _simplified(data: dict, level: int, pct: int) -> np.ndarray:
+    """The polygons of one level simplified together; shared by the preview and the export, computed once."""
+    key = (level, pct, "geoms")
+    hit = data["cache"].get(key)
+    if hit is None:
+        hit = data["cache"][key] = _simplify(_current(data, level)["geoms"], _tol(data, pct))
+    return hit
+
+
 def _preview_features(data: dict, level: int, pct: int) -> list[str]:
     """Serialised GeoJSON features of one level at one simplification; computed once, then cached."""
     key = (level, pct)
     hit = data["cache"].get(key)
     if hit is None:
         lv = _current(data, level)
-        geoms = _simplify(lv["geoms"], _tol(data, pct))
-        gj = shapely.to_geojson(geoms)
+        gj = shapely.to_geojson(_simplified(data, level, pct))
         hit = [
             '{"type":"Feature","properties":'
             + json.dumps(
@@ -1389,34 +1432,39 @@ def _export(
     feat_levels = []
     for lv in chosen:
         item = _current(data, lv)
-        geoms = _simplify(item["geoms"], _tol(data, simplify))
+        texts = shapely.to_geojson(_simplified(data, lv, simplify))
         names = _export_names(item["props"])
         up = _parent_fields(item["geoms"], adm, layers)
-        for p, g, label, coarser in zip(item["props"], geoms, names, up, strict=True):
-            feats.append(
-                {
-                    "type": "Feature",
-                    "properties": {
-                        "COUNTRY": data["country"],
-                        "ISO": p["iso"],
-                        **{f"{_NAME_PREFIX}{k}": v for k, v in sorted(coarser.items())},
-                        field: label,
-                    },
-                    "geometry": json.loads(shapely.to_geojson(g)),
-                }
-            )
+        for p, g, label, coarser in zip(item["props"], texts, names, up, strict=True):
+            props = {
+                "COUNTRY": data["country"],
+                "ISO": p["iso"],
+                **{f"{_NAME_PREFIX}{k}": v for k, v in sorted(coarser.items())},
+                field: label,
+            }
+            feats.append((props, g))
             feat_levels.append(lv)
 
     if not feats:
         raise HTTPException(422, "Nothing of these levels is on land.")
 
     if len(feats) == 1 and feat_levels[0] < 6:
-        del feats[0]["properties"][field]
+        del feats[0][0][field]
 
     try:
-        cleaned_topo_str = mapshaper_tool.to_topojson(
-            {"type": "FeatureCollection", "features": feats}, "ADM"
+        collection = (
+            '{"type":"FeatureCollection","features":['
+            + ",".join(
+                '{"type":"Feature","properties":'
+                + json.dumps(props, ensure_ascii=False, separators=(",", ":"))
+                + ',"geometry":'
+                + g
+                + "}"
+                for props, g in feats
+            )
+            + "]}"
         )
+        cleaned_topo_str = mapshaper_tool.to_topojson(collection, "ADM")
     except mapshaper_tool.MapshaperMissingError as e:
         raise HTTPException(422, str(e)) from e
     except mapshaper_tool.MapshaperError as e:
