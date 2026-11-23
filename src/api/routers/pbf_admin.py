@@ -48,10 +48,11 @@ import numpy as np
 import shapely
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
+from starlette.background import BackgroundTask
 from starlette.concurrency import run_in_threadpool
-from starlette.responses import Response
+from starlette.responses import FileResponse, Response
 
-from src.geo import mapshaper_tool, osmium_tool
+from src.geo import osmium_tool, topojson_writer
 
 log = logging.getLogger(
     "uvicorn.error"
@@ -1417,7 +1418,7 @@ def _import_parent(ds: dict, raw: bytes, filename: str) -> dict:
 
 def _export(
     ds: dict, data: dict, levels: list[int], simplify: int, name: str, adm: int, parents: list
-) -> tuple[str, str]:
+) -> tuple[Path, str]:
     chosen = [lv for lv in levels if lv in data["by_level"]]
     if not chosen:
         raise HTTPException(422, "Pick at least one admin level")
@@ -1430,49 +1431,36 @@ def _export(
     field = f"{_NAME_PREFIX}{adm}"
     feats = []
     feat_levels = []
+    shapes = []
     for lv in chosen:
         item = _current(data, lv)
-        texts = shapely.to_geojson(_simplified(data, lv, simplify))
+        shapes.append(_simplified(data, lv, simplify))
         names = _export_names(item["props"])
         up = _parent_fields(item["geoms"], adm, layers)
-        for p, g, label, coarser in zip(item["props"], texts, names, up, strict=True):
-            props = {
-                "COUNTRY": data["country"],
-                "ISO": p["iso"],
-                **{f"{_NAME_PREFIX}{k}": v for k, v in sorted(coarser.items())},
-                field: label,
-            }
-            feats.append((props, g))
+        for p, label, coarser in zip(item["props"], names, up, strict=True):
+            feats.append(
+                {
+                    "COUNTRY": data["country"],
+                    "ISO": p["iso"],
+                    **{f"{_NAME_PREFIX}{k}": v for k, v in sorted(coarser.items())},
+                    field: label,
+                }
+            )
             feat_levels.append(lv)
 
     if not feats:
         raise HTTPException(422, "Nothing of these levels is on land.")
 
     if len(feats) == 1 and feat_levels[0] < 6:
-        del feats[0][0][field]
+        del feats[0][field]
 
-    try:
-        collection = (
-            '{"type":"FeatureCollection","features":['
-            + ",".join(
-                '{"type":"Feature","properties":'
-                + json.dumps(props, ensure_ascii=False, separators=(",", ":"))
-                + ',"geometry":'
-                + g
-                + "}"
-                for props, g in feats
-            )
-            + "]}"
-        )
-        cleaned_topo_str = mapshaper_tool.to_topojson(collection, "ADM")
-    except mapshaper_tool.MapshaperMissingError as e:
-        raise HTTPException(422, str(e)) from e
-    except mapshaper_tool.MapshaperError as e:
-        raise HTTPException(500, e.message) from e
+    CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    out = CACHE_DIR / f"export-{uuid4().hex}.topojson"
+    topojson_writer.write_topojson(out, np.concatenate(shapes), feats, "ADM")
 
     stem = "".join(c if c.isascii() and (c.isalnum() or c in "._-") else "_" for c in name.strip())
     stem = stem.removesuffix(".topojson") or f"ADM{adm}"
-    return cleaned_topo_str, f"{stem}.topojson"
+    return out, f"{stem}.topojson"
 
 
 # ── API ────────────────────────────────────────────────────────────────────
@@ -1675,11 +1663,12 @@ async def parent_file_pbf(request: Request, token: str, filename: str = "parent.
 async def export_pbf(body: ExportBody):
     ds = _dataset(body.token)
     data = await run_in_threadpool(_load, ds, body.country)
-    content, filename = await run_in_threadpool(
+    path, filename = await run_in_threadpool(
         _export, ds, data, _levels(body.levels), body.simplify, body.name, body.adm, body.parents
     )
-    return Response(
-        content=content,
+    return FileResponse(
+        path,
         media_type="application/topojson+json",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        background=BackgroundTask(path.unlink, missing_ok=True),
     )

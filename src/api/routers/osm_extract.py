@@ -52,11 +52,12 @@ import numpy as np
 import shapely
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
+from starlette.background import BackgroundTask
 from starlette.concurrency import run_in_threadpool
-from starlette.responses import Response
+from starlette.responses import FileResponse, Response
 
 from src.api.routers import pbf_admin as pbf
-from src.geo import osmium_tool
+from src.geo import osmium_tool, topojson_writer
 
 log = logging.getLogger("uvicorn.error")
 router = APIRouter()
@@ -331,22 +332,19 @@ def _preview(ds: dict, body: ViewBody, gen: int) -> str:
     )
 
 
-def _export(ds: dict, body: ViewBody) -> str:
-    try:
-        from topojson import Topology
-    except ImportError as e:  # pragma: no cover
-        raise HTTPException(503, "The topojson package is not installed on the server.") from e
+def _export(ds: dict, body: ViewBody) -> Path:
     fields = list(dict.fromkeys(body.fields))
     with _GDAL:
         geoms, vals = _table(ds, body.layer, body.filters, fields, None)
-    texts = shapely.to_geojson(geoms) if len(geoms) else []
-    feats = [
-        _feature({k: vals[k][i] for k in fields if vals[k][i]}, g) for i, g in enumerate(texts)
-    ]
-    if not feats:
+    if not len(geoms):
         raise HTTPException(422, "Nothing matches this selection.")
-    fc = json.loads('{"type":"FeatureCollection","features":[' + ",".join(feats) + "]}")
-    return Topology(fc, object_name=_safe(body.name)).to_json()
+    props = [{k: vals[k][i] for k in fields if vals[k][i]} for i in range(len(geoms))]
+    CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    fd, name = tempfile.mkstemp(prefix="export-", suffix=".topojson", dir=CACHE_DIR)
+    os.close(fd)
+    path = Path(name)
+    topojson_writer.write_topojson(path, geoms, props, _safe(body.name))
+    return path
 
 
 @router.post("/technical/osm/preview")
@@ -362,12 +360,13 @@ async def preview_osm(body: ViewBody):
 async def export_osm(body: ViewBody):
     ds = _dataset(body.token)
     _check_layer(body.layer)
-    text = await run_in_threadpool(_guard, "export this layer", _export, ds, body)
+    path = await run_in_threadpool(_guard, "export this layer", _export, ds, body)
     filename = f"{_safe(_stem(ds['path']))}-{_safe(body.name)}.topojson"
-    return Response(
-        content=text,
+    return FileResponse(
+        path,
         media_type="application/topojson+json",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        background=BackgroundTask(path.unlink, missing_ok=True),
     )
 
 
