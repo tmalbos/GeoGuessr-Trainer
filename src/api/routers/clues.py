@@ -39,7 +39,6 @@ import logging
 import re
 import shutil
 import threading
-import time
 import uuid
 import zlib
 from pathlib import Path
@@ -51,7 +50,6 @@ import numpy as np
 import pandas as pd
 import pyarrow.parquet as pq
 import shapely
-import yaml
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse, Response
 from PIL import Image, ImageOps
@@ -60,10 +58,33 @@ from starlette.concurrency import run_in_threadpool
 
 from src.api.deps import get_ctx
 from src.api.routers.stain import _borders, _outline  # noqa: PLC2701
+from src.explore.country_clues.clues import (
+    ASSET_RE,
+    CLUES_DIR,
+    GENERAL_TAGS,
+    KINDS,
+    LOCATION_TAGS,
+    STAGING,
+    TOKEN_RE,
+    _apply_medal,
+    _asset,
+    _cc,
+    _countries_with_clues,
+    _load,
+    _make_levels,
+    _next_name,
+    _next_num,
+    _overlay_name,
+    _purge_staging,
+    _restandardize,
+    _save,
+    _set_has,
+    _staged_path,
+    _summary,
+    _write_overlay,
+)
 from src.geo.clue_overlay import recolour, render_overlay
 from src.geo.csv_areas import AreasError, build_areas, read_rows
-from src.geo.local_geo import CountryAreaMissingError
-from src.geo.prefix_levels import build_levels
 from src.geo.region_stats import region_stats
 from src.geo.subcontinents import SUBCONTINENTS
 from src.shared import decks as deck_store
@@ -71,20 +92,6 @@ from src.shared import prefs
 
 logger = logging.getLogger("uvicorn.error")
 
-CLUES_DIR = Path(__file__).parents[3] / "data" / "clues"
-STAGING = CLUES_DIR / ".staging"
-
-# Keep in sync with frontend/src/pages/Explore/clues/tags.js
-LOCATION_TAGS = ["Urban", "Rural", "Anywhere"]
-GENERAL_TAGS = [
-    "Architecture", "Phone Numbers", "Postal Codes", "Landscape", "Vegetation",
-    "Infrastructure", "Vehicle", "License Plate", "Flags", "Roads", "Subdivision Names",
-    "City Names", "Agriculture", "Soil", "Brand", "Language", "Script", "Road Sign",
-    "Electricity Pole", "Bollard", "National Parks", "Biome", "Religion",
-    "Animals", "Google Car", "Copyright", "Camera Generation", "Camera", "Coverage",
-]  # fmt: skip
-
-KINDS = ("image", "svg", "csv", "polygons", "lines", "points")
 AREA_KINDS = ("svg", "csv", "polygons", "lines", "points")  # what says which part of the country
 GEOM_KINDS = ("polygons", "lines", "points")
 GEOM_KIND = {"Polygon": "polygons", "LineString": "lines", "Point": "points"}
@@ -100,176 +107,13 @@ MAX_SHADE = 3  # 4 shades in total (0 = main tone); keep equal to SHADES - 1 in 
 
 URL_RE = re.compile(r"https?://\S+", re.IGNORECASE)
 
-# The overlay of a clue sits next to its geometry file and shares its name: reg_roads_00003.overlay.svg
-# So do the per-depth maps of a prefix-coloured clue (see prefix_levels.py): reg_phonenumbers_00003.d1.parquet
-ASSET_RE = re.compile(r"(nat|reg)_[a-z]+_\d{5}(\.(?:overlay|d\d{1,2}))?\.(webp|svg|csv|parquet)")
-TOKEN_RE = re.compile(r"[0-9a-f]{32}")
-
 _LOCK = threading.Lock()
-
-# Countries that have at least one clue. Built from disk on first request,
-# then kept in memory for the life of the server (never written to disk) and updated by each change.
-_SUM_LOCK = threading.Lock()
-_HAS: set[str] | None = None
-
-
-def _summary() -> set[str]:
-    global _HAS  # noqa: PLW0603
-    with _SUM_LOCK:
-        if _HAS is None:
-            _HAS = {
-                d.name.upper()
-                for d in sorted(CLUES_DIR.glob("??"))
-                if d.is_dir() and re.fullmatch(r"[A-Za-z]{2}", d.name) and _load(d.name)
-            }
-        return set(_HAS)
-
-
-def _set_has(cc: str, items: list[dict]) -> None:
-    """Called after a country's clues change: only that country's entry is touched, nothing is rescanned."""
-    with _SUM_LOCK:
-        if _HAS is None:  # not built yet; the first request will read the final state from disk
-            return
-        (_HAS.add if items else _HAS.discard)(cc)
-
-
-def _country_km2(local, code: str) -> float:
-    """Country area (km²) stored in the national parquet by scripts/convert_geo.py.
-
-    Raises CountryAreaMissingError when the file predates that column or has no positive value.
-    """
-    layer = local._admin_layer(code)  # noqa: SLF001
-    if layer is None or not len(layer) or "country_km2" not in layer.columns:
-        raise CountryAreaMissingError(code)
-    try:
-        value = float(layer["country_km2"].iloc[0])
-    except (TypeError, ValueError):
-        raise CountryAreaMissingError(code) from None
-    if value <= 0:
-        raise CountryAreaMissingError(code)
-    return value
-
-
-def _apply_medal(cc: str, entry: dict, request: Request, folder: Path, override=None) -> None:
-    """Store `score` and `medal` on a clue. Computed once, when the clue is saved (see clue_medal.py).
-
-    A regional clue whose country area is not stored (see scripts/backfill_country_area.py) is logged
-    and left unscored.
-    """
-    # imported here because clue_source imports this module
-    from src.analysis.clue_medal import medal_for  # noqa: PLC0415
-    from src.api.clue_source import ClueSource  # noqa: PLC0415
-
-    local = get_ctx(request).local_geo
-    try:
-        # Only a regional clue needs the country's area, stored in the national parquet
-        # (scripts/convert_geo.py).
-        country = None
-        if local is not None and entry.get("scope") == "reg":
-            country = _country_km2(local, cc)
-        res = medal_for(cc, entry, ClueSource(local), folder, override, country_km2=country)
-    except Exception:
-        logger.exception("Could not score clue %s/%s", cc, entry.get("id"))
-        return
-    if res is None:
-        return
-    entry["score"] = res[0]
-    if res[1]:
-        entry["medal"] = res[1]
-
-
-def _restandardize(path: Path) -> None:
-    """Re-check the colors of a drawn-areas file before it is saved. Never blocks the save."""
-    from src.api.routers.clue_draw import (
-        restandardize,
-    )
-
-    try:
-        restandardize(path)
-    except Exception:
-        logger.exception("Could not standardize the colors of %s", path.name)
 
 
 router = APIRouter()
 
 
 # ── helpers ────────────────────────────────────────────────────────────────
-
-
-def _cc(code: str) -> str:
-    if not re.fullmatch(r"[A-Za-z]{2}", code):
-        raise HTTPException(422, "Invalid country code")
-    return code.upper()
-
-
-def _yaml_path(cc: str) -> Path:
-    return CLUES_DIR / cc / "clues.yaml"
-
-
-def _load(cc: str) -> list[dict]:
-    p = _yaml_path(cc)
-    if not p.is_file():
-        return []
-    try:
-        return yaml.safe_load(p.read_text(encoding="utf-8")) or []
-    except yaml.YAMLError as e:
-        raise HTTPException(500, f"{p.name} for {cc} is corrupted") from e
-
-
-def _save(cc: str, items: list[dict]) -> None:
-    p = _yaml_path(cc)
-    p.parent.mkdir(parents=True, exist_ok=True)
-    tmp = p.with_suffix(".tmp")
-    tmp.write_text(
-        yaml.safe_dump(items, allow_unicode=True, sort_keys=False, width=100), encoding="utf-8"
-    )
-    tmp.replace(p)
-
-
-def _asset(cc: str, name: str) -> Path:
-    if not ASSET_RE.fullmatch(name):
-        raise HTTPException(422, "Invalid file name")
-    p = CLUES_DIR / _cc(cc) / name
-    if not p.is_file():
-        raise HTTPException(404, "File not found")
-    return p
-
-
-def _next_num(folder: Path, scope: str, general: str) -> int:
-    """Lowest free number for this scope + category (gaps left by deleted clues are reused).
-    One clue uses ONE number for all of its files.
-    """
-    key = "".join(general.split()).lower()
-    prefix = f"{scope}_{key}_"
-    pat = re.compile(re.escape(prefix) + r"(\d{5})\..+")
-    used = {int(m.group(1)) for p in folder.glob(prefix + "*") if (m := pat.fullmatch(p.name))}
-    num = 0
-    while num in used:
-        num += 1
-    return num
-
-
-def _next_name(folder: Path, scope: str, general: str, suffix: str, num: int | None = None) -> str:
-    key = "".join(general.split()).lower()
-    if num is None:
-        num = _next_num(folder, scope, general)
-    return f"{scope}_{key}_{num:05d}{suffix}"
-
-
-def _staged_path(token: str, kind: str) -> Path:
-    if not TOKEN_RE.fullmatch(token) or kind not in KINDS:
-        raise HTTPException(422, "Invalid staged file")
-    hits = list(STAGING.glob(f"{token}.{kind}.*"))
-    if not hits:
-        raise HTTPException(410, f"The uploaded {kind} file expired. Load it again.")
-    return hits[0]
-
-
-def _purge_staging() -> None:
-    cutoff = time.time() - 86400
-    for p in STAGING.glob("*"):
-        if p.is_file() and p.stat().st_mtime < cutoff:
-            p.unlink(missing_ok=True)
 
 
 def _vertices(geoms) -> int:
@@ -334,11 +178,6 @@ def _to_geojson(
 # ── overlay (the region pre-drawn on its country) ──────────────────────────
 
 
-def _overlay_name(geo_name: str) -> str:
-    """reg_roads_00003.parquet -> reg_roads_00003.overlay.svg."""
-    return f"{Path(geo_name).stem}.overlay.svg"
-
-
 def _render_overlay(cc: str, geo_file: Path, local) -> str | None:
     """SVG text of a clue's geometry drawn on its country, or None when it can't be made
     (geo layers not loaded, unreadable file). Never raises: the card then draws the geometry itself.
@@ -361,26 +200,6 @@ def _render_overlay(cc: str, geo_file: Path, local) -> str | None:
     except Exception:
         logger.exception("Could not draw the overlay of %s", geo_file.name)
         return None
-
-
-def _write_overlay(folder: Path, name: str, svg: str) -> None:
-    tmp = folder / f"{name}.tmp"
-    tmp.write_text(svg, encoding="utf-8")
-    tmp.replace(folder / name)
-
-
-def _make_levels(folder: Path, entry: dict, geo_file: Path | None = None) -> dict[str, str] | None:
-    """{depth: file name} of the per-depth maps of a prefix-coloured drawn clue, written next to its geometry file.
-    None when the clue isn't one, or when they can't be made (the card then shows the drawing as it is).
-    """
-    if not entry.get("prefix_colors") or not entry.get("polygons"):
-        return None
-    try:
-        levels = build_levels(geo_file or folder / entry["polygons"], folder, entry["polygons"])
-    except Exception:
-        logger.exception("Could not build the prefix levels of %s", entry["polygons"])
-        return None
-    return {str(d): n for d, n in levels.items()} or None
 
 
 # ── converters (run in a thread) ───────────────────────────────────────────
@@ -973,15 +792,6 @@ def _close_group(items: list[dict], start_id: str, cc: str) -> None:
             if other != cid and other not in have
         )
         by_id[cid]["relations"] = rels
-
-
-def _countries_with_clues() -> set[str]:
-    """Every country that has at least one clue (hidden ones too: they can still be related)."""
-    return {
-        d.name.upper()
-        for d in sorted(CLUES_DIR.glob("??"))
-        if d.is_dir() and re.fullmatch(r"[A-Za-z]{2}", d.name) and _load(d.name)
-    }
 
 
 @router.get("/clues/summary")

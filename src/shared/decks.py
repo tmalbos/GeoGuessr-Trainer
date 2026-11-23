@@ -9,7 +9,7 @@ import uuid
 
 from src.shared import prefs
 
-DEFAULT_DECK = "Main"
+DEFAULT_DECK = "Official"
 MAX_LEN = 40
 
 

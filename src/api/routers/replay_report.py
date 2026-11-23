@@ -14,8 +14,8 @@ from src.analysis.replay_savings import merge_parts, round_savings
 from src.analysis.replay_stages import stage_breakdown, summarize_stages
 from src.analysis.report_actions import build_actions, replay_signals
 from src.analysis.scoring import NO_GUESS_KM
-from src.api.clue_source import ClueSource
 from src.api.deps import get_ctx
+from src.explore.country_clues.clues import ClueSource
 
 logger = logging.getLogger("uvicorn.error")
 router = APIRouter()
