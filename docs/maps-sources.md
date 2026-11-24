@@ -11,7 +11,7 @@
 **Armenia**: OSM extract for ADM0 through ADM2 (28-10-2026)
 **Aruba**: https://geodataviewer.com/tools/download-boundaries for ADM0 (13-11-2026). Missing ADM1
 **Ascension**: OSM extract for ADM0 (06-11-2026)
-**Australia**: OSM extract for ADM0 and ADM1 (28-10-2026). Missing ADM2
+**Australia**: OSM extract for ADM0 through ADM2 (28-10-2026)
 **Austria**: OSM extract for ADM0 through ADM3 (28-10-2026)
 **Azerbaijan**: https://data.humdata.org/dataset/whosonfirst-data-admin-aze for ADM0 and ADM1 (13-11-2026). Missing ADM2 and ADM3
 **Bahamas**: OSM extract for ADM0 and ADM1 (20-11-2026). Missing ADM2
@@ -33,4 +33,5 @@
 **Bulgaria**: OSM extract for ADM0 through ADM2 (17-11-2026)
 **Burkina Faso**: https://www.geoboundaries.org/countryDownloads.html for ADM0 through ADM3 (17-11-2026)
 **Burundi**: OSM extract for ADM0 and ADM1 (17-11-2026). Missing real ADM1 through ADM3
+**Canada**: OSM extract for ADM0 through ADM2 (26-11-2026). Missing ADM3
 **United Arab Emirates**: https://data.humdata.org/dataset/cod-em-are for ADM0 and ADM1 (06-11-2026). Missing ADM2 and ADM3
