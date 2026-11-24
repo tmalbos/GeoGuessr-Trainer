@@ -37,11 +37,13 @@ import json
 import logging
 import math
 import operator
+import os
 import tempfile
 import threading
 import time
 from array import array
 from collections import Counter, OrderedDict
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from uuid import uuid4
 
@@ -102,6 +104,11 @@ _COAST: OrderedDict[str, dict] = (
 MAX_COAST_FILES = 2
 MIN_RING_PTS = 4  # a closed chain with fewer points than this is not a ring
 MAX_SEA_LOG = 50  # removed sea parts reported per boundary
+TILE_COORDS = (
+    150_000  # a boundary with more vertices than twice this is cut in tiles of about this many
+)
+MAX_TILES_SIDE = 48  # at most this many tiles per side
+TILE_WORKERS = max(1, min(8, os.cpu_count() or 2))  # threads for the tiles (GEOS releases the GIL)
 
 
 # ── helpers ────────────────────────────────────────────────────────────────
@@ -1069,11 +1076,22 @@ def _land_only_rings(g, coast: np.ndarray, tree, cbox, R: dict):
     return (out[0] if len(out) == 1 else shapely.multipolygons(out)), sea, gaps
 
 
-def _land_only(g, coast: np.ndarray, tree, cbox, rings: dict | None = None) -> tuple:
+def _land_only(
+    g, coast: np.ndarray, tree, cbox, rings: dict | None = None, tiled: bool = True
+) -> tuple:
     """(land part of boundary `g` or None when none of it is land, removed sea parts, coastline gaps).
     With the coastline rings of the file (see _split_rings) the closed rings are read by their direction and only
     the open chains are noded; without them (or when that can't be done) everything goes through the noded cut.
+    A boundary with very many vertices is first cut in tiles (see _land_only_tiled).
     """
+    if tiled:
+        try:
+            res = _land_only_tiled(g, coast, tree, cbox, rings)
+        except Exception:
+            log.warning("Tiled coast cut failed, cutting in one piece", exc_info=True)
+            res = None
+        if res is not None:
+            return res
     if rings is not None:
         try:
             res = _land_only_rings(g, coast, tree, cbox, rings)
@@ -1083,6 +1101,185 @@ def _land_only(g, coast: np.ndarray, tree, cbox, rings: dict | None = None) -> t
         if res is not None:
             return res
     return _land_only_noded(g, coast, tree, cbox)
+
+
+# ── tiles: big boundaries are cut in a grid so no single operation sees millions of vertices ──
+
+
+def _grid(bounds, n_coords: int) -> tuple[np.ndarray, np.ndarray]:
+    """Grid lines (x, y) that split `bounds` into about TILE_COORDS vertices per tile."""
+    w, s, e, n = bounds
+    side = int(min(MAX_TILES_SIDE, max(1, math.ceil(math.sqrt(n_coords / TILE_COORDS)))))
+    return np.linspace(w, e, side + 1), np.linspace(s, n, side + 1)
+
+
+def _pool_map(fn, items) -> list:
+    """Fn over items on a few threads (GEOS releases the GIL). Errors are raised here."""
+    items = list(items)
+    if len(items) < 2 or TILE_WORKERS < 2:
+        return [fn(x) for x in items]
+    with ThreadPoolExecutor(max_workers=min(len(items), TILE_WORKERS)) as pool:
+        return list(pool.map(fn, items))
+
+
+def _join(pieces: list):
+    """One polygonal geometry from pieces that only meet along tile edges (None when nothing is left).
+    The pieces share those edges exactly, so a coverage union is enough; if the result is not what a coverage
+    union of these pieces should be, the slow general union is used instead.
+    """
+    pieces = [p for p in pieces if p is not None and not p.is_empty]
+    if not pieces:
+        return None
+    if len(pieces) == 1:
+        return pieces[0]
+    try:
+        u = shapely.coverage_union_all(pieces)
+        total = float(shapely.area(pieces).sum())
+        if shapely.is_valid(u) and shapely.area(u) >= (1 - 1e-9) * total:
+            return _polys(u)
+    except Exception:
+        log.warning("Coverage union of tiles failed, using the general union", exc_info=True)
+    return _polys(shapely.union_all(pieces))
+
+
+def _tile_range(lo: float, hi: float, lines: np.ndarray) -> range:
+    """Indices of the grid cells (between consecutive `lines`) that [lo, hi] touches."""
+    last = len(lines) - 2
+    a = int(np.clip(np.searchsorted(lines, lo, "right") - 1, 0, last))
+    b = int(np.clip(np.searchsorted(lines, hi, "left") - 1, a, last))
+    return range(a, b + 1)
+
+
+def _land_only_tiled(g, coast: np.ndarray, tree, cbox, rings):
+    """_land_only for a boundary with too many vertices: every grid tile is cut on its own (in parallel) and the
+    land pieces are joined along the tile edges. None when `g` is small enough not to need it.
+    """
+    nv = int(shapely.get_num_coordinates(g))
+    if nv < 2 * TILE_COORDS:
+        return None
+    xs, ys = _grid(g.bounds, nv)
+    cells = [
+        (xs[i], ys[j], xs[i + 1], ys[j + 1]) for i in range(len(xs) - 1) for j in range(len(ys) - 1)
+    ]
+
+    def one(t):
+        gt = _polys(shapely.clip_by_rect(g, *t))
+        return None if gt is None else _land_only(gt, coast, tree, cbox, rings, tiled=False)
+
+    pieces, sea, gaps = [], [], []
+    for res in _pool_map(one, cells):
+        if res is None:
+            continue
+        land, s, gp = res
+        if land is not None:
+            pieces.append(land)
+        sea.extend(s)
+        gaps.extend(gp)
+    gaps = sorted(gaps, reverse=True)[:5]
+    if not sea:
+        return g, [], gaps
+    return _join(pieces), sea[:MAX_SEA_LOG], gaps
+
+
+def _land_grid(data: dict, land) -> dict:
+    """The land cut into the cells of a grid (cached): {xs, ys, tiles: {(i, j): land inside that cell}}."""
+    hit = data.get("land_grid")
+    if hit is not None and hit["land"] is land:
+        return hit
+    parts = np.array(
+        [p for p in shapely.get_parts(land) if p.geom_type == "Polygon" and not p.is_empty],
+        dtype=object,
+    )
+    xs, ys = _grid(land.bounds, int(shapely.get_num_coordinates(land)))
+    ptree = shapely.STRtree(parts)
+    cells = [(i, j) for i in range(len(xs) - 1) for j in range(len(ys) - 1)]
+
+    def clip(ij):
+        i, j = ij
+        rect = (xs[i], ys[j], xs[i + 1], ys[j + 1])
+        idx = ptree.query(shapely.box(*rect))
+        if not len(idx):
+            return None
+        out = [
+            q
+            for c in shapely.clip_by_rect(parts[idx], *rect)
+            for q in shapely.get_parts(c)
+            if q.geom_type == "Polygon" and not q.is_empty
+        ]
+        return None if not out else out[0] if len(out) == 1 else shapely.multipolygons(out)
+
+    tiles = {ij: c for ij, c in zip(cells, _pool_map(clip, cells), strict=True) if c is not None}
+    hit = data["land_grid"] = {"land": land, "xs": xs, "ys": ys, "tiles": tiles}
+    return hit
+
+
+def _cut_to_land(geoms: np.ndarray, land, data: dict) -> np.ndarray:
+    """intersection(geom, land) for every geom, tile by tile: a geom only meets the part of the land that lies in
+    the tiles it touches, and the work is spread over threads. Same result as the plain intersection.
+    """
+    grid = _land_grid(data, land)
+    xs, ys, tiles = grid["xs"], grid["ys"], grid["tiles"]
+
+    def one(g):
+        try:
+            w, s, e, n = g.bounds
+            pieces = []
+            for i in _tile_range(w, e, xs):
+                for j in _tile_range(s, n, ys):
+                    lc = tiles.get((i, j))
+                    if lc is None:
+                        continue
+                    rect = (xs[i], ys[j], xs[i + 1], ys[j + 1])
+                    inside = rect[0] <= w and e <= rect[2] and rect[1] <= s and n <= rect[3]
+                    gc = g if inside else shapely.clip_by_rect(g, *rect)
+                    if gc.is_empty:
+                        continue
+                    pieces.append(_polys(_safe(shapely.intersection, gc, lc)))
+            return _join(pieces)
+        except Exception:
+            log.warning("Tiled land cut failed, using the plain intersection", exc_info=True)
+            return _polys(_safe(shapely.intersection, g, land))
+
+    out = np.empty(len(geoms), dtype=object)
+    out[:] = _pool_map(one, geoms)
+    return out
+
+
+def _gaps(country, geoms: list):
+    """What of `country` (land) no geometry of `geoms` covers: country minus union(geoms), done tile by tile when
+    the country is big (the union of a whole level is one of the slowest operations there is).
+    """
+    if not geoms:
+        return country
+    nv = int(shapely.get_num_coordinates(country))
+    if nv < 2 * TILE_COORDS:
+        return _safe(shapely.difference, country, shapely.union_all(geoms))
+    xs, ys = _grid(country.bounds, nv)
+    cells = [
+        (xs[i], ys[j], xs[i + 1], ys[j + 1]) for i in range(len(xs) - 1) for j in range(len(ys) - 1)
+    ]
+    arr = np.empty(len(geoms), dtype=object)
+    arr[:] = geoms
+    gtree = shapely.STRtree(arr)
+
+    def one(t):
+        cc = shapely.clip_by_rect(country, *t)
+        if cc.is_empty:
+            return None
+        idx = gtree.query(shapely.box(*t))
+        if not len(idx):
+            return cc
+        cover = shapely.union_all(shapely.clip_by_rect(arr[idx], *t))
+        return _safe(shapely.difference, cc, cover)
+
+    pieces = [
+        q
+        for r in _pool_map(one, cells)
+        if r is not None
+        for q in shapely.get_parts(r)
+        if q.geom_type == "Polygon" and not q.is_empty
+    ]
+    return _polys(shapely.union_all(pieces)) if pieces else None
 
 
 def _cut_level(data: dict, level: int) -> dict:
@@ -1103,12 +1300,7 @@ def _cut_level(data: dict, level: int) -> dict:
             out = lv["geoms"].copy()
             edge = ~shapely.covers(land, out)  # polygons fully inside the land need no cut
             if edge.any():
-                try:
-                    out[edge] = shapely.intersection(out[edge], land)
-                except Exception:  # noqa: BLE001
-                    out[edge] = shapely.intersection(
-                        shapely.make_valid(out[edge]), shapely.make_valid(land)
-                    )
+                out[edge] = _cut_to_land(out[edge], land, data)
             keep = [(p, _polys(g)) for p, g in zip(lv["props"], out, strict=True)]
             keep = [(p, g) for p, g in keep if g is not None]
             arr = np.empty(len(keep), dtype=object)
@@ -1244,8 +1436,7 @@ def _fill_gaps(data: dict, level: int, base: dict) -> dict:
     if country is None or country.is_empty:
         return base
     geoms = list(base["geoms"])
-    cover = shapely.union_all(geoms) if geoms else None
-    gap = country if cover is None else _safe(shapely.difference, country, cover)
+    gap = _gaps(country, geoms)
     if gap is None or gap.is_empty:
         return base
     pieces = [q for q in shapely.get_parts(gap) if q.geom_type == "Polygon" and not q.is_empty]
@@ -1257,7 +1448,9 @@ def _fill_gaps(data: dict, level: int, base: dict) -> dict:
     parr = np.empty(len(pieces), dtype=object)
     parr[:] = pieces
     frag = shapely.area(parr) < small
-    frag[frag] = shapely.dwithin(parr[frag], edge, TOUCH_TOL)
+    if frag.any():
+        shapely.prepare(edge)  # indexed: thousands of fragments against a huge outline
+        frag[frag] = shapely.dwithin(edge, parr[frag], TOUCH_TOL)
     fragments: list = list(parr[frag])
     rest: list = list(parr[~frag])
 
