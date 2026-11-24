@@ -34,4 +34,10 @@
 **Burkina Faso**: https://www.geoboundaries.org/countryDownloads.html for ADM0 through ADM3 (17-11-2026)
 **Burundi**: OSM extract for ADM0 and ADM1 (17-11-2026). Missing real ADM1 through ADM3
 **Canada**: OSM extract for ADM0 through ADM2 (26-11-2026). Missing ADM3
+**Central African Republic**: OSM extract for ADM0 and ADM1 (23-11-2026). Missing ADM2 through ADM4
+**Cocos (Keeling) Islands**: OSM extract for ADM0 (28-10-2026)
+**Democratic Republic of the Congo**: OSM extract for ADM0 and ADM1 (23-11-2026). Missing ADM2 through ADM4
+**Ivory Coast**: OSM extract for ADM0 through ADM2 (23-11-2026). Missing ADM3 and ADM4
+**Republic of the Congo**: OSM extract for ADM0 and ADM1 (23-11-2026). Missing ADM2 and ADM3
+**Switzerland**: OSM extract for ADM0 through ADM3 (23-11-2026)
 **United Arab Emirates**: https://data.humdata.org/dataset/cod-em-are for ADM0 and ADM1 (06-11-2026). Missing ADM2 and ADM3
