@@ -346,7 +346,13 @@ def _read_ways(
     except Exception:  # older pyosmium: slower, same result
         log.warning("osmium filters unavailable, reading without them", exc_info=True)
 
-    out: dict[int, np.ndarray] = {}
+    try:
+        factory = osmium.geom.WKBFactory()
+    except AttributeError:  # very old pyosmium: the nodes are read one by one (slower, same result)
+        factory = None
+        log.warning("osmium.geom.WKBFactory unavailable, reading ways node by node")
+    raw: list = []
+    ids: list[int] = []
     for o in fp:
         if points is not None and o.is_node():
             place = o.tags.get("place")
@@ -361,13 +367,32 @@ def _read_ways(
         if not o.is_way() or o.id not in wanted:
             continue
         try:
-            xy = np.array([(n.lon, n.lat) for n in o.nodes], dtype=float)
-        except Exception:  # noqa: BLE001  # a node location is unknown
+            if factory is not None:
+                geom = factory.create_linestring(o)  # C++; raises when a node location is unknown
+            else:
+                xy = np.array([(n.lon, n.lat) for n in o.nodes], dtype=float)
+                if len(xy) < 2:
+                    continue
+                geom = shapely.linestrings(xy)
+        except Exception:  # noqa: BLE001  # a node location is unknown, or fewer than two distinct nodes
             continue
-        if len(xy) < 2:
-            continue
-        out[o.id] = xy
-    return out
+        raw.append(geom)
+        ids.append(o.id)
+    return _way_arrays(raw, ids, factory is not None)
+
+
+def _way_arrays(raw: list, ids: list[int], wkb: bool) -> dict[int, np.ndarray]:
+    """{way id: (n, 2) lon/lat array} from the geometries collected by _read_ways, in one vectorised step."""
+    if not raw:
+        return {}
+    if wkb:
+        arr = shapely.from_wkb(np.array(raw, dtype=object))
+    else:
+        arr = np.empty(len(raw), dtype=object)
+        arr[:] = raw
+    xy, owner = shapely.get_coordinates(arr, return_index=True)
+    parts = np.split(xy, np.flatnonzero(np.diff(owner)) + 1)  # every way has at least two points
+    return dict(zip(ids, parts, strict=True))
 
 
 def _read_coast(path: Path) -> tuple[np.ndarray, np.ndarray]:
@@ -1245,6 +1270,14 @@ def _cut_to_land(geoms: np.ndarray, land, data: dict) -> np.ndarray:
     return out
 
 
+def _tiles_exactly(geoms, area: float) -> bool:
+    """True when `geoms` add up to exactly `area` (within MIN_PIECE). Level polygons are cut to the same land, so
+    when nothing is left over and nothing overlaps their areas sum to the land's area. Overlaps or gaps change
+    the sum, so a "no" only costs the overlay it would have needed anyway.
+    """
+    return abs(float(shapely.area(geoms).sum()) - area) <= MIN_PIECE
+
+
 def _gaps(country, geoms: list):
     """What of `country` (land) no geometry of `geoms` covers: country minus union(geoms), done tile by tile when
     the country is big (the union of a whole level is one of the slowest operations there is).
@@ -1252,6 +1285,8 @@ def _gaps(country, geoms: list):
     if not geoms:
         return country
     nv = int(shapely.get_num_coordinates(country))
+    if _tiles_exactly(geoms, country.area):
+        return None
     if nv < 2 * TILE_COORDS:
         return _safe(shapely.difference, country, shapely.union_all(geoms))
     xs, ys = _grid(country.bounds, nv)
@@ -1269,8 +1304,10 @@ def _gaps(country, geoms: list):
         idx = gtree.query(shapely.box(*t))
         if not len(idx):
             return cc
-        cover = shapely.union_all(shapely.clip_by_rect(arr[idx], *t))
-        return _safe(shapely.difference, cc, cover)
+        pieces = shapely.clip_by_rect(arr[idx], *t)
+        if _tiles_exactly(pieces, cc.area):
+            return None  # the level covers this tile completely: no overlay needed
+        return _safe(shapely.difference, cc, shapely.union_all(pieces))
 
     pieces = [
         q
