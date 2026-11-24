@@ -38,7 +38,7 @@ from starlette.concurrency import run_in_threadpool
 
 from src.api.deps import get_ctx
 from src.api.plonkit_titles import classify_full
-from src.api.routers.stain import _borders, _outline  # noqa: PLC2701
+from src.explore.country_clues.regional_stain_areas import _borders, _outline  # noqa: PLC2701
 from src.plonkit.categories import DEFAULT_LOCATION, category_for
 from src.plonkit.guide import clean_text, read_guide
 

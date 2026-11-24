@@ -22,7 +22,6 @@ from src.api.routers import (
     plonkit_import,
     replay_report,
     settings,
-    stain,
     status,
     streetview,
     study_scripts,
@@ -30,6 +29,7 @@ from src.api.routers import (
     technical,
 )
 from src.app_context import AppContext
+from src.explore.country_clues import regional_stain_areas as stain
 from src.i18n.lang import load as load_lang
 from src.shared import prefs
 

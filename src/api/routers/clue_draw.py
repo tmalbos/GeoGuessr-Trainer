@@ -24,7 +24,7 @@ from starlette.concurrency import run_in_threadpool
 
 from src.api.deps import get_ctx
 from src.api.routers.clues import _cc  # noqa: PLC2701
-from src.api.routers.stain import _outline  # noqa: PLC2701
+from src.explore.country_clues.regional_stain_areas import _outline  # noqa: PLC2701
 from src.geo.csv_areas import _lab, level_columns  # noqa: PLC2701
 from src.geo.simplify import _polygonal  # noqa: PLC2701
 

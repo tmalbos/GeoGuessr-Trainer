@@ -3,7 +3,7 @@
 GET /clues/{cc}/base -> {outline, borders}, both lon/lat GeoJSON (or null when the local geo layers
 have nothing for that country). Cached in memory for the life of the server.
 
-Both come from stain._outline / stain._borders, which are already simplified TOGETHER (src/geo/simplify.py,
+Both come from regional_stain_areas._outline / regional_stain_areas._borders, which are already simplified TOGETHER (src/geo/simplify.py,
 resolution based). Nothing is simplified again here: a second, fixed simplification is what made small
 countries look heavily simplified and let the borders drift away from the outline.
 """

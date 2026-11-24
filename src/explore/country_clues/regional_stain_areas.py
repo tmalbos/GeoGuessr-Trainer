@@ -1,4 +1,4 @@
-"""stain.py — Technical tool: screenshot of a painted country map -> polygons.
+"""regional_stain_areas.py — Technical tool: screenshot of a painted country map -> polygons.
 
 Flow:  POST /technical/stain/upload   -> raw image bytes; kept in memory, returns a token and where a map
                                          was detected in the image (generic detection, no country needed)

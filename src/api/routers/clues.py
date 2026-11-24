@@ -57,7 +57,6 @@ from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 
 from src.api.deps import get_ctx
-from src.api.routers.stain import _borders, _outline  # noqa: PLC2701
 from src.explore.country_clues.clue_relations import (
     _relations_of,
     _set_rels,  # noqa: F401  (re-exported for clue_pack)
@@ -89,6 +88,7 @@ from src.explore.country_clues.clues import (
     _write_overlay,
 )
 from src.explore.country_clues.regional_map_overlay import recolour, render_overlay
+from src.explore.country_clues.regional_stain_areas import _borders, _outline  # noqa: PLC2701
 from src.geo.csv_areas import AreasError, build_areas, read_rows
 from src.geo.region_stats import region_stats
 from src.geo.subcontinents import SUBCONTINENTS
