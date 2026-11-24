@@ -23,7 +23,7 @@ Shades:  a polygons file may carry a `shade` column (0 = the main tone, 1..3 = l
 Stats:   staging a geometry file also returns `stats` (see src/geo/region_stats.py): the editor uses them to
          pre-fill the ratings of a new clue.
 Overlay: a regional clue with a geometry file (polygons / lines / points) also gets `overlay`: a transparent SVG of
-         the region drawn on its country (see src/geo/clue_overlay.py), written next to the parquet as
+         the region drawn on its country (see src/explore/country_clues/regional_map_overlay.py), written next to the parquet as
          <same name>.overlay.svg every time the clue is saved. The card lays that picture over the photo instead of
          downloading the geometry and drawing it. The parquet stays the source of truth. If the geo layers aren't
          loaded when a clue is saved, no overlay is made and the card falls back to drawing the geometry; the
@@ -88,7 +88,7 @@ from src.explore.country_clues.clues import (
     _summary,
     _write_overlay,
 )
-from src.geo.clue_overlay import recolour, render_overlay
+from src.explore.country_clues.regional_map_overlay import recolour, render_overlay
 from src.geo.csv_areas import AreasError, build_areas, read_rows
 from src.geo.region_stats import region_stats
 from src.geo.subcontinents import SUBCONTINENTS

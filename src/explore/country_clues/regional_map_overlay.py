@@ -1,4 +1,4 @@
-"""clue_overlay.py — Pre-rendered, transparent map of a regional clue (a standalone SVG).
+"""regional_map_overlay.py — Pre-rendered, transparent map of a regional clue (a standalone SVG).
 
 The clue card used to download the country's outline + borders and the clue's geometry and draw them
 in the browser on every view. This module draws the same picture once, when the clue is saved, into a
