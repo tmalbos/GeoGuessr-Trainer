@@ -39,6 +39,7 @@ import math
 import operator
 import tempfile
 import threading
+import time
 from array import array
 from collections import Counter, OrderedDict
 from pathlib import Path
@@ -95,6 +96,12 @@ _DATASETS: OrderedDict[str, dict] = OrderedDict()
 _LOCK = threading.Lock()
 _COMPUTE = threading.Lock()  # one extraction at a time (CPU / memory heavy)
 _LAND = threading.RLock()  # one level finish (coast cut + gap fill) at a time
+_COAST: OrderedDict[str, dict] = (
+    OrderedDict()
+)  # geometry file -> its coastlines, read once (_coast_bundle)
+MAX_COAST_FILES = 2
+MIN_RING_PTS = 4  # a closed chain with fewer points than this is not a ring
+MAX_SEA_LOG = 50  # removed sea parts reported per boundary
 
 
 # ── helpers ────────────────────────────────────────────────────────────────
@@ -356,9 +363,10 @@ def _read_ways(
     return out
 
 
-def _read_coast(path: Path, bbox) -> tuple[np.ndarray, np.ndarray]:
-    """One pass over the file. Returns the natural=coastline ways as directed LineStrings (land is on their left)
-    and the OSM id of each way.
+def _read_coast(path: Path) -> tuple[np.ndarray, np.ndarray]:
+    """One pass over the file. Returns EVERY natural=coastline way as a directed LineString (land is on its left)
+    and the OSM id of each way. osmium (C++) builds the geometry and hands it over as WKB, so Python never loops
+    over the nodes. The result is kept per file (see _coast_bundle), so it is read once, not once per country.
     """
     import osmium
 
@@ -370,30 +378,133 @@ def _read_coast(path: Path, bbox) -> tuple[np.ndarray, np.ndarray]:
         )
     except Exception:  # older pyosmium: slower, same result
         log.warning("osmium filters unavailable, reading without them", exc_info=True)
+    try:
+        factory = osmium.geom.WKBFactory()
+    except (
+        AttributeError
+    ):  # very old pyosmium: the lines are built node by node (slower, same result)
+        factory = None
+        log.warning("osmium.geom.WKBFactory unavailable, building coastlines in Python")
 
-    lines: list = []
+    raw: list = []
     way_ids: list = []
     for o in fp:
         if not o.is_way() or o.tags.get("natural") != "coastline":
             continue
         try:
-            xy = np.array([(n.lon, n.lat) for n in o.nodes], dtype=float)
-        except Exception:  # noqa: BLE001  # a node location is unknown
+            if factory is not None:
+                geom = factory.create_linestring(o)
+            else:
+                xy = np.array([(n.lon, n.lat) for n in o.nodes], dtype=float)
+                if len(xy) < 2:
+                    continue
+                geom = shapely.linestrings(xy)
+        except Exception:  # noqa: BLE001  # a node location is unknown, or fewer than two distinct nodes
             continue
-        if len(xy) < 2:
-            continue
-        if bbox is not None and (
-            xy[:, 0].max() < bbox[0]
-            or xy[:, 0].min() > bbox[2]
-            or xy[:, 1].max() < bbox[1]
-            or xy[:, 1].min() > bbox[3]
-        ):
-            continue
-        lines.append(shapely.linestrings(xy))
+        raw.append(geom)
         way_ids.append(o.id)
-    arr = np.empty(len(lines), dtype=object)
-    arr[:] = lines
+    if factory is not None and raw:
+        arr = shapely.from_wkb(np.array(raw, dtype=object))
+    else:
+        arr = np.empty(len(raw), dtype=object)
+        arr[:] = raw
     return arr, np.array(way_ids, dtype=np.int64)
+
+
+def _split_rings(ways: np.ndarray) -> dict | None:
+    """Sorts the coastline ways into closed rings and open chains, once per file.
+
+    The ways are chained end to end WITHOUT changing their direction. A chain that closes on itself is an island
+    (or a hole): OSM keeps land on the LEFT, so a counter-clockwise ring is land inside, a clockwise one is sea
+    inside. That tells land from sea without noding or ray casting. Only the open chains (cut by the edge of the
+    extract) and the rare ring that is not a valid polygon still need the slow noded cut.
+
+    Returns {polys, pts, ccw, parent, children, tree, chains, chain_tree} or None when it can't be done (then the
+    noded cut is used for everything). `parent[i]` is the smallest ring that contains ring i (-1 = none) and
+    `children[i]` the rings directly inside it.
+    """
+    try:
+        merged = shapely.get_parts(
+            shapely.line_merge(shapely.multilinestrings(ways), directed=True)
+        )
+    except Exception:  # directed merging needs GEOS >= 3.11
+        log.warning("Could not chain the coastlines into rings; using the noded cut", exc_info=True)
+        return None
+    shut = shapely.is_closed(merged) & (shapely.get_num_coordinates(merged) >= MIN_RING_PTS)
+    cand = merged[shut]
+    polys = np.empty(0, dtype=object)
+    ccw = np.empty(0, dtype=bool)
+    chains = merged[~shut]
+    if len(cand):
+        xy, idx = shapely.get_coordinates(cand, return_index=True)
+        rings = shapely.linearrings(xy, indices=idx)
+        polys = shapely.polygons(rings)
+        good = np.asarray(shapely.is_valid(polys), dtype=bool)
+        ccw = np.asarray(shapely.is_ccw(rings[good]), dtype=bool)
+        polys = polys[good]
+        chains = np.concatenate([chains, cand[~good]])
+
+    parent = np.full(len(polys), -1, dtype=np.int64)
+    children: dict[int, list[int]] = {}
+    pts = shapely.point_on_surface(polys) if len(polys) else polys
+    tree = shapely.STRtree(polys) if len(polys) else None
+    if len(polys):
+        ii, jj = tree.query(pts, predicate="within")
+        keep = ii != jj
+        ii, jj = ii[keep], jj[keep]
+        area = shapely.area(polys)
+        order = np.lexsort((area[jj], ii))  # per ring, its smallest container first
+        ii, jj = ii[order], jj[order]
+        first = np.ones(len(ii), dtype=bool)
+        first[1:] = ii[1:] != ii[:-1]
+        parent[ii[first]] = jj[first]
+        for i, p in zip(ii[first].tolist(), jj[first].tolist(), strict=True):
+            children.setdefault(p, []).append(i)
+    return {
+        "polys": polys,
+        "pts": pts,
+        "ccw": ccw,
+        "parent": parent,
+        "children": children,
+        "tree": tree,
+        "chains": chains,
+        "chain_tree": shapely.STRtree(chains) if len(chains) else None,
+    }
+
+
+def _coast_bundle(path: Path) -> dict:
+    """The coastlines of a geometry file, read and sorted once and kept (the last MAX_COAST_FILES files).
+    Caller holds _LAND.
+    """
+    key = f"{path.resolve()}|{path.stat().st_mtime_ns}"
+    hit = _COAST.get(key)
+    if hit is not None:
+        _COAST.move_to_end(key)
+        return hit
+    t0 = time.perf_counter()
+    ways, ids = _read_coast(path)
+    t1 = time.perf_counter()
+    rings = _split_rings(ways) if len(ways) else None
+    t2 = time.perf_counter()
+    hit = {
+        "ways": ways,
+        "ids": ids,
+        "tree": shapely.STRtree(ways) if len(ways) else None,
+        "rings": rings,
+    }
+    log.info(
+        "Coastlines: %d ways read in %.1fs; %s (%.1fs)",
+        len(ways),
+        t1 - t0,
+        "no ring split"
+        if rings is None
+        else f"{len(rings['polys'])} closed rings, {len(rings['chains'])} open chains",
+        t2 - t1,
+    )
+    _COAST[key] = hit
+    while len(_COAST) > MAX_COAST_FILES:
+        _COAST.popitem(last=False)
+    return hit
 
 
 def _faces(way_ids, ways: dict[int, np.ndarray]):
@@ -615,6 +726,7 @@ def _extract(ds: dict, country: str) -> dict:
         "coast": None,
         "coast_ids": None,
         "tree": None,
+        "rings": None,  # closed coastline rings sorted by direction (see _split_rings)
         "cbox": cbox,
         "country_geom": country_geom,  # the selected country's own boundary (None when incomplete in the file)
         "country_land": None,  # ...cut to land, computed together with the coastlines
@@ -727,13 +839,16 @@ def _ring_key(ring) -> bytes:
     return shapely.to_wkb(shapely.normalize(shapely.Polygon(ring)))
 
 
-def _classify(faces: list, coast: np.ndarray, tree, cbox) -> list[tuple[bool | None, int | None]]:
+def _classify(
+    faces: list, coast: np.ndarray, tree, cbox, known: dict[int, bool] | None = None
+) -> list[tuple[bool | None, int | None]]:
     """(land, deciding coastline) for every face of a coastline split.
 
     Crossing a coastline flips land / sea, and an island is a hole of the sea face around it, so the ring of a hole is
     the outer ring of exactly one other face. Faces are therefore arranged in a tree by that ring, only the roots
     (faces that are not a hole of another face) are tested with _is_land, and every child is the opposite of its
     parent. Faces that match nothing are roots, so they are still tested one by one.
+    `known` = {face index: is land} for roots whose answer is already known (they are not tested).
     """
     own = {_ring_key(f.exterior): i for i, f in enumerate(faces)}
     kids: list[list[int]] = [[] for _ in faces]
@@ -746,8 +861,11 @@ def _classify(faces: list, coast: np.ndarray, tree, cbox) -> list[tuple[bool | N
                 child.add(j)
     out: list[tuple[bool | None, int | None]] = [(None, None)] * len(faces)
     for root in (i for i in range(len(faces)) if i not in child):
-        pt = shapely.point_on_surface(faces[root])
-        land, way = _is_land(pt.x, pt.y, coast, tree, cbox)
+        if known is not None and root in known:
+            land, way = known[root], None
+        else:
+            pt = shapely.point_on_surface(faces[root])
+            land, way = _is_land(pt.x, pt.y, coast, tree, cbox)
         stack = [(root, land)]
         while stack:
             i, v = stack.pop()
@@ -756,7 +874,7 @@ def _classify(faces: list, coast: np.ndarray, tree, cbox) -> list[tuple[bool | N
     return out
 
 
-def _land_only(g, coast: np.ndarray, tree, cbox) -> tuple:
+def _land_only_noded(g, coast: np.ndarray, tree, cbox) -> tuple:
     """(land part of boundary `g` or None when none of it is land, removed sea parts, coastline gaps).
     Each removed part is (area deg2, lat, lon, index of the coastline that decided it).
     Each gap is (length km, lat, lon, index of the coastline): a coastline that ends in the middle of `g`
@@ -816,6 +934,157 @@ def _land_only(g, coast: np.ndarray, tree, cbox) -> tuple:
     return (_polys(shapely.coverage_union_all(land)) if land else None), sea, gaps
 
 
+def _ring_lines(polys: np.ndarray) -> np.ndarray:
+    """The outlines of ring polygons as LineStrings (what the noding step takes)."""
+    out = np.empty(len(polys), dtype=object)
+    if len(polys):
+        xy, idx = shapely.get_coordinates(shapely.get_exterior_ring(polys), return_index=True)
+        out[:] = shapely.linestrings(xy, indices=idx)
+    return out
+
+
+def _land_only_rings(g, coast: np.ndarray, tree, cbox, R: dict):
+    """Same result as _land_only_noded, but the coastlines that cannot cross `g` are never noded.
+
+    A closed coastline ring that lies entirely inside `g` is land (counter-clockwise) or sea (clockwise) inside,
+    and the other way round just outside, so it is simply a hole or an island of the face around it. Only the open
+    chains and the rings that touch / cross / contain `g` go through noding + polygonize. The faces that come out
+    are then given their rings as holes (land faces) or as islands (sea faces) by plain assembly, with no boolean
+    operation. Returns None when something doesn't add up (the caller then uses the noded cut).
+    """
+    shapely.prepare(g)
+    polys, parent, children, ccw = R["polys"], R["parent"], R["children"], R["ccw"]
+    none = np.empty(0, dtype=np.intp)
+    hit = R["tree"].query(g, predicate="intersects") if len(polys) else none
+    if len(hit):
+        proper = np.asarray(shapely.contains_properly(g, polys[hit]), dtype=bool)
+        inside, touching = hit[proper], hit[~proper]
+    else:
+        inside = touching = none
+    chain_hit = (
+        R["chain_tree"].query(g, predicate="intersects") if R["chain_tree"] is not None else none
+    )
+    inside_set = set(inside.tolist())
+    tops = [
+        i for i in inside.tolist() if int(parent[i]) not in inside_set
+    ]  # not inside another ring of `g`
+
+    gaps: list = []
+    faces: list = []
+    if len(touching) or len(chain_hit):
+        w, s_, e, n = g.bounds
+        margin = 0.1
+        lines = shapely.clip_by_rect(
+            shapely.multilinestrings(
+                np.concatenate([R["chains"][chain_hit], _ring_lines(polys[touching])])
+            ),
+            w - margin,
+            s_ - margin,
+            e + margin,
+            n + margin,
+        )
+        noded = shapely.union_all([shapely.boundary(g), lines])
+        poly_c, _cuts, dangles, _bad = shapely.polygonize_full(shapely.get_parts(noded))
+        found = [
+            f for f in shapely.get_parts(poly_c) if f.geom_type == "Polygon" and not f.is_empty
+        ]
+        for d in shapely.get_parts(dangles):
+            if d.is_empty or d.length < 5e-4:
+                continue
+            mid = shapely.line_interpolate_point(d, 0.5, normalized=True)
+            if not shapely.covers(g, mid):
+                continue
+            km = d.length * 111.32 * math.cos(math.radians(mid.y))
+            gaps.append((km, mid.y, mid.x, int(tree.nearest(mid))))
+        gaps.sort(reverse=True)
+        gaps = gaps[:5]
+        if found:
+            farr = np.empty(len(found), dtype=object)
+            farr[:] = found
+            farr = farr[np.asarray(shapely.covers(g, shapely.point_on_surface(farr)), dtype=bool)]
+            faces = list(farr)
+    if not faces:
+        faces = [q for q in shapely.get_parts(g) if q.geom_type == "Polygon" and not q.is_empty]
+
+    # every top-level ring goes to the face that holds it
+    owner: dict[int, int] = {}
+    if tops and len(faces) == 1:
+        owner = dict.fromkeys(tops, 0)
+    elif tops:
+        farr = np.empty(len(faces), dtype=object)
+        farr[:] = faces
+        ti, fj = shapely.STRtree(farr).query(R["pts"][np.asarray(tops)], predicate="within")
+        for a, b in zip(ti.tolist(), fj.tolist(), strict=True):
+            owner.setdefault(tops[a], b)
+        if len(owner) < len(tops):
+            return None
+    by_face: dict[int, list[int]] = {}
+    for t in tops:
+        by_face.setdefault(owner[t], []).append(t)
+    # A face that holds rings is land or sea by the direction of its first ring (its inside is the opposite). The
+    # point of such a face may lie inside an island, so it is not ray cast.
+    known = {fi: not bool(ccw[mine[0]]) for fi, mine in by_face.items()}
+    states = _classify(faces, coast, tree, cbox, known)
+
+    base: list = []
+    islands: list = []
+    sea: list = []
+    assembled: list = []  # polygons that got extra holes: checked below
+    for fi, f in enumerate(faces):
+        is_land, way = states[fi]
+        land = is_land is not False
+        mine = by_face.get(fi, [])
+        if land:
+            if mine:
+                f = shapely.Polygon(f.exterior, [*f.interiors, *(polys[t].exterior for t in mine)])
+                assembled.append(f)
+            base.append(f)
+        else:
+            pt = shapely.point_on_surface(f)
+            sea.append((f.area, pt.y, pt.x, way))
+        stack = [(t, not land) for t in mine]  # (ring, is its inside land)
+        while stack:
+            k, inner_land = stack.pop()
+            kids = children.get(k, ())
+            if inner_land:
+                if kids:
+                    ring = shapely.Polygon(polys[k].exterior, [polys[c].exterior for c in kids])
+                    assembled.append(ring)
+                    islands.append(ring)
+                else:
+                    islands.append(polys[k])
+            elif len(sea) < MAX_SEA_LOG:
+                pt = R["pts"][k]
+                sea.append((float(shapely.area(polys[k])), pt.y, pt.x, None))
+            stack.extend((c, not inner_land) for c in kids)
+    if assembled and not np.asarray(shapely.is_valid(assembled), dtype=bool).all():
+        return None  # rings that touch each other can make a hole layout that is not valid
+    if not sea:
+        return g, sea, gaps
+    if len(base) > 1:
+        base = list(shapely.get_parts(shapely.coverage_union_all(base)))
+    out = [q for q in [*base, *islands] if q.geom_type == "Polygon" and not q.is_empty]
+    if not out:
+        return None, sea, gaps
+    return (out[0] if len(out) == 1 else shapely.multipolygons(out)), sea, gaps
+
+
+def _land_only(g, coast: np.ndarray, tree, cbox, rings: dict | None = None) -> tuple:
+    """(land part of boundary `g` or None when none of it is land, removed sea parts, coastline gaps).
+    With the coastline rings of the file (see _split_rings) the closed rings are read by their direction and only
+    the open chains are noded; without them (or when that can't be done) everything goes through the noded cut.
+    """
+    if rings is not None:
+        try:
+            res = _land_only_rings(g, coast, tree, cbox, rings)
+        except Exception:
+            log.warning("Ring based coast cut failed, using the noded cut", exc_info=True)
+            res = None
+        if res is not None:
+            return res
+    return _land_only_noded(g, coast, tree, cbox)
+
+
 def _cut_level(data: dict, level: int) -> dict:
     """One level's boundaries cut to land. Boundaries that are entirely sea are dropped. Caller holds _LAND."""
     lv = data["by_level"][level]
@@ -846,9 +1115,12 @@ def _cut_level(data: dict, level: int) -> dict:
             arr[:] = [g for _, g in keep]
             return {"props": [p for p, _ in keep], "geoms": arr}
     props, geoms = [], []
+    t0 = time.perf_counter()
     for p, g in zip(lv["props"], lv["geoms"], strict=True):
         try:
-            ng, sea, gaps = _land_only(g, data["coast"], data["tree"], data["cbox"])
+            ng, sea, gaps = _land_only(
+                g, data["coast"], data["tree"], data["cbox"], data.get("rings")
+            )
         except Exception:
             log.warning("Coastline cut failed for %s", p["name"], exc_info=True)
             ng, sea, gaps = g, [], []
@@ -869,7 +1141,7 @@ def _cut_level(data: dict, level: int) -> dict:
                     km2,
                     lat,
                     lon,
-                    data["coast_ids"][way],
+                    data["coast_ids"][way] if way is not None else "ring direction",
                 )
         for km, lat, lon, way in gaps:
             log.info(
@@ -884,22 +1156,25 @@ def _cut_level(data: dict, level: int) -> dict:
             geoms.append(ng)
         else:
             log.info("Coast cut ADM%d %s: DROPPED (nothing left on land)", level, p["name"])
+    log.info(
+        "Coast cut ADM%d: %d boundaries in %.1fs", level, len(lv["geoms"]), time.perf_counter() - t0
+    )
     arr = np.empty(len(geoms), dtype=object)
     arr[:] = geoms
     return {"props": props, "geoms": arr}
 
 
 def _ensure_coast(data: dict) -> None:
-    """Read the coastlines (second pass over the file) the first time a level is finished, and cut the
-    country's own boundary to land (the area the gaps are measured in).
+    """Pick up the coastlines of the file (read and sorted once per file, see _coast_bundle) the first time a
+    level is finished.
     """
     with _LAND:
         if data["coast_loaded"]:
             return
         try:
-            coast, coast_ids = _read_coast(data["path"], data["cbox"])
-            data["coast"], data["coast_ids"] = coast, coast_ids
-            data["tree"] = shapely.STRtree(coast) if len(coast) else None
+            bundle = _coast_bundle(data["path"])
+            data["coast"], data["coast_ids"] = bundle["ways"], bundle["ids"]
+            data["tree"], data["rings"] = bundle["tree"], bundle["rings"]
         except Exception:
             log.warning("Could not read the coastlines; boundaries are left uncut", exc_info=True)
         data["coast_loaded"] = True
@@ -917,7 +1192,9 @@ def _country_land(data: dict):
                 if done is not None and done[0] is g:
                     g = done[1]
                 else:
-                    g = _land_only(g, data["coast"], data["tree"], data["cbox"])[0]
+                    g = _land_only(g, data["coast"], data["tree"], data["cbox"], data.get("rings"))[
+                        0
+                    ]
             except Exception:
                 log.warning("Coastline cut failed for the country boundary", exc_info=True)
         data["country_land"] = g
