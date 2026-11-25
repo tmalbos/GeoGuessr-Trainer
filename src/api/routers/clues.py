@@ -20,7 +20,7 @@ Relations: a clue has `relations: [{type, cc, id}]` (same_as | similar_to | grou
          `max_height`: px cap for the height of the clue image on the card, or of the map of a map-only clue.
 Shades:  a polygons file may carry a `shade` column (0 = the main tone, 1..3 = lighter = rarer part of the region).
          The geo preview / GET /clues/{CC}/geo/{file} then adds a `shades` list next to the geometries.
-Stats:   staging a geometry file also returns `stats` (see src/geo/region_stats.py): the editor uses them to
+Stats:   staging a geometry file also returns `stats` (see src/explore/country_clues/edit_mode/uploads/geospatial_files.py): the editor uses them to
          pre-fill the ratings of a new clue.
 Overlay: a regional clue with a geometry file (polygons / lines / points) also gets `overlay`: a transparent SVG of
          the region drawn on its country (see src/explore/country_clues/regional_map_overlay.py), written next to the parquet as
@@ -34,7 +34,6 @@ Needs:   Pillow, geopandas, shapely (>= 2.1 for gap-free coverage simplification
 import contextlib
 import csv
 import io
-import json
 import logging
 import re
 import shutil
@@ -43,16 +42,13 @@ import uuid
 import zlib
 from pathlib import Path
 from typing import Literal
-from xml.etree import ElementTree as ET
 
 import geopandas as gpd
-import numpy as np
 import pandas as pd
 import pyarrow.parquet as pq
 import shapely
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse, Response
-from PIL import Image, ImageOps
 from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 
@@ -88,26 +84,24 @@ from src.explore.country_clues.clues import (
     _summary,
     _write_overlay,
 )
+from src.explore.country_clues.edit_mode.uploads.csvs import _process_csv, _process_csv_areas
+from src.explore.country_clues.edit_mode.uploads.geospatial_files import (
+    PREVIEW_PRECISION,
+    _process_geo,
+    _shades_of,
+    _to_geojson,
+)
+from src.explore.country_clues.edit_mode.uploads.images import _process_image
 from src.explore.country_clues.regional_map_overlay import recolour, render_overlay
 from src.explore.country_clues.regional_stain_areas import _borders, _outline  # noqa: PLC2701
 from src.explore.country_clues.subcontinents import SUBCONTINENTS
-from src.geo.csv_areas import AreasError, build_areas, read_rows
-from src.geo.region_stats import region_stats
 from src.shared import prefs
 
 logger = logging.getLogger("uvicorn.error")
 
 AREA_KINDS = ("svg", "csv", "polygons", "lines", "points")  # what says which part of the country
 GEOM_KINDS = ("polygons", "lines", "points")
-GEOM_KIND = {"Polygon": "polygons", "LineString": "lines", "Point": "points"}
-STAGE_KINDS = ("image", "svg", "csv", "geometry")
-
-
-PREVIEW_PRECISION = 1e-5  # ~1 m, only for the GeoJSON sent to the browser
-IMAGE_MAX_PX = 1600
-IMAGE_QUALITY = 88
-PREVIEW_MAX_FEATURES = 5000
-MAX_SHADE = 3  # 4 shades in total (0 = main tone); keep equal to SHADES - 1 in ShadeDraw.jsx
+STAGE_KINDS = ("image", "csv", "geometry")
 
 URL_RE = re.compile(r"https?://\S+", re.IGNORECASE)
 
@@ -115,68 +109,6 @@ _LOCK = threading.Lock()
 
 
 router = APIRouter()
-
-
-# ── helpers ────────────────────────────────────────────────────────────────
-
-
-def _vertices(geoms) -> int:
-    return int(shapely.get_num_coordinates(geoms).sum())
-
-
-def _shades_of(gdf: gpd.GeoDataFrame) -> np.ndarray:
-    """The `shade` column of a geometry file as ints 0..MAX_SHADE (zeros when it has none)."""
-    if "shade" not in gdf.columns:
-        return np.zeros(len(gdf), dtype=int)
-    col = pd.to_numeric(gdf["shade"], errors="coerce").fillna(0)
-    return col.astype(int).clip(0, MAX_SHADE).to_numpy()
-
-
-def _to_geojson(
-    geoms,
-    limit: int | None = None,
-    shades: np.ndarray | None = None,
-    names: np.ndarray | None = None,
-    colors: np.ndarray | None = None,
-    extras: np.ndarray | None = None,
-    blurs: np.ndarray | None = None,
-    heights: np.ndarray | None = None,
-    precision: float | None = PREVIEW_PRECISION,
-) -> dict:
-    """GeometryCollection for the browser. When `shades` (one per geometry) has anything above 0 it is sent
-    along as `shades`, in the same order as `geometries`.
-
-    `precision` rounds the coordinates (`None` keeps them exact, for the editor that builds on them).
-    """
-    if limit and len(geoms) > limit:
-        step = -(-len(geoms) // limit)
-        geoms = geoms[::step]
-        if shades is not None:
-            shades = shades[::step]
-        if names is not None:
-            names, colors = names[::step], colors[::step]
-        if extras is not None:
-            extras = extras[::step]
-        if blurs is not None:
-            blurs, heights = blurs[::step], heights[::step]
-    g = shapely.set_precision(geoms, precision) if precision else geoms
-    keep = ~shapely.is_empty(g)
-    g = g[keep]
-    out = {
-        "type": "GeometryCollection",
-        "geometries": [json.loads(s) for s in shapely.to_geojson(g)],
-    }
-    if shades is not None and shades[keep].any():
-        out["shades"] = [int(v) for v in shades[keep]]
-    if names is not None:
-        out["names"] = [str(v) for v in names[keep]]
-        out["colors"] = [str(v) for v in colors[keep]]
-    if blurs is not None:
-        out["extra_blurs"] = [bool(v) for v in blurs[keep]]
-        out["extra_heights"] = [int(v) for v in heights[keep]]
-    if extras is not None:
-        out["extras"] = [str(v) for v in extras[keep]]
-    return out
 
 
 # ── overlay (the region pre-drawn on its country) ──────────────────────────
@@ -206,203 +138,6 @@ def _render_overlay(cc: str, geo_file: Path, local) -> str | None:
         return None
 
 
-# ── converters (run in a thread) ───────────────────────────────────────────
-
-
-def _process_image(data: bytes, out: Path) -> dict:
-    img = Image.open(io.BytesIO(data))
-    img.load()
-    img = ImageOps.exif_transpose(img)
-    if max(img.size) > IMAGE_MAX_PX:
-        img.thumbnail((IMAGE_MAX_PX, IMAGE_MAX_PX), Image.LANCZOS)
-    has_alpha = "A" in img.getbands() or "transparency" in img.info
-    img = img.convert("RGBA" if has_alpha else "RGB")
-    img.save(out, "WEBP", quality=IMAGE_QUALITY, method=6)
-    return {
-        "width": img.width,
-        "height": img.height,
-        "bytes_in": len(data),
-        "bytes_out": out.stat().st_size,
-    }
-
-
-def _process_svg(data: bytes, out: Path) -> dict:
-    """Keep the vector as it is; only check that it is an SVG with the expected layers."""
-    text = data.decode("utf-8-sig", errors="replace")
-    try:
-        root = ET.fromstring(text)
-    except ET.ParseError as e:
-        raise HTTPException(422, f"Could not read the SVG: {e}") from e
-    if not root.tag.lower().endswith("svg"):
-        raise HTTPException(422, "That file is not an SVG")
-    if not any(el.get("id") == "Background" for el in root.iter()):
-        raise HTTPException(422, 'The SVG needs a layer with id="Background"')
-    out.write_text(text, encoding="utf-8")
-    return {"bytes_in": len(data), "bytes_out": out.stat().st_size}
-
-
-def _process_csv(data: bytes, out: Path) -> dict:
-    text = data.decode("utf-8-sig", errors="replace")
-    try:
-        dialect = csv.Sniffer().sniff(text[:4096], delimiters=",;\t")
-    except csv.Error:
-        dialect = csv.excel
-    rows = [
-        [c.strip() for c in r]
-        for r in csv.reader(io.StringIO(text), dialect)
-        if any(c.strip() for c in r)
-    ]
-    if len(rows) < 2 or len(rows[0]) < 2:
-        raise HTTPException(422, "CSV needs a header (GroupName,Level1,...) and at least one row")
-    width = max(len(r) for r in rows)
-    rows = [r + [""] * (width - len(r)) for r in rows]
-    buf = io.StringIO()
-    csv.writer(buf, lineterminator="\n").writerows(rows)
-    out.write_text(buf.getvalue(), encoding="utf-8")
-    return {
-        "rows": rows[:200],
-        "row_count": len(rows) - 1,
-        "bytes_in": len(data),
-        "bytes_out": out.stat().st_size,
-    }
-
-
-def _read_geo(data: bytes, suffix: str) -> gpd.GeoDataFrame:
-    tmp = STAGING / f"{uuid.uuid4().hex}.upload{suffix}"
-    tmp.write_bytes(data)
-    try:
-        if suffix == ".parquet":
-            return gpd.read_parquet(tmp)
-        if suffix == ".zip":
-            return gpd.read_file(f"zip://{tmp}")
-        if suffix == ".shp":
-            msg = "A lone .shp is not enough. Zip the .shp, .shx, .dbf and .prj together."
-            raise HTTPException(422, msg)
-        return gpd.read_file(tmp)
-    finally:
-        tmp.unlink(missing_ok=True)
-
-
-def _process_geo(data: bytes, suffix: str, token: str) -> tuple[str, dict]:
-    gdf = _read_geo(data, suffix)
-    gdf = gdf.set_crs(4326) if gdf.crs is None else gdf.to_crs(4326)
-    arr = gdf.geometry.to_numpy()
-    present = ~shapely.is_missing(arr)
-    arr = arr[present]
-    shades = np.column_stack(
-        [_shades_of(gdf)[present], np.flatnonzero(present)]
-    )  # shade, source row
-    parts, src = shapely.get_parts(arr, return_index=True)
-    shades = shades[src]
-    keep = ~shapely.is_empty(parts)
-    parts, shades = parts[keep], shades[keep]
-
-    kinds = {GEOM_KIND[g.geom_type] for g in parts if g.geom_type in GEOM_KIND}
-    if not kinds:
-        raise HTTPException(422, "No polygons, lines or points found in this file")
-    if len(kinds) > 1:
-        msg = f"This file mixes {' and '.join(sorted(kinds))}. Split it into one file per geometry type."
-        raise HTTPException(422, msg)
-    kind = kinds.pop()
-
-    if kind == "polygons":
-        parts, src = shapely.get_parts(shapely.make_valid(parts), return_index=True)
-        shades = shades[src]
-        keep = ~shapely.is_empty(parts)
-        parts, shades = parts[keep], shades[keep]
-    keep = np.array([GEOM_KIND.get(g.geom_type) == kind for g in parts], dtype=bool)
-    parts, shades = parts[keep], shades[keep]
-
-    before = _vertices(parts)
-    keep = ~shapely.is_empty(parts)
-    parts, shades = parts[keep], shades[keep]
-    rows, shades = shades[:, 1], shades[:, 0]
-
-    out = STAGING / f"{token}.{kind}.parquet"
-    cols = {}
-    if kind == "polygons" and shades.any():
-        cols["shade"] = shades
-    if kind == "polygons" and "drawn" in gdf.columns:
-        cols["drawn"] = np.ones(len(parts), dtype=bool)  # made with the shade draw tool
-    if kind == "polygons" and {"name", "color"} <= set(gdf.columns):
-        cols["name"] = gdf["name"].astype(str).to_numpy()[rows]
-        cols["color"] = gdf["color"].astype(str).to_numpy()[rows]
-        if "extra" in gdf.columns:
-            cols["extra"] = gdf["extra"].fillna("").astype(str).to_numpy()[rows]
-        if {"extra_blur", "extra_max_height"} <= set(gdf.columns):
-            cols["extra_blur"] = gdf["extra_blur"].fillna(False).astype(bool).to_numpy()[rows]
-            cols["extra_max_height"] = (
-                pd.to_numeric(gdf["extra_max_height"], errors="coerce")
-                .fillna(0)
-                .astype(int)
-                .to_numpy()[rows]
-            )
-    gpd.GeoDataFrame(cols, geometry=parts, crs=4326).to_parquet(out, compression="zstd")
-    return kind, {
-        "kind": kind,
-        "features": len(parts),
-        "vertices_before": before,
-        "vertices_after": _vertices(parts),
-        "bytes_in": len(data),
-        "bytes_out": out.stat().st_size,
-        "bbox": [float(v) for v in shapely.total_bounds(parts)],
-        "geojson": _to_geojson(
-            parts,
-            PREVIEW_MAX_FEATURES,
-            shades,
-            cols.get("name"),
-            cols.get("color"),
-            cols.get("extra"),
-            cols.get("extra_blur"),
-            cols.get("extra_max_height"),
-        ),
-        "stats": region_stats(parts, shades, kind),  # pre-fills the ratings of a new clue
-    }
-
-
-def _process_csv_areas(data: bytes, cc: str, local, token: str, base_dir: Path | None) -> dict:
-    layer = None if local is None else local._admin_layer(cc)  # noqa: SLF001
-    try:
-        names, colors, extras, geoms = build_areas(read_rows(data), layer, base_dir)
-    except AreasError as e:
-        raise HTTPException(422, str(e)) from e
-    arr = np.empty(len(geoms), dtype=object)
-    arr[:] = geoms
-    shades = np.zeros(len(arr), dtype=int)
-    blurs = np.zeros(len(arr), dtype=bool)
-    heights = np.zeros(len(arr), dtype=int)
-    out = STAGING / f"{token}.polygons.parquet"
-    cols = {
-        "name": np.array(names, dtype=object),
-        "color": np.array(colors, dtype=object),
-        "extra": np.array(extras, dtype=object),
-        "extra_blur": blurs,
-        "extra_max_height": heights,
-    }
-    gpd.GeoDataFrame(cols, geometry=arr, crs=4326).to_parquet(out, compression="zstd")
-    parts = shapely.get_parts(arr)
-    return {
-        "kind": "polygons",
-        "features": len(parts),
-        "vertices_before": _vertices(parts),
-        "vertices_after": _vertices(parts),
-        "bytes_in": len(data),
-        "bytes_out": out.stat().st_size,
-        "bbox": [float(v) for v in shapely.total_bounds(arr)],
-        "geojson": _to_geojson(
-            arr,
-            PREVIEW_MAX_FEATURES,
-            shades,
-            cols["name"],
-            cols["color"],
-            cols["extra"],
-            blurs,
-            heights,
-        ),
-        "stats": region_stats(parts, np.zeros(len(parts), dtype=int), "polygons"),
-    }
-
-
 def _discard(token: str) -> None:
     for p in STAGING.glob(f"{token}.*"):
         p.unlink(missing_ok=True)
@@ -427,15 +162,15 @@ def _stage(
     try:
         if kind == "image":
             info = _process_image(data, STAGING / f"{token}.image.webp")
-        elif kind == "svg":
-            info = _process_svg(data, STAGING / f"{token}.svg.svg")
         elif kind == "csv":
             if cc:
-                info = _process_csv_areas(data, cc, local, token, base_dir)
+                info = _process_csv_areas(
+                    data, cc, local, base_dir, STAGING / f"{token}.polygons.parquet"
+                )
             else:
                 info = _process_csv(data, STAGING / f"{token}.csv.csv")
         else:
-            _, info = _process_geo(data, suffix, token)
+            _, info = _process_geo(data, suffix, STAGING / f"{token}.parquet")
     except HTTPException:
         _discard(token)
         raise

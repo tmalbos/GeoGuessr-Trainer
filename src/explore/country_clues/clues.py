@@ -16,8 +16,8 @@ from fastapi import HTTPException, Request
 
 from src.analysis.clue_medal import medal_for
 from src.api.deps import get_ctx
+from src.explore.country_clues.edit_mode.uploads.csvs import AreasError, build_areas, read_rows
 from src.explore.country_clues.regional_stain_areas import _borders, _outline
-from src.geo.csv_areas import AreasError, build_areas, read_rows
 from src.geo.local_geo import CountryAreaMissingError
 from src.geo.pinpoint import area_km2
 from src.geo.prefix_levels import build_levels

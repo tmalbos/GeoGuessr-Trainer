@@ -1,15 +1,4 @@
-"""csv_areas.py — A CSV of named groups of subdivisions -> colored areas (one polygon per group).
-
-CSV:  GroupName, Level1, Level2, ..., extra_info
-    Level1, Level2, ... are the country's admin levels, finest last (state, subregion, city in the local
-    layer; a country without `subregion` skips that level). A row selects every unit that matches the levels
-    it fills in, so "Group A, Texas" is the whole state and "Group A, Texas, Harris" only that part.
-    When rows overlap, the more specific row wins. Rows with the same GroupName make one area.
-    extra_info (optional): text, or the path of an image / SVG (absolute, or relative to the CSV).
-    An image is embedded in the result as a small data URI, so the parquet is self-contained.
-
-Colors are automatic: neighbouring areas always get clearly different colors (see assign_colors).
-"""
+"""csvs.py — CSV uploads: a plain CSV is tidied, a CSV of named groups becomes colored areas."""
 
 import base64
 import colorsys
@@ -19,11 +8,20 @@ import re
 from difflib import get_close_matches
 from pathlib import Path
 
+import geopandas as gpd
 import numpy as np
 import shapely
+from fastapi import HTTPException
 from PIL import Image, ImageOps
 from shapely import STRtree
 from unidecode import unidecode
+
+from src.explore.country_clues.edit_mode.uploads.geospatial_files import (
+    PREVIEW_MAX_FEATURES,
+    _to_geojson,
+    _vertices,
+    region_stats,
+)
 
 LEVEL_COLUMNS = ("state", "subregion", "city")
 IMAGE_EXT = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".avif", ".tif", ".tiff"}
@@ -276,3 +274,74 @@ def build_areas(rows: list[list[str]], layer, base_dir: Path | None = None):
         msg = "No areas could be built from that CSV"
         raise AreasError(msg)
     return names, assign_colors(geoms), keep_extra, geoms
+
+
+# ── converters (run in a thread) ───────────────────────────────────────────
+
+
+def _process_csv(data: bytes, out: Path) -> dict:
+    text = data.decode("utf-8-sig", errors="replace")
+    try:
+        dialect = csv.Sniffer().sniff(text[:4096], delimiters=",;\t")
+    except csv.Error:
+        dialect = csv.excel
+    rows = [
+        [c.strip() for c in r]
+        for r in csv.reader(io.StringIO(text), dialect)
+        if any(c.strip() for c in r)
+    ]
+    if len(rows) < 2 or len(rows[0]) < 2:
+        raise HTTPException(422, "CSV needs a header (GroupName,Level1,...) and at least one row")
+    width = max(len(r) for r in rows)
+    rows = [r + [""] * (width - len(r)) for r in rows]
+    buf = io.StringIO()
+    csv.writer(buf, lineterminator="\n").writerows(rows)
+    out.write_text(buf.getvalue(), encoding="utf-8")
+    return {
+        "rows": rows[:200],
+        "row_count": len(rows) - 1,
+        "bytes_in": len(data),
+        "bytes_out": out.stat().st_size,
+    }
+
+
+def _process_csv_areas(data: bytes, cc: str, local, base_dir: Path | None, out: Path) -> dict:
+    layer = None if local is None else local._admin_layer(cc)  # noqa: SLF001
+    try:
+        names, colors, extras, geoms = build_areas(read_rows(data), layer, base_dir)
+    except AreasError as e:
+        raise HTTPException(422, str(e)) from e
+    arr = np.empty(len(geoms), dtype=object)
+    arr[:] = geoms
+    shades = np.zeros(len(arr), dtype=int)
+    blurs = np.zeros(len(arr), dtype=bool)
+    heights = np.zeros(len(arr), dtype=int)
+    cols = {
+        "name": np.array(names, dtype=object),
+        "color": np.array(colors, dtype=object),
+        "extra": np.array(extras, dtype=object),
+        "extra_blur": blurs,
+        "extra_max_height": heights,
+    }
+    gpd.GeoDataFrame(cols, geometry=arr, crs=4326).to_parquet(out, compression="zstd")
+    parts = shapely.get_parts(arr)
+    return {
+        "kind": "polygons",
+        "features": len(parts),
+        "vertices_before": _vertices(parts),
+        "vertices_after": _vertices(parts),
+        "bytes_in": len(data),
+        "bytes_out": out.stat().st_size,
+        "bbox": [float(v) for v in shapely.total_bounds(arr)],
+        "geojson": _to_geojson(
+            arr,
+            PREVIEW_MAX_FEATURES,
+            shades,
+            cols["name"],
+            cols["color"],
+            cols["extra"],
+            blurs,
+            heights,
+        ),
+        "stats": region_stats(parts, np.zeros(len(parts), dtype=int), "polygons"),
+    }
