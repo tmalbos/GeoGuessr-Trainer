@@ -90,9 +90,9 @@ from src.explore.country_clues.clues import (
 )
 from src.explore.country_clues.regional_map_overlay import recolour, render_overlay
 from src.explore.country_clues.regional_stain_areas import _borders, _outline  # noqa: PLC2701
+from src.explore.country_clues.subcontinents import SUBCONTINENTS
 from src.geo.csv_areas import AreasError, build_areas, read_rows
 from src.geo.region_stats import region_stats
-from src.geo.subcontinents import SUBCONTINENTS
 from src.shared import prefs
 
 logger = logging.getLogger("uvicorn.error")

@@ -1,4 +1,4 @@
-"""subcontinents.py — Which subcontinent each country belongs to (used to relate clues across countries).
+"""country_clues.subcontinents — Which subcontinent each country belongs to (used to relate clues across countries).
 
 Edit the groups below to move a country. Countries not listed anywhere simply don't show up in the picker.
 (id, label, ISO alpha-2 codes separated by spaces)
