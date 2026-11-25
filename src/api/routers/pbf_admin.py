@@ -38,6 +38,7 @@ import logging
 import math
 import operator
 import os
+import shutil
 import tempfile
 import threading
 import time
@@ -110,6 +111,7 @@ TILE_COORDS = (
 MAX_TILES_SIDE = 48  # at most this many tiles per side
 TILE_WORKERS = max(1, min(8, os.cpu_count() or 2))  # threads for the tiles (GEOS releases the GIL)
 
+NEAR_TOL = 0.005  # deg (~500 m): detail that doesn't matter when picking the closest polygon for a fragment
 
 # ── helpers ────────────────────────────────────────────────────────────────
 
@@ -625,12 +627,77 @@ def _build_points(rels: dict[int, dict], polygons: set[int], nodes: dict[int, di
 COUNTRY_SLACK_DEG = 0.01  # ~1 km: a boundary on the coast still counts as inside the country
 
 
-def _geo_data(ds: dict) -> dict:
-    """Ways (lon/lat arrays), their bounding boxes and the point nodes of the geometry file. Read once per opened
-    file and kept, so picking another country reads nothing again. Caller holds _COMPUTE.
+COUNTRY_PAD = 1.0  # degrees of the file kept around a country when it gets a file of its own
+
+
+def _country_file(ds: dict, country: str) -> Path:
+    """The geometry file to read for one country. A file that holds several countries is cut to the country's
+    bounding box by osmium-tool (C++, complete ways) once and cached on disk, so Python only reads that country's
+    boundaries and coastlines. Falls back to the whole geometry file whenever that can't be done.
+    """
+    geo_path: Path = ds["geo_path"]
+    rel = ds["rels"].get(int(country)) if country.isdigit() else None
+    if rel is None or len(ds["countries"]) < 2:
+        return geo_path
+    st = geo_path.stat()
+    raw = f"{geo_path.resolve()}|{st.st_size}|{st.st_mtime_ns}|{country}"
+    key = hashlib.sha1(raw.encode()).hexdigest()[:16]
+    out = CACHE_DIR / f"country-{key}.osm.pbf"
+    if out.is_file() and out.stat().st_size > 0:
+        return out
+    try:
+        osmium_tool.require()
+    except osmium_tool.OsmiumMissingError:
+        return geo_path
+    CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    work = Path(tempfile.mkdtemp(prefix="country-", dir=CACHE_DIR))
+    try:
+        ids = work / "ids.txt"
+        ids.write_text(f"r{country}\n", encoding="utf-8")
+        outline = work / "outline.osm.pbf"
+        osmium_tool.run(
+            ["getid", "-r", "-i", str(ids), str(geo_path), "--output", str(outline), "--overwrite"]
+        )
+        found = _read_ways(outline, {*rel["outer"], *rel["inner"]})
+        if not found:
+            return geo_path
+        pts = np.vstack(list(found.values()))
+        w, s = (float(v) - COUNTRY_PAD for v in pts.min(axis=0))
+        e, n = (float(v) + COUNTRY_PAD for v in pts.max(axis=0))
+        if e - w > 300:  # crosses the antimeridian: nothing to cut away
+            return geo_path
+        box = f"{max(w, -180.0)},{max(s, -90.0)},{min(e, 180.0)},{min(n, 90.0)}"
+        part = CACHE_DIR / f"country-{key}.part.osm.pbf"
+        osmium_tool.run(
+            [
+                "extract",
+                "--bbox",
+                box,
+                "--strategy",
+                "complete_ways",
+                "--output",
+                str(part),
+                "--overwrite",
+                str(geo_path),
+            ]
+        )
+        part.replace(out)
+    except (osmium_tool.OsmiumError, OSError):
+        log.warning(
+            "Could not cut a file for country %s; using the whole file", country, exc_info=True
+        )
+        return geo_path
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
+    return out
+
+
+def _geo_data(ds: dict, path: Path) -> dict:
+    """Ways (lon/lat arrays), their bounding boxes and the point nodes of the geometry file `path` (the whole file or
+    a country's own, see _country_file). Read once and kept while the same file is asked for. Caller holds _COMPUTE.
     """
     hit = ds.get("geo")
-    if hit is None:
+    if hit is None or hit["path"] != path:
         rels = ds["rels"]
         wanted: set[int] = set()
         for r in rels.values():
@@ -638,12 +705,12 @@ def _geo_data(ds: dict) -> dict:
             wanted.update(r["inner"])
         centres = {r["centre"] for r in rels.values() if r.get("centre")}
         nodes: dict[int, dict] = {}
-        ways = _read_ways(ds["geo_path"], wanted, nodes, centres)
+        ways = _read_ways(path, wanted, nodes, centres)
         boxes = {
             i: (xy[:, 0].min(), xy[:, 1].min(), xy[:, 0].max(), xy[:, 1].max())
             for i, xy in ways.items()
         }
-        hit = ds["geo"] = {"ways": ways, "nodes": nodes, "boxes": boxes}
+        hit = ds["geo"] = {"path": path, "ways": ways, "nodes": nodes, "boxes": boxes}
     return hit
 
 
@@ -665,7 +732,8 @@ def _extract(ds: dict, country: str) -> dict:
         raise HTTPException(404, "That country is no longer in the open file.")
 
     rels: dict[int, dict] = ds["rels"]
-    geo = _geo_data(ds)
+    path = _country_file(ds, country)
+    geo = _geo_data(ds, path)
     ways, nodes, boxes = geo["ways"], geo["nodes"], geo["boxes"]
     if not ways:
         raise HTTPException(422, "No boundary geometry could be read from this file.")
@@ -753,7 +821,7 @@ def _extract(ds: dict, country: str) -> dict:
         "by_level": by_level,
         "levels": [{"level": level, "count": len(v["props"])} for level, v in by_level.items()],
         "diag": max(math.hypot(cmaxx - cminx, cmaxy - cminy), 1e-9),
-        "path": ds["geo_path"],
+        "path": path,
         "coast_loaded": False,  # coastlines are read the first time a level is finished
         "coast": None,
         "coast_ids": None,
@@ -1045,9 +1113,16 @@ def _land_only_rings(g, coast: np.ndarray, tree, cbox, R: dict):
     elif tops:
         farr = np.empty(len(faces), dtype=object)
         farr[:] = faces
-        ti, fj = shapely.STRtree(farr).query(R["pts"][np.asarray(tops)], predicate="within")
-        for a, b in zip(ti.tolist(), fj.tolist(), strict=True):
-            owner.setdefault(tops[a], b)
+        top_pts = R["pts"][np.asarray(tops)]
+        ti, fj = shapely.STRtree(farr).query(top_pts)  # bounding boxes only
+        px, py = shapely.get_x(top_pts), shapely.get_y(top_pts)
+        for f in np.unique(fj).tolist():
+            idx = ti[fj == f]
+            shapely.prepare(
+                farr[f]
+            )  # indexed point-in-polygon: a face can have millions of vertices
+            for a in idx[shapely.contains_xy(farr[f], px[idx], py[idx])].tolist():
+                owner.setdefault(tops[a], f)
         if len(owner) < len(tops):
             return None
     by_face: dict[int, list[int]] = {}
@@ -1320,6 +1395,16 @@ def _gaps(country, geoms: list):
 
 
 def _cut_level(data: dict, level: int) -> dict:
+    """_cut_level_raw, remembered. The single-polygon reference level is cut for itself and again when a finer
+    level needs its land, and the cut is by far the slowest step. Caller holds _LAND.
+    """
+    cache = data.setdefault("cut_cache", {})
+    if level not in cache:
+        cache[level] = _cut_level_raw(data, level)
+    return cache[level]
+
+
+def _cut_level_raw(data: dict, level: int) -> dict:
     """One level's boundaries cut to land. Boundaries that are entirely sea are dropped. Caller holds _LAND."""
     lv = data["by_level"][level]
     if data["tree"] is None:
@@ -1456,6 +1541,15 @@ def _neighbours(pieces: np.ndarray, geoms: np.ndarray, tree) -> np.ndarray:
     return out
 
 
+def _coarse(geoms: np.ndarray) -> np.ndarray:
+    """The same polygons with far fewer vertices (only for big levels). Distances to a polygon with millions of
+    vertices are slow, and which polygon is closest to a small fragment doesn't depend on that detail.
+    """
+    if int(shapely.get_num_coordinates(geoms).sum()) < 2 * TILE_COORDS:
+        return geoms
+    return shapely.simplify(geoms, NEAR_TOL, preserve_topology=True)
+
+
 def _fill_gaps(data: dict, level: int, base: dict) -> dict:
     """Handle the land of the country that `base` (a level cut to land) leaves empty. Each separate empty
     polygon is either:
@@ -1547,7 +1641,8 @@ def _fill_gaps(data: dict, level: int, base: dict) -> dict:
     merged: dict[int, list] = {}
     if fragments and out:
         oarr = np.array(out, dtype=object)
-        near = _neighbours(np.array(fragments, dtype=object), oarr, shapely.STRtree(oarr))
+        coarse = _coarse(oarr)
+        near = _neighbours(np.array(fragments, dtype=object), coarse, shapely.STRtree(coarse))
         for q, i in zip(fragments, near.tolist(), strict=True):
             if i >= 0:
                 merged.setdefault(i, []).append(q)
@@ -2124,6 +2219,11 @@ class DeleteBody(CountryBody):
     idxs: list[int] = Field(min_length=1, max_length=1000)
 
 
+class DiffBody(CountryBody):
+    level: int
+    idx: int = Field(ge=0)
+
+
 class PointsBody(CountryBody):
     levels: list[int] = Field(default_factory=list)
     places: bool = False
@@ -2237,6 +2337,40 @@ async def delete_pbf(body: DeleteBody):
     if body.level not in data["by_level"]:
         raise HTTPException(422, "That admin level is not in this country.")
     await run_in_threadpool(_delete, data, body.level, body.idxs)
+    return {"ok": True}
+
+
+def _diff(data: dict, level: int, idx: int) -> None:
+    """Cut from one polygon of a finished level everything the other polygons of that level overlap (original geometry)."""
+    with _LAND:
+        item = _current(data, level)
+        geoms = item["geoms"]
+        if idx >= len(geoms):
+            raise HTTPException(422, "That polygon is not in this level any more.")
+        g = geoms[idx]
+        near = shapely.STRtree(geoms).query(g, predicate="intersects")
+        near = near[near != idx]
+        if len(near):
+            hit = _safe(lambda x, y: shapely.relate_pattern(x, y, "T********"), g, geoms[near])
+            near = near[np.asarray(hit, dtype=bool)]
+        if not len(near):
+            raise HTTPException(422, "This polygon overlaps nothing.")
+        cut = _polys(_safe(shapely.difference, g, shapely.union_all(geoms[near])))
+        if cut is None:
+            raise HTTPException(422, "Nothing would be left of this polygon. Delete it instead.")
+        _snapshot(data, level, item)
+        out = geoms.copy()
+        out[idx] = cut
+        data["land"][level] = {"props": item["props"], "geoms": out}
+        _drop_preview(data, level)
+
+
+@router.post("/technical/pbf/diff")
+async def diff_pbf(body: DiffBody):
+    data = await run_in_threadpool(_load, _dataset(body.token), body.country)
+    if body.level not in data["by_level"]:
+        raise HTTPException(422, "That admin level is not in this country.")
+    await run_in_threadpool(_diff, data, body.level, body.idx)
     return {"ok": True}
 
 

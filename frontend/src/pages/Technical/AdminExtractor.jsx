@@ -16,6 +16,10 @@ const PREVIEW_PCT = 5; // same floor as the server
 const DEFAULT_MERGE_SHORTCUT = "Ctrl+G";
 const memo = { ds: null, mode: "admin", country: "", levels: [] };
 
+const iconProps = { width: 16, height: 16, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 2, strokeLinecap: "round", strokeLinejoin: "round", "aria-hidden": true };
+const TrashIcon = () => <svg {...iconProps}><path d="M4 7h16" /><path d="M10 11v6M14 11v6" /><path d="M6 7l1 13h10l1-13" /><path d="M9 7V4h6v3" /></svg>;
+const DiffIcon = () => <svg {...iconProps}><circle cx="9" cy="12" r="6" /><circle cx="15" cy="12" r="6" strokeDasharray="3 3" /></svg>;
+
 /** True when the keyboard event matches a shortcut like "Ctrl+Shift+G". */
 const sameShortcut = (e, spec) => {
   const parts = String(spec).split("+").map((p) => p.trim().toLowerCase()).filter(Boolean);
@@ -173,8 +177,8 @@ export default function AdminExtractor() {
 
   // Delete/Backspace removes the picked polygon (or every Shift-selected one) from the server's copy of the level,
   // so exports and coarser-layer lookups don't see it either.
-  const removePicked = () => {
-    const list = marks.length ? marks : picked?.idx != null ? [picked] : [];
+  const removePicked = (only) => {
+    const list = only ?? (marks.length ? marks : picked?.idx != null ? [picked] : []);
     if (!list.length) return;
     const level = list[0].admin_level;
     const key = `${ds.token}|${country}|${level}|${pct}`;
@@ -213,6 +217,20 @@ export default function AdminExtractor() {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [picked, marks, ds, country, pct, mode]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const diffOne = async (p) => {
+    const key = `${ds.token}|${country}|${p.admin_level}|${pct}`;
+    const snap = { key, feats: cache.current.get(key) ?? null };
+    setErr("");
+    pushUndo(snap);
+    try {
+      await enqueue(() => api("/technical/pbf/diff", { method: "POST", body: { token: ds.token, country, level: p.admin_level, idx: p.idx } }));
+      cache.current.delete(key);
+      setBump((n) => n + 1);
+      setMarks([]); setPicked(null);
+      setVer((v) => v + 1);
+    } catch (e) { dropUndo(snap); setErr(errorText(e)); }
+  };
 
   const setFill = async (level, value) => {
     const source = value === "" ? null : Number(value);
@@ -421,8 +439,12 @@ export default function AdminExtractor() {
             <h3>Overlaps <span className="muted">· {overlapping.length} polygons</span></h3>
             <p className="muted">Polygons of the same level that cover the same land. Click one to select it, or click again on the map to cycle through the ones stacked there.</p>
             <div className="tp-tags">
-              {overlapping.map((p) => <button type="button" key={`${p.admin_level}|${p.idx}`} className="link-btn" style={{ textAlign: "left", fontWeight: sel?.admin_level === p.admin_level && sel?.idx === p.idx ? 700 : 400 }}
-                onClick={() => jump(p)}>Level {p.admin_level} · {p.name} <span className="muted">↔ {p.overlaps.slice(0, 3).map((i) => byIdx.get(`${p.admin_level}|${i}`) ?? "?").join(", ")}{p.overlaps.length > 3 ? "…" : ""}</span></button>)}
+              {overlapping.map((p) => <div key={`${p.admin_level}|${p.idx}`} style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <button type="button" className="link-btn" style={{ textAlign: "left", flex: 1, fontWeight: sel?.admin_level === p.admin_level && sel?.idx === p.idx ? 700 : 400 }}
+                  onClick={() => jump(p)}>Level {p.admin_level} · {p.name} <span className="muted">↔ {p.overlaps.slice(0, 3).map((i) => byIdx.get(`${p.admin_level}|${i}`) ?? "?").join(", ")}{p.overlaps.length > 3 ? "…" : ""}</span></button>
+                <button type="button" className="btn ghost" style={{ padding: "3px 6px" }} aria-label="Cut the overlapping areas out of this polygon" title="Cut the overlapping areas out of this polygon" onClick={() => diffOne(p)}><DiffIcon /></button>
+                <button type="button" className="btn ghost" style={{ padding: "3px 6px" }} aria-label="Delete this polygon" title="Delete this polygon" onClick={() => removePicked([p])}><TrashIcon /></button>
+              </div>)}
             </div>
           </>}
 
