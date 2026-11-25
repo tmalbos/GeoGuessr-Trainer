@@ -57,6 +57,7 @@ from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 
 from src.api.deps import get_ctx
+from src.explore.country_clues import decks as deck_store
 from src.explore.country_clues.clue_relations import (
     _relations_of,
     _set_rels,  # noqa: F401  (re-exported for clue_pack)
@@ -92,7 +93,6 @@ from src.explore.country_clues.regional_stain_areas import _borders, _outline  #
 from src.geo.csv_areas import AreasError, build_areas, read_rows
 from src.geo.region_stats import region_stats
 from src.geo.subcontinents import SUBCONTINENTS
-from src.shared import decks as deck_store
 from src.shared import prefs
 
 logger = logging.getLogger("uvicorn.error")

@@ -56,7 +56,7 @@ from src.api.routers.clues import (
     _sync_relations,
     _write_overlay,
 )
-from src.shared import decks as deck_store
+from src.explore.country_clues import decks as deck_store
 
 logger = logging.getLogger("uvicorn.error")
 router = APIRouter()

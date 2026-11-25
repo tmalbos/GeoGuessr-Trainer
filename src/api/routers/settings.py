@@ -7,11 +7,11 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from src.api.deps import get_ctx
+from src.explore.country_clues import decks as deck_store
 from src.geo import map_providers as mp
 from src.geoguessr.cookie_extraction import refresh_cookie
 from src.geoguessr.cookie_store import load_cookie, save_cookie
 from src.i18n.lang import load as load_lang
-from src.shared import decks as deck_store
 from src.shared import prefs
 from src.sync.user_identity import DEFAULT_USER_ID
 
