@@ -1619,17 +1619,81 @@ def _rename(data: dict, level: int, gap: int | None, idx: int | None, name: str)
         _drop_preview(data, level)
 
 
+def _fill_remaining(data: dict, level: int, source: int) -> None:
+    """Fill only the gaps of the finished `level` that are still "Unnamed N" (not renamed, not merged into
+    something else) with the polygons of `source`. Whatever `source` leaves empty stays "Unnamed N".
+    Caller holds _LAND.
+    """
+    if source == level or source not in data["by_level"]:
+        return
+    item = _current(data, level)
+    todo = [i for i, p in enumerate(item["props"]) if p.get("unnamed")]
+    if not todo:
+        return
+    gap = _polys(shapely.union_all(item["geoms"][todo]))
+    if gap is None:
+        return
+    lv = data["by_level"][source]
+    shapely.prepare(gap)
+    added: list = []
+    for i in _level_tree(data, source).query(gap, predicate="intersects"):
+        poly = lv["geoms"][i]
+        local = shapely.clip_by_rect(gap, *poly.bounds)
+        piece = _polys(_safe(shapely.intersection, poly, local))
+        if piece is None or piece.area < MIN_PIECE:
+            continue
+        if added:  # same-level boundaries that overlap each other: the first one keeps the area
+            arr = np.empty(len(added), dtype=object)
+            arr[:] = [g for _, g in added]
+            near = arr[shapely.intersects(piece, arr)]
+            if len(near):
+                piece = _polys(_safe(shapely.difference, piece, shapely.union_all(near)))
+                if piece is None or piece.area < MIN_PIECE:
+                    continue
+        added.append(({**lv["props"][i], "admin_level": level, "from_level": source}, piece))
+    if added:
+        gap = _polys(_safe(shapely.difference, gap, shapely.union_all([g for _, g in added])))
+
+    drop = set(todo)
+    props = [p for i, p in enumerate(item["props"]) if i not in drop]
+    geoms = [g for i, g in enumerate(item["geoms"]) if i not in drop]
+    props.extend(p for p, _ in added)
+    geoms.extend(g for _, g in added)
+    n = max((p.get("gap") or 0 for p in item["props"]), default=0)
+    if gap is not None:
+        for q in shapely.get_parts(gap):
+            if q.geom_type != "Polygon" or q.area < MIN_PIECE:
+                continue
+            n += 1
+            props.append(
+                {
+                    "name": f"Unnamed {n}",
+                    "admin_level": level,
+                    "osm_id": "",
+                    "iso": "",
+                    "gap": n,
+                    "unnamed": True,
+                }
+            )
+            geoms.append(q)
+    arr = np.empty(len(geoms), dtype=object)
+    arr[:] = geoms
+    data["land"][level] = {"props": props, "geoms": arr}
+
+
 def _set_fill(data: dict, level: int, source: int | None) -> None:
-    """Choose which level fills the gaps of `level` (None = leave them as "Unnamed N"). Custom names are reset,
-    because the gaps change.
+    """Fill the gaps of `level` that are still unnamed with the polygons of another level. Renames, merges and
+    deletions already made stay as they are. None = back to the original gaps ("Unnamed N"); that rebuilds the
+    level, so its renames, merges and deletions are reset.
     """
     with _LAND:
         if source is None:
             data["fill"].pop(level, None)
+            data["renames"].pop(level, None)
+            data["land"].pop(level, None)
         else:
             data["fill"][level] = source
-        data["renames"].pop(level, None)
-        data["land"].pop(level, None)
+            _fill_remaining(data, level, source)
         _drop_preview(data, level)
 
 
