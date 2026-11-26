@@ -53,6 +53,8 @@ export default function AdminExtractor() {
   const [busy, setBusy] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
   const [places, setPlaces] = useState(false);
+  const [showPts, setShowPts] = useState(false);
+  const [gapPts, setGapPts] = useState(null); // points inside "Unnamed" polygons, same level
   const [over, setOver] = useState(false);
   const [err, setErr] = useState("");
   const [ver, setVer] = useState(0);
@@ -137,6 +139,18 @@ export default function AdminExtractor() {
     else if (last.current.k !== k) last.current = { k, fc: null };
     return last.current.fc;
   }, [ds, country, levels, pct, ver]);
+
+  // Points of the shown levels that fall inside one of that level's "Unnamed" polygons (to check they exist).
+  const hasUnnamed = !!fc?.features.some((f) => f.properties.unnamed);
+  useEffect(() => {
+    if (!showPts || !hasUnnamed || !ds || !country || !levels.length) { setGapPts(null); return undefined; }
+    let stale = false;
+    api("/technical/pbf/unnamed-points", { method: "POST", body: { token: ds.token, country, levels } })
+      .then((r) => { if (!stale) setGapPts(r); })
+      .catch((e) => { if (!stale) setErr(errorText(e)); });
+    return () => { stale = true; };
+  }, [showPts, hasUnnamed, ds, country, levels, ver]);
+  const mapFc = useMemo(() => (gapPts && fc ? { ...fc, features: [...fc.features, ...gapPts.features] } : fc), [fc, gapPts]);
 
   // The clicked polygon, while its level is still shown.
   const sel = picked && levels.includes(picked.admin_level) ? picked : null;
@@ -426,6 +440,7 @@ export default function AdminExtractor() {
               {unnamed.map((p) => <button type="button" key={p.tag} className="link-btn" style={{ textAlign: "left", fontWeight: sel?.tag === p.tag ? 700 : 400 }}
                 onClick={() => jump(p)}>Level {p.admin_level} · {p.name}</button>)}
             </div>}
+            {!!unnamed.length && <label className="tp-chk"><input type="checkbox" checked={showPts} onChange={(e) => setShowPts(e.target.checked)} />Show points inside unnamed polygons{showPts && gapPts ? ` (${gapPts.features.length})` : ""}</label>}
             {levels.map((l) => <div className="tp-field" key={l}>
               <label htmlFor={`fill-${l}`}>Level {l} gaps filled with</label>
               <select id={`fill-${l}`} value={fills[l] ?? ""} onChange={(e) => setFill(l, e.target.value)}>
@@ -477,7 +492,7 @@ export default function AdminExtractor() {
       {exportOpen && info && <ExportDialog ds={ds} levels={info.levels} selected={levels} onClose={() => setExportOpen(false)} onExport={exportTopo} />}
       {err && <ErrorBox message={err} />}
       {admin && (extracting || busy) && <p className="muted" role="status"><StatusIcon kind="wait" />{extracting ? "Building this country…" : "Loading… a new level is cut to the coast and its gaps are filled the first time."}</p>}
-      {admin && ds && country && <PolyMap features={fc} fitKey={fc ? `${ds.token}|${country}` : null} onPick={onPick} selected={sel} marked={marks} focus={focus} />}
+      {admin && ds && country && <PolyMap features={mapFc} fitKey={fc ? `${ds.token}|${country}` : null} onPick={onPick} selected={sel} marked={marks} focus={focus} />}
       {!admin && ds && <>
         <PolyMap features={other?.geojson?.features.length ? other.geojson : null} fitKey={other?.key} />
         <div className="tp-stats muted">

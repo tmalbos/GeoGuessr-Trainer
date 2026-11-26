@@ -2478,6 +2478,52 @@ async def points_pbf(body: PointsBody):
     }
 
 
+def _unnamed_points(data: dict, levels: list[int]) -> dict:
+    """Relation points of each level that fall inside one of that level's "Unnamed" polygons."""
+    feats = []
+    with _LAND:
+        for level in levels:
+            if level not in data["by_level"]:
+                continue
+            item = _current(data, level)
+            gaps = [
+                g for g, p in zip(item["geoms"], item["props"], strict=True) if p.get("unnamed")
+            ]
+            pts = [p for p in data["points"]["relation"] if p["admin_level"] == level]
+            if not gaps or not pts:
+                continue
+            garr = np.empty(len(gaps), dtype=object)
+            garr[:] = gaps
+            hit = shapely.STRtree(garr).query(
+                shapely.points([[p["lon"], p["lat"]] for p in pts]), predicate="intersects"
+            )
+            for i in sorted({int(k) for k in hit[0]}):
+                p = pts[i]
+                feats.append(
+                    {
+                        "type": "Feature",
+                        "properties": {
+                            "name": p["name"],
+                            "level": level,
+                            "osm_id": p["osm_id"],
+                            "polygon": p["polygon"],
+                            "tag": f"ADM{level} · {p['name']}",
+                            "color": "#ffd23f",
+                            "shade": 0,
+                        },
+                        "geometry": {"type": "Point", "coordinates": [p["lon"], p["lat"]]},
+                    }
+                )
+    return {"type": "FeatureCollection", "features": feats}
+
+
+@router.post("/technical/pbf/unnamed-points")
+async def unnamed_points_pbf(body: PointsBody):
+    """Points of the chosen admin levels that lie inside an "Unnamed" polygon of that same level."""
+    data = await run_in_threadpool(_load, _dataset(body.token), body.country)
+    return await run_in_threadpool(_unnamed_points, data, _levels(body.levels))
+
+
 @router.post("/technical/pbf/undo")
 async def undo_pbf(body: CountryBody):
     data = await run_in_threadpool(_load, _dataset(body.token), body.country)
