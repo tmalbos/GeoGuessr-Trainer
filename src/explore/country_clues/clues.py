@@ -14,8 +14,8 @@ import shapely
 import yaml
 from fastapi import HTTPException, Request
 
-from src.analysis.clue_medal import medal_for
 from src.api.deps import get_ctx
+from src.explore.country_clues.badges import medal_for
 from src.explore.country_clues.edit_mode.uploads.csvs import AreasError, build_areas, read_rows
 from src.explore.country_clues.regional_stain_areas import _borders, _outline
 from src.geo.local_geo import CountryAreaMissingError
@@ -88,7 +88,7 @@ def _country_km2(local, code: str) -> float:
 
 
 def _apply_medal(cc: str, entry: dict, request: Request, folder: Path, override=None) -> None:
-    """Store `score` and `medal` on a clue. Computed once, when the clue is saved (see clue_medal.py).
+    """Store `score` and `medal` on a clue. Computed once, when the clue is saved (see badges.py).
 
     A regional clue whose country area is not stored (see scripts/backfill_country_area.py) is logged
     and left unscored.

@@ -36,10 +36,15 @@ from src.api.deps import get_ctx
 from src.api.routers.clues import (
     _LOCK,
     AREA_KINDS,
+    GEOM_KINDS,
+    _render_overlay,
+)
+from src.explore.country_clues import decks as deck_store
+from src.explore.country_clues.clue_relations import _set_rels, _sync_relations
+from src.explore.country_clues.clues import (
     ASSET_RE,
     CLUES_DIR,
     GENERAL_TAGS,
-    GEOM_KINDS,
     KINDS,
     LOCATION_TAGS,
     _apply_medal,
@@ -49,14 +54,10 @@ from src.api.routers.clues import (
     _next_name,
     _next_num,
     _overlay_name,
-    _render_overlay,
     _save,
     _set_has,
-    _set_rels,
-    _sync_relations,
     _write_overlay,
 )
-from src.explore.country_clues import decks as deck_store
 
 logger = logging.getLogger("uvicorn.error")
 router = APIRouter()

@@ -12,7 +12,7 @@ from pydantic import BaseModel
 
 from src.anki.anki_connect import AnkiNotRunningError
 from src.api.deps import get_ctx
-from src.api.routers.clues import CLUES_DIR, GENERAL_TAGS, _cc, _load  # noqa: PLC2701
+from src.explore.country_clues.clues import CLUES_DIR, GENERAL_TAGS, _cc, _load  # noqa: PLC2701
 from src.geo.anki_map import overlay_regions
 
 router = APIRouter()

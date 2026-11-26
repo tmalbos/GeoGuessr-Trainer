@@ -1,4 +1,4 @@
-"""clue_medal.py — Medal (bronze / silver / gold / platinum) of a clue, from its ratings and region area.
+"""badges.py — Medal (bronze / silver / gold / platinum) of a clue, from its ratings and region area.
 
 Score (0..10), a rating that is not set counts as 0:
   national   (frequency + ease + reliability) / 3
