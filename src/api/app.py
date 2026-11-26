@@ -18,7 +18,6 @@ from src.api.routers import (
     history,
     osm_extract,
     pbf_admin,
-    plonkit_import,
     replay_report,
     settings,
     status,
@@ -30,6 +29,7 @@ from src.api.routers import (
 from src.app_context import AppContext
 from src.explore.country_clues import regional_stain_areas as stain
 from src.explore.country_clues.anki import endpoints as anki_export
+from src.explore.country_clues.clue_imports import plonkit as plonkit_import
 from src.explore.country_clues.edit_mode import endpoints as clue_edit
 from src.i18n.lang import load as load_lang
 from src.shared import prefs

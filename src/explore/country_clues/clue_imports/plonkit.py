@@ -1,25 +1,9 @@
-"""plonkit_import.py — Import a country's Plonkit guide clue by clue.
-
-POST   /import/plonkit/start          {cc} -> {token, total, sections}   (fetches the guide page once)
-                                         sections = [{step, title, index}]: the guide's sections that have clues,
-                                         `index` = position of the section's first clue (used by "Skip to <section>").
-                                         A section is a guide step OR a "divider" inside a step (e.g. Landscape,
-                                         Infrastructure), so it matches what the Plonkit page shows. `step` here is
-                                         just a unique running number of the section.
-GET    /import/plonkit/{token}/{i}    -> the clue prefilled for the editor. Only a window of 2 clues
-                                         (the current one + the next) is ever downloaded / kept in memory.
-GET    /import/plonkit/{token}/{i}/image -> the raw Plonkit image (used as the region picture of regional clues)
-DELETE /import/plonkit/{token}        -> end the import and throw staged files away
-
-A clue is regional when the map detector finds a drawn map in its image AND the tip has a Street View link
-we can open. A map without a usable Street View link falls back to a national clue (the image as it is).
-Tags and text come from src/plonkit (the same rules scripts/import_plonkit_clues.py uses). The source is page#step
-(the guide step the clue lives in, not the section number).
-"""
+"""plonkit.py — import a country's Plonkit guide clue by clue."""
 
 import asyncio
 import contextlib
 import io
+import json
 import logging
 import math
 import re
@@ -37,15 +21,18 @@ from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
 from src.api.deps import get_ctx
-from src.api.plonkit_titles import classify_full
-from src.explore.country_clues.regional_stain_areas import _borders, _outline  # noqa: PLC2701
-from src.plonkit.categories import DEFAULT_LOCATION, category_for
-from src.plonkit.guide import clean_text, read_guide
+from src.explore.country_clues.clue_imports.clue_titles import (
+    DEFAULT_LOCATION,
+    category_for,
+    classify_full,
+)
+from src.explore.country_clues.regional_stain_areas import _borders, _outline
 
 logger = logging.getLogger("uvicorn.error")
 router = APIRouter()
 
 BASE = "https://www.plonkit.net"
+SPACES_RE = re.compile(r"[ \t]+")
 UA = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/124.0 Safari/537.36"
@@ -59,6 +46,54 @@ MAPS_RE = re.compile(
 TITLE_KEYS = ("title", "name", "label", "heading", "header")
 
 _SESSIONS: OrderedDict[str, dict] = OrderedDict()
+
+
+def read_guide(html: str) -> dict:
+    """Pull the embedded guide JSON out of a Plonkit page."""
+    match = re.search(
+        r'<script id="__PRELOADED_DATA__" type="application/json">(.*?)</script>',
+        html,
+        re.DOTALL,
+    )
+    if not match:
+        msg = "This page has no __PRELOADED_DATA__ block (is it a Plonkit guide?)"
+        raise ValueError(msg)
+    payload = json.loads(match.group(1))
+    guide = payload.get("data", {}).get("public")
+    if not guide:
+        msg = "The page did not contain a public guide"
+        raise ValueError(msg)
+    return guide
+
+
+def national_step(guide: dict) -> dict:
+    """Return the first step, which is Plonkit's national 'Identifying …' section."""
+    steps = guide.get("steps") or []
+    if not steps:
+        msg = "This guide has no steps"
+        raise ValueError(msg)
+    first = steps[0]
+    title = (first.get("title") or "").lower()
+    if "identifying" not in title:
+        msg = f"First step is {first.get('title')!r}, not an 'Identifying ...' section"
+        raise ValueError(msg)
+    return first
+
+
+def clean_text(paragraphs: list[str]) -> str:
+    """Join Plonkit's paragraphs with blank lines and repair its markdown quirks."""
+    out: list[str] = []
+    for raw in paragraphs:
+        text = raw.strip().replace("\u00a0", " ")
+        text = SPACES_RE.sub(" ", text)
+        # Relative guide links (e.g. an infographic) stay usable in the clue card.
+        text = re.sub(r"\]\((/(?!/)[^\s)]+)\)", rf"]({BASE}\1)", text)
+        # Plonkit sometimes leaves a space before the closing ** ("**Town signs **are").
+        text = re.sub(r"\*\*([^*\n]+?)\s+\*\*(?=\w)", r"**\1** ", text)
+        text = re.sub(r"\*\*([^*\n]+?)\s+\*\*", r"**\1**", text)
+        if text:
+            out.append(text)
+    return "\n\n".join(out)
 
 
 def _slug(name: str) -> str:
