@@ -1126,9 +1126,25 @@ def _land_only_rings(g, coast: np.ndarray, tree, cbox, R: dict):
     by_face: dict[int, list[int]] = {}
     for t in tops:
         by_face.setdefault(owner[t], []).append(t)
-    # A face that holds rings is land or sea by the direction of its first ring (its inside is the opposite). The
-    # point of such a face may lie inside an island, so it is not ray cast.
+    # A face that holds rings is land or sea by the direction of its first ring (its inside is the opposite).
     known = {fi: not bool(ccw[mine[0]]) for fi, mine in by_face.items()}
+    # One stray ring (an island or lake that is tagged as coastline inland) makes that guess wrong for the whole
+    # face, and a country-sized face then disappears. So it is checked against the coastline itself, from a point
+    # of the face that is not inside any ring (inside an island the ring direction is the better answer).
+    for fi in known:
+        probe = shapely.point_on_surface(faces[fi])
+        if len(R["tree"].query(probe, predicate="within")):
+            continue
+        land_here, _ = _is_land(probe.x, probe.y, coast, tree, cbox)
+        if land_here is not None and land_here != known[fi]:
+            log.warning(
+                "Coast cut: the rings say %s but the coastline says %s for the face at %.5f, %.5f; using the coastline",
+                "land" if known[fi] else "sea",
+                "land" if land_here else "sea",
+                probe.y,
+                probe.x,
+            )
+            known[fi] = land_here
     states = _classify(faces, coast, tree, cbox, known)
 
     base: list = []
