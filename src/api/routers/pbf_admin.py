@@ -111,8 +111,6 @@ TILE_COORDS = (
 MAX_TILES_SIDE = 48  # at most this many tiles per side
 TILE_WORKERS = max(1, min(8, os.cpu_count() or 2))  # threads for the tiles (GEOS releases the GIL)
 
-NEAR_TOL = 0.005  # deg (~500 m): detail that doesn't matter when picking the closest polygon for a fragment
-
 # ── helpers ────────────────────────────────────────────────────────────────
 
 
@@ -1541,13 +1539,25 @@ def _neighbours(pieces: np.ndarray, geoms: np.ndarray, tree) -> np.ndarray:
     return out
 
 
-def _coarse(geoms: np.ndarray) -> np.ndarray:
-    """The same polygons with far fewer vertices (only for big levels). Distances to a polygon with millions of
-    vertices are slow, and which polygon is closest to a small fragment doesn't depend on that detail.
+def _nearest_by_vertex(pieces: np.ndarray, geoms: np.ndarray) -> np.ndarray | None:
+    """Index of the polygon of `geoms` closest to each piece, by nearest vertex (a KD-tree, so no distance is ever
+    measured against a polygon with millions of vertices). Coastlines are densely sampled, so the closest vertex
+    belongs to the closest polygon. None when scipy is missing; the caller then uses _neighbours.
     """
-    if int(shapely.get_num_coordinates(geoms).sum()) < 2 * TILE_COORDS:
-        return geoms
-    return shapely.simplify(geoms, NEAR_TOL, preserve_topology=True)
+    try:
+        from scipy.spatial import cKDTree
+    except ImportError:  # pragma: no cover
+        return None
+    xy, owner = shapely.get_coordinates(geoms, return_index=True)
+    if not len(xy):
+        return None
+    scale = np.array(
+        [math.cos(math.radians(float(xy[:, 1].mean()))) or 1e-6, 1.0]
+    )  # lon degrees shrink with lat
+    _, idx = cKDTree(xy * scale).query(
+        shapely.get_coordinates(shapely.point_on_surface(pieces)) * scale
+    )
+    return owner[idx]
 
 
 def _fill_gaps(data: dict, level: int, base: dict) -> dict:
@@ -1641,8 +1651,10 @@ def _fill_gaps(data: dict, level: int, base: dict) -> dict:
     merged: dict[int, list] = {}
     if fragments and out:
         oarr = np.array(out, dtype=object)
-        coarse = _coarse(oarr)
-        near = _neighbours(np.array(fragments, dtype=object), coarse, shapely.STRtree(coarse))
+        farr = np.array(fragments, dtype=object)
+        near = _nearest_by_vertex(farr, oarr)
+        if near is None:
+            near = _neighbours(farr, oarr, shapely.STRtree(oarr))
         for q, i in zip(fragments, near.tolist(), strict=True):
             if i >= 0:
                 merged.setdefault(i, []).append(q)
@@ -1870,6 +1882,75 @@ def _color(level: int) -> str:
     return _LEVEL_COLORS[level % len(_LEVEL_COLORS)]
 
 
+def _groups(parts: np.ndarray) -> np.ndarray:
+    """Group number of every polygon: polygons that share a vertex (a shared border, or touching at a point) get
+    the same one. Needs scipy.
+    """
+    from scipy.sparse import coo_matrix
+    from scipy.sparse.csgraph import connected_components
+
+    xy, owner = shapely.get_coordinates(parts, return_index=True)
+    q = np.rint(xy * 1e7).astype(np.int64) + (1 << 31)  # the 1e-7 degree grid OSM itself uses
+    key = (q[:, 0].astype(np.uint64) << np.uint64(32)) | q[:, 1].astype(np.uint64)
+    order = np.argsort(key, kind="stable")
+    k, p = key[order], owner[order]
+    link = (k[1:] == k[:-1]) & (p[1:] != p[:-1])
+    ones = np.ones(int(link.sum()), dtype=np.int8)
+    graph = coo_matrix((ones, (p[:-1][link], p[1:][link])), shape=(len(parts), len(parts)))
+    return connected_components(graph, directed=False)[1]
+
+
+def _coverage_simplify(arr: np.ndarray, tol: float) -> np.ndarray:
+    """shapely.coverage_simplify, but a big level is split into the groups of polygons that share borders (every
+    island is a group of its own) and the groups are simplified on several threads. Borders are only ever shared
+    inside a group, so the result is the one a single call gives. Small levels, a level that is one connected
+    piece and a missing scipy all take the single call.
+    """
+    if TILE_WORKERS < 2 or int(shapely.get_num_coordinates(arr).sum()) < 2 * TILE_COORDS:
+        return shapely.coverage_simplify(arr, tol)
+    parts, owner = shapely.get_parts(arr, return_index=True)
+    try:
+        label = _groups(parts)
+    except ImportError:  # pragma: no cover
+        return shapely.coverage_simplify(arr, tol)
+    count = int(label.max()) + 1
+    if count < 2:
+        return shapely.coverage_simplify(arr, tol)
+    weight = np.bincount(label, weights=shapely.get_num_coordinates(parts), minlength=count)
+    order = np.argsort(label, kind="stable")
+    members = np.split(
+        order, np.flatnonzero(np.diff(label[order])) + 1
+    )  # members[g] = polygons of group g
+    biggest_first = [members[g] for g in np.argsort(-weight, kind="stable").tolist()]
+
+    def one(idx: np.ndarray) -> np.ndarray:
+        try:
+            return shapely.coverage_simplify(parts[idx], tol)
+        except (
+            Exception
+        ):  # not a valid coverage (overlapping duplicates): this group stays as it is
+            log.warning("coverage_simplify failed for a group, left unsimplified", exc_info=True)
+            return parts[idx]
+
+    done = np.empty(len(parts), dtype=object)
+    for idx, res in zip(biggest_first, _pool_map(one, biggest_first), strict=True):
+        done[idx] = res
+    out = arr.copy()
+    first = np.searchsorted(
+        owner, np.arange(len(arr))
+    )  # get_parts lists the parts geometry by geometry
+    last = np.searchsorted(owner, np.arange(len(arr)), side="right")
+    for i in np.unique(owner).tolist():
+        mine = [g for g in done[first[i] : last[i]] if not g.is_empty]
+        if mine:
+            out[i] = (
+                mine[0]
+                if len(mine) == 1 and arr[i].geom_type == "Polygon"
+                else shapely.multipolygons(mine)
+            )
+    return out
+
+
 def _simplify(arr: np.ndarray, tol: float) -> np.ndarray:
     """Simplify ALL polygons of one level together as a coverage: a shared border is simplified once and stays
     identical on both sides, so no gaps or overlaps appear (simplifying each polygon alone does that).
@@ -1881,7 +1962,7 @@ def _simplify(arr: np.ndarray, tol: float) -> np.ndarray:
             503, "Simplification needs shapely 2.1 or newer. Run: pip install -U shapely"
         )
     try:
-        return shapely.coverage_simplify(arr, tol)
+        return _coverage_simplify(arr, tol)
     except Exception:  # not a valid coverage (overlapping duplicates): better heavy than wrong
         log.warning("coverage_simplify failed, level left unsimplified", exc_info=True)
         return arr
