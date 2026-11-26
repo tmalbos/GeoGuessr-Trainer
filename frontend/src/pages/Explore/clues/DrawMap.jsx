@@ -30,7 +30,9 @@ const TOOLS = [
   ["erase", "Eraser (hold Shift and click to erase a whole subdivision)", <svg key="e" {...ico}><path d="M4 16l9-9 6 6-6 6H8z" /><path d="M8 20h12" /></svg>],
 ];
 
-const clampView = (v, H) => ({ w: v.w, x: Math.min(Math.max(v.x, 0), W - v.w), y: Math.min(Math.max(v.y, 0), H - (v.w * H) / W) });
+// The view may leave the country: it can be panned up to 3 whole maps past each edge.
+const clampView = (v, H) => ({ w: v.w, x: Math.min(Math.max(v.x, -3 * W), 4 * W - v.w), y: Math.min(Math.max(v.y, -3 * H), 4 * H - (v.w * H) / W) });
+const unitClamp = (v) => Math.min(1, Math.max(0, v)); // a locked view is stored as fractions of the map (0..1)
 const zoomView = (v, px, py, f, H) => {
   const w = Math.min(W, Math.max(W / MAX_ZOOM, v.w * f));
   const k = w / v.w;
@@ -328,8 +330,8 @@ export default function DrawMap({ cc, stage, onResult, trailing, optionsEl, show
     if (locked) { setLocked(null); onView?.(null); return; }
     const next = {
       k: Math.round((W / view.w) * 1000) / 1000,
-      fx: Math.round(((view.x + view.w / 2) / W) * 10000) / 10000,
-      fy: Math.round(((view.y + (view.w * proj.H) / W / 2) / proj.H) * 10000) / 10000,
+      fx: unitClamp(Math.round(((view.x + view.w / 2) / W) * 10000) / 10000),
+      fy: unitClamp(Math.round(((view.y + (view.w * proj.H) / W / 2) / proj.H) * 10000) / 10000),
     };
     setLocked(next);
     onView?.(next);
@@ -346,15 +348,29 @@ export default function DrawMap({ cc, stage, onResult, trailing, optionsEl, show
   const sel = options.includes(picked) ? picked : pending;
   cycle.current = { options, sel };
   const dup = used.some((s) => s !== sel && nameOf(s) === nameOf(sel));
+  // Typing right after painting goes straight into the category name (no need to click the box first).
+  const canType = useRef(false);
+  canType.current = used.includes(sel);
+  useEffect(() => {
+    const onKey = (e) => {
+      if (!canType.current || e.ctrlKey || e.metaKey || e.altKey || e.key.length !== 1 || e.key === " ") return;
+      const t = e.target;
+      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.isContentEditable)) return;
+      document.querySelector('input[aria-label="Category name"]')?.focus();
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, []);
   const pickRef = useRef(null);
   // Bucket fill: the server works out the connected empty area (or the clicked colour's area) inside the division under the click.
   pickRef.current = async (u, e) => {
     const p = toSvg(e);
     if (!p) return;
+    const whole = e.shiftKey; // Shift: fill every piece of the division, reachable or not
     const slot = sel;
     try {
       const sent = () => items.map((it) => ({ ...wire(it, known.current), name: it.op === "erase" ? "" : nameOf(it.slot) }));
-      const r = await sendItems(known.current, `/clues/${cc}/draw/fill`, () => ({ items: sent(), level, id: u.id, point: proj.inv(p) }));
+      const r = await sendItems(known.current, `/clues/${cc}/draw/fill`, () => ({ items: sent(), level, id: u.id, point: proj.inv(p), whole }));
       markKnown(items, known.current);
       known.current.add(r.gid);
       setItems((it) => [...it, { op: "shape", slot, gid: r.gid, geometry: r.geometry }]);

@@ -54,6 +54,7 @@ class FillBody(BaseModel):
     id: int = 0
     point: list[float]  # lon, lat of the click
     erase: bool = False  # Shift + eraser: only report the painted part under the click (None when there is none)
+    whole: bool = False  # Shift + fill: every separate piece of the division (islands too), not just the one under the click
 
 
 def _fill(local, cc: str, body: FillBody) -> dict:
@@ -78,7 +79,9 @@ def _fill(local, cc: str, body: FillBody) -> dict:
     parts = [] if area is None else [p for p in shapely.get_parts(area) if p.geom_type == "Polygon"]
     if not parts:
         raise HTTPException(422, "Nothing to fill there.")
-    part = next((p for p in parts if p.covers(pt)), None)
+    part = (
+        shapely.union_all(parts) if body.whole else next((p for p in parts if p.covers(pt)), None)
+    )
     if part is None:
         part = min(parts, key=lambda p: p.distance(pt))
     gid = uuid.uuid4().hex
