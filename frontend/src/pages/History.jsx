@@ -21,7 +21,7 @@ const reportKey = (token, id) => `${token}/${id}`;
 const reportHref = (g) => `#/history/report/${encodeURIComponent(g.challenge_token)}/${encodeURIComponent(g.game_id)}`;
 
 // Every level that is available, most specific first: city, subregion, region, country.
-const placeName = (p) => [p.city, p.subregion, p.state, p.country].filter(Boolean).join(", ");
+const placeName = (p) => [p.city, p.subregion, p.state, p.country].filter(Boolean).filter((n, i, a) => n !== a[i - 1]).join(", ");
 
 const gameName = (g) =>
   g.match_type === "daily" ? "Daily Challenge"
