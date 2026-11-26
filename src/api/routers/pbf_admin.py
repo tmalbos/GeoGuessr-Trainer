@@ -74,6 +74,9 @@ SMALL_SHARE = (
 )
 TOUCH_TOL = 1e-5  # deg (~1 m): "touching" tolerance for gaps against the country edge / a boundary
 MIN_PIECE = 1e-7  # deg2: smaller filled pieces are dropped
+MOSTLY_INSIDE = (
+    0.5  # an imported polygon belongs to the unnamed ones when this share of it lies inside
+)
 # place=* values read as points (besides every relation's admin_centre / label node)
 POINT_PLACES = frozenset(
     {"state", "province", "region", "county", "district", "municipality", "city", "town"}
@@ -2494,8 +2497,52 @@ async def points_pbf(body: PointsBody):
     }
 
 
-def _unnamed_points(data: dict, levels: list[int]) -> dict:
-    """Relation points of each level that fall inside one of that level's "Unnamed" polygons."""
+def _import_fill_source(ds: dict, raw: bytes, filename: str) -> dict:
+    """Read a file of only polygons or only points, to fill the unnamed polygons with. One per open file."""
+    import pyogrio
+
+    CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    path = CACHE_DIR / f"source-{uuid4().hex}{Path(filename).suffix.lower() or '.json'}"
+    path.write_bytes(raw)
+    try:
+        df = pyogrio.read_dataframe(str(path))
+    except Exception as e:
+        raise HTTPException(422, f"Could not read this file: {_oneline(e)}") from e
+    finally:
+        path.unlink(missing_ok=True)
+    if df.crs is not None and df.crs.to_epsg() != 4326:
+        df = df.to_crs(4326)
+    geoms = df.geometry.to_numpy()
+    df = df[~shapely.is_missing(geoms) & ~shapely.is_empty(geoms)]
+    geoms = df.geometry.to_numpy()
+    kinds = set(shapely.get_type_id(geoms).tolist())
+    if not kinds:
+        raise HTTPException(422, "That file has no geometries.")
+    if kinds <= {0, 4}:
+        kind = "points"
+    elif kinds <= {3, 6}:
+        kind = "polygons"
+    else:
+        raise HTTPException(422, "That file must hold only polygons or only points.")
+    col = next(
+        (c for c in ("name:en", "name", "NAME", "SUBDIVISION_NAME") if c in df.columns), None
+    )
+    names = [_clean(v) for v in df[col].tolist()] if col else [""] * len(geoms)
+    ds["fill_source"] = {"name": filename, "kind": kind, "geoms": geoms, "names": names}
+    return {"name": filename, "kind": kind, "count": len(geoms)}
+
+
+def _unnamed_source(ds: dict, data: dict, levels: list[int]) -> dict:
+    """What the imported fill source holds for each level's "Unnamed" polygons: the points inside them, or the
+    polygons that lie mostly (MOSTLY_INSIDE) inside them.
+    """
+    src = ds.get("fill_source")
+    if src is None:
+        raise HTTPException(422, "Import a fill source first.")
+    geoms, names = src["geoms"], src["names"]
+    points = src["kind"] == "points"
+    parts, owner = shapely.get_parts(geoms, return_index=True) if points else (None, None)
+    tree = None if points else shapely.STRtree(geoms)
     feats = []
     with _LAND:
         for level in levels:
@@ -2505,39 +2552,57 @@ def _unnamed_points(data: dict, levels: list[int]) -> dict:
             gaps = [
                 g for g, p in zip(item["geoms"], item["props"], strict=True) if p.get("unnamed")
             ]
-            pts = [p for p in data["points"]["relation"] if p["admin_level"] == level]
-            if not gaps or not pts:
+            if not gaps:
                 continue
-            garr = np.empty(len(gaps), dtype=object)
-            garr[:] = gaps
-            hit = shapely.STRtree(garr).query(
-                shapely.points([[p["lon"], p["lat"]] for p in pts]), predicate="intersects"
-            )
-            for i in sorted({int(k) for k in hit[0]}):
-                p = pts[i]
+            area = shapely.union_all(gaps)
+            shapely.prepare(area)
+            found = []  # (geometry, source index, share inside)
+            if points:
+                inside = shapely.contains_xy(area, shapely.get_x(parts), shapely.get_y(parts))
+                found = [(parts[i], int(owner[i]), None) for i in np.flatnonzero(inside).tolist()]
+            else:
+                for i in tree.query(area, predicate="intersects").tolist():
+                    g = geoms[i]
+                    if g.area <= 0:
+                        continue
+                    share = _safe(shapely.intersection, g, area).area / g.area
+                    if share >= MOSTLY_INSIDE:
+                        found.append((g, i, round(share, 3)))
+            for g, i, share in found:
+                label = names[i] or f"{src['kind']} {i + 1}"
                 feats.append(
                     {
                         "type": "Feature",
                         "properties": {
-                            "name": p["name"],
+                            "name": label,
                             "level": level,
-                            "osm_id": p["osm_id"],
-                            "polygon": p["polygon"],
-                            "tag": f"ADM{level} · {p['name']}",
+                            "tag": f"ADM{level} · {label}",
                             "color": "#ffd23f",
                             "shade": 0,
+                            **({"share": share} if share is not None else {}),
                         },
-                        "geometry": {"type": "Point", "coordinates": [p["lon"], p["lat"]]},
+                        "geometry": json.loads(shapely.to_geojson(g)),
                     }
                 )
     return {"type": "FeatureCollection", "features": feats}
 
 
-@router.post("/technical/pbf/unnamed-points")
-async def unnamed_points_pbf(body: PointsBody):
-    """Points of the chosen admin levels that lie inside an "Unnamed" polygon of that same level."""
-    data = await run_in_threadpool(_load, _dataset(body.token), body.country)
-    return await run_in_threadpool(_unnamed_points, data, _levels(body.levels))
+@router.post("/technical/pbf/fill-source")
+async def fill_source_pbf(request: Request, token: str, filename: str = "source.json"):
+    """A file of only polygons or only points to fill the unnamed polygons with."""
+    ds = _dataset(token)
+    raw = await request.body()
+    if not raw:
+        raise HTTPException(422, "Empty file")
+    return await run_in_threadpool(_import_fill_source, ds, raw, filename)
+
+
+@router.post("/technical/pbf/unnamed-source")
+async def unnamed_source_pbf(body: ExtractBody):
+    """The imported fill source that lies inside an "Unnamed" polygon of the chosen levels."""
+    ds = _dataset(body.token)
+    data = await run_in_threadpool(_load, ds, body.country)
+    return await run_in_threadpool(_unnamed_source, ds, data, _levels(body.levels))
 
 
 @router.post("/technical/pbf/undo")

@@ -54,20 +54,23 @@ export default function AdminExtractor() {
   const [exportOpen, setExportOpen] = useState(false);
   const [places, setPlaces] = useState(false);
   const [showPts, setShowPts] = useState(false);
-  const [gapPts, setGapPts] = useState(null); // points inside "Unnamed" polygons, same level
+  const [gapPts, setGapPts] = useState(null); // imported fill source inside "Unnamed" polygons, same level
+  const [srcFile, setSrcFile] = useState(null); // { name, kind, count } of the imported fill source
+  const [srcLoading, setSrcLoading] = useState(false);
   const [over, setOver] = useState(false);
   const [err, setErr] = useState("");
   const [ver, setVer] = useState(0);
   const cache = useRef(new Map()); // `${token}|${country}|${level}|${pct}` -> features (a level is fetched once)
   const last = useRef({ k: "", fc: null });
   const pick = useRef(null);
+  const srcPick = useRef(null);
   const undoStack = useRef([]);
   const queue = useRef(Promise.resolve());
   memo.ds = ds; memo.mode = mode; memo.country = country; memo.levels = levels;
 
   const accept = (d) => {
     cache.current.clear();
-    setDs(d); setCountry(""); setLevels([]); setInfo(null); setErr(""); setView(null); setPicked(null); setFills({}); setMarks([]);
+    setDs(d); setCountry(""); setLevels([]); setInfo(null); setErr(""); setView(null); setPicked(null); setFills({}); setMarks([]); setSrcFile(null);
   };
 
   useEffect(() => {
@@ -90,6 +93,16 @@ export default function AdminExtractor() {
     setLoading(true); setErr("");
     try { accept(await api("/technical/pbf/open", { method: "POST", body: { path: p } })); return true; }
     catch (e) { setErr(errorText(e)); return false; } finally { setLoading(false); }
+  };
+
+  const importSource = async (file) => {
+    if (!file) return;
+    setSrcLoading(true); setErr("");
+    try {
+      const r = await fetch(`/api/technical/pbf/fill-source?token=${ds.token}&filename=${encodeURIComponent(file.name)}`, { method: "POST", body: file });
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || r.statusText);
+      setSrcFile(await r.json()); setShowPts(true);
+    } catch (e) { setErr(e.message); } finally { setSrcLoading(false); }
   };
 
   // Step 1: build the selected country (slow once, instant when the server already has it).
@@ -140,16 +153,16 @@ export default function AdminExtractor() {
     return last.current.fc;
   }, [ds, country, levels, pct, ver]);
 
-  // Points of the shown levels that fall inside one of that level's "Unnamed" polygons (to check they exist).
+  // Imported fill source (points, or polygons mostly inside) that falls in an "Unnamed" polygon of the shown levels.
   const hasUnnamed = !!fc?.features.some((f) => f.properties.unnamed);
   useEffect(() => {
-    if (!showPts || !hasUnnamed || !ds || !country || !levels.length) { setGapPts(null); return undefined; }
+    if (!showPts || !srcFile || !hasUnnamed || !ds || !country || !levels.length) { setGapPts(null); return undefined; }
     let stale = false;
-    api("/technical/pbf/unnamed-points", { method: "POST", body: { token: ds.token, country, levels } })
+    api("/technical/pbf/unnamed-source", { method: "POST", body: { token: ds.token, country, levels } })
       .then((r) => { if (!stale) setGapPts(r); })
       .catch((e) => { if (!stale) setErr(errorText(e)); });
     return () => { stale = true; };
-  }, [showPts, hasUnnamed, ds, country, levels, ver]);
+  }, [showPts, srcFile, hasUnnamed, ds, country, levels, ver]);
   const mapFc = useMemo(() => (gapPts && fc ? { ...fc, features: [...fc.features, ...gapPts.features] } : fc), [fc, gapPts]);
 
   // The clicked polygon, while its level is still shown.
@@ -440,7 +453,11 @@ export default function AdminExtractor() {
               {unnamed.map((p) => <button type="button" key={p.tag} className="link-btn" style={{ textAlign: "left", fontWeight: sel?.tag === p.tag ? 700 : 400 }}
                 onClick={() => jump(p)}>Level {p.admin_level} · {p.name}</button>)}
             </div>}
-            {!!unnamed.length && <label className="tp-chk"><input type="checkbox" checked={showPts} onChange={(e) => setShowPts(e.target.checked)} />Show points inside unnamed polygons{showPts && gapPts ? ` (${gapPts.features.length})` : ""}</label>}
+            {!!unnamed.length && <div className="tp-row">
+              <button type="button" className="btn ghost" disabled={srcLoading} onClick={() => srcPick.current?.click()}>{srcLoading ? "Reading…" : srcFile ? "Replace fill source" : "Import fill source"}</button>
+              <input ref={srcPick} type="file" accept=".json,.geojson,.topojson" hidden onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ""; importSource(f); }} />
+            </div>}
+            {!!unnamed.length && srcFile && <label className="tp-chk"><input type="checkbox" checked={showPts} onChange={(e) => setShowPts(e.target.checked)} />Show {srcFile.name} ({srcFile.kind}) inside unnamed polygons{showPts && gapPts ? ` (${gapPts.features.length})` : ""}</label>}
             {levels.map((l) => <div className="tp-field" key={l}>
               <label htmlFor={`fill-${l}`}>Level {l} gaps filled with</label>
               <select id={`fill-${l}`} value={fills[l] ?? ""} onChange={(e) => setFill(l, e.target.value)}>
