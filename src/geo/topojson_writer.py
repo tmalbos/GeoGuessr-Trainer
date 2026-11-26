@@ -3,8 +3,9 @@
 Replaces "geometry -> GeoJSON text -> JSON parse -> mapshaper / topojson package -> text" for the exports. Everything
 here is vectorised (no Python loop over vertices) and the file is streamed to disk.
 
-Format: integer coordinates on a 1e-7 degree grid (OSM itself stores coordinates at exactly that resolution, about
-1 cm), delta-encoded per arc, with the transform in the header. Shared borders are stored once:
+Format: the same as mapshaper's default TopoJSON output (quantised, delta-encoded per arc, transform after the arcs,
+no bbox). Shared borders are stored once, found on a 1e-7 degree grid (OSM itself stores coordinates at exactly that
+resolution, about 1 cm), and only then snapped to mapshaper's coarser grid:
 
   1. every vertex gets an id (equal coordinates -> equal id);
   2. a vertex is a junction when the paths through it do not all have the same two neighbours;
@@ -17,6 +18,8 @@ polygons (and their multi versions).
 """
 
 import json
+import math
+from decimal import Decimal
 from pathlib import Path
 
 import numpy as np
@@ -26,6 +29,7 @@ SCALE = 10_000_000  # grid steps per degree
 _OFF = 1 << 31
 CHUNK = 200_000  # points formatted per call
 FLUSH = 2000  # arcs per file write
+QUANT_SHARE = 0.02  # mapshaper's default: one grid cell is this share of the average segment length
 
 
 def _decompose(geoms: np.ndarray):
@@ -92,11 +96,11 @@ def _orient(q, pr, closed, hole):
     rev = closed & np.where(hole, area < 0, area > 0)
     if not rev.any():
         return q
-    return q[o[pr] + np.where(rev[pr], n[pr] - 1 - local, local)]
+    return q[o[pr] + np.where(rev[pr], (n[pr] - local) % n[pr], local)]
 
 
 def _topology(q, pr, closed):
-    """(arcs as delta-encoded points, arc start offsets, arc lengths, arc refs per point of the paths, path of each
+    """(arcs as points, arc start offsets, arc lengths, arc refs per point of the paths, path of each
     arc occurrence). Arc refs are `i`, or `~i` when the path runs the arc backwards.
     """
     count = len(closed)
@@ -135,12 +139,8 @@ def _topology(q, pr, closed):
 
     pj = pr[junction]
     has = np.bincount(pj, minlength=count) > 0
-    loose = closed & ~has  # rings with no junction are cut at their smallest vertex
-    if loose.any():
-        low = np.minimum.reduceat(key, o)
-        cand = np.flatnonzero((key == low[pr]) & loose[pr])
-        _, pick = np.unique(pr[cand], return_index=True)
-        junction[cand[pick]] = True
+    loose = closed & ~has  # rings with no junction are cut at their first vertex
+    junction[o[loose]] = True
     del key
 
     ji = np.flatnonzero(junction)
@@ -173,21 +173,73 @@ def _topology(q, pr, closed):
     rev = k2 < k1
     _, rep, inv = np.unique(np.minimum(k1, k2), return_index=True, return_inverse=True)
     inv = inv.reshape(-1)
-    refs = np.where(rev, ~inv, inv)
+    order = np.argsort(
+        rep
+    )  # arcs are numbered by first appearance and stored the way they first run
+    number = np.empty(len(rep), np.int64)
+    number[order] = np.arange(len(rep))
+    inv = number[inv]
+    rep = rep[order]
+    refs = np.where(rev != rev[rep][inv], ~inv, inv)
     arc_path = path_e[s]
 
-    su, eu, ru = s[rep], e[rep], rev[rep]
+    su, eu = s[rep], e[rep]
     length = eu - su + 1
     cs = np.cumsum(length) - length
     step = np.arange(int(length.sum())) - np.repeat(cs, length)
-    take = np.where(
-        np.repeat(ru, length), np.repeat(eu, length) - step, np.repeat(su, length) + step
-    )
-    pts = qe[take]
-    delta = pts.copy()
-    delta[1:] -= pts[:-1]
-    delta[cs] = pts[cs]
-    return delta, cs, length, refs, arc_path
+    take = np.repeat(su, length) + step
+    return qe[take], cs, length, refs, arc_path
+
+
+def _js(x: float) -> str:
+    """A float the way JSON.stringify prints it."""
+    x = float(x)
+    if x == 0:
+        return "0"
+    r = repr(x)
+    r = r.removesuffix(".0")
+    if "e" in r:
+        mant, exp = r.split("e")
+        e = int(exp)
+        if -7 < e < 21:
+            return format(Decimal(r), "f")
+        return f"{mant}e{'+' if e > 0 else '-'}{abs(e)}"
+    return r
+
+
+def _fit(pts, cs, pxy):
+    """Mapshaper's quantisation grid: (m, b, scale, translate) with grid = m * degrees + b on each axis.
+
+    The grid spans the bounds of everything with cells of QUANT_SHARE of the average segment (its x and y extents,
+    over the arcs stored once), so the number of steps per axis is ceil(width / cell).
+    """
+    both = np.vstack([pts, pxy]) if len(pxy) else pts
+    lo = both.min(0) / SCALE
+    hi = both.max(0) / SCALE
+    keep = np.ones(len(pts), bool)
+    keep[cs] = False
+    keep = keep[1:]
+    count = int(keep.sum())
+    avg = np.abs(pts[1:] - pts[:-1])[keep].sum(0) / SCALE / count if count else np.zeros(2)
+    m, b, scale, translate = [], [], [], []
+    for a in range(2):
+        width = float(hi[a] - lo[a])
+        cell = float(avg[a]) * QUANT_SHARE
+        steps = math.ceil(width / cell) if cell > 0 else 0
+        k = (steps / width if width and steps else 0) or 1.0
+        shift = 0 - k * float(lo[a])
+        m.append(k)
+        b.append(shift)
+        scale.append(1 / k)
+        translate.append(-shift / k)
+    return np.array(m), np.array(b), scale, translate
+
+
+def _snap(fine, m, b):
+    """Grid coordinates (int64) of points given on the 1e-7 grid, rounded like JavaScript's Math.round."""
+    v = fine / SCALE * m + b
+    f = np.floor(v)
+    return (f + ((v - f) >= 0.5)).astype(np.int64)
 
 
 def _write_arcs(f, delta, cs, length) -> None:
@@ -215,13 +267,13 @@ def write_topojson(path: Path, geoms, props: list[dict], name: str) -> None:
     pr = new_id[pr]
     part_of, closed, hole = part_of[ok], closed[ok], hole[ok]
 
-    delta = np.zeros((0, 2), np.int64)
+    pts = np.zeros((0, 2), np.int64)
     cs = length = np.zeros(0, np.int64)
     refs_list: list[int] = []
     aoff = [0] * (len(closed) + 1)
     if len(q):
         q = _orient(q, pr, closed, hole)
-        delta, cs, length, refs, arc_path = _topology(q, pr, closed)
+        pts, cs, length, refs, arc_path = _topology(q, pr, closed)
         refs_list = refs.tolist()
         aoff = np.concatenate(
             [[0], np.cumsum(np.bincount(arc_path, minlength=len(closed)))]
@@ -229,6 +281,18 @@ def write_topojson(path: Path, geoms, props: list[dict], name: str) -> None:
 
     is_point = np.flatnonzero(tid == 0)
     pxy = np.rint(shapely.get_coordinates(parts[is_point]) * SCALE).astype(np.int64)
+    delta = pts
+    transform = None
+    if len(pts):
+        m, b, scale, translate = _fit(pts, cs, pxy)
+        transform = f',"transform":{{"scale":[{_js(scale[0])},{_js(scale[1])}],"translate":[{_js(translate[0])},{_js(translate[1])}]}}'
+        delta = _snap(pts, m, b)
+        delta[1:] -= delta[:-1].copy()
+        delta[cs] = _snap(pts[cs], m, b)
+        if len(pxy):
+            pxy = _snap(pxy, m, b)
+    elif len(pxy):
+        pxy /= SCALE
     prow = {int(p): i for i, p in enumerate(is_point)}
     pstart = np.searchsorted(part_of, np.arange(len(parts))).tolist()
     pend = np.searchsorted(part_of, np.arange(len(parts)), side="right").tolist()
@@ -242,15 +306,6 @@ def write_topojson(path: Path, geoms, props: list[dict], name: str) -> None:
     def polygon(part: int) -> list:
         return [path_refs(p) for p in range(pstart[part], pend[part])]
 
-    low = [np.inf, np.inf]
-    high = [-np.inf, -np.inf]
-    if len(q):
-        low = (q.min(0) / SCALE).tolist()
-        high = (q.max(0) / SCALE).tolist()
-    if len(pxy):
-        low = np.minimum(low, pxy.min(0) / SCALE).tolist()
-        high = np.maximum(high, pxy.max(0) / SCALE).tolist()
-
     def geometry(g: int) -> dict:
         t = gtid[g]
         mine = range(gstart[g], gend[g])
@@ -259,9 +314,9 @@ def write_topojson(path: Path, geoms, props: list[dict], name: str) -> None:
             if not polys:
                 return {"type": None}
             return (
-                {"type": "Polygon", "arcs": polys[0]}
+                {"arcs": polys[0], "type": "Polygon"}
                 if t == 3
-                else {"type": "MultiPolygon", "arcs": polys}
+                else {"arcs": polys, "type": "MultiPolygon"}
             )
         if t in {1, 5}:
             lines = [path_refs(pstart[x]) for x in mine if pend[x] > pstart[x]]
@@ -283,15 +338,12 @@ def write_topojson(path: Path, geoms, props: list[dict], name: str) -> None:
 
     dump = lambda o: json.dumps(o, ensure_ascii=False, separators=(",", ":"))  # noqa: E731
     with path.open("w", encoding="utf-8") as f:
-        step = repr(1 / SCALE)
-        f.write(f'{{"type":"Topology","transform":{{"scale":[{step},{step}],"translate":[0,0]}}')
-        if np.isfinite(low).all():
-            f.write(',"bbox":' + dump([*low, *high]))
+        f.write('{"type":"Topology","arcs":[')
+        _write_arcs(f, delta, cs, length)
+        f.write("]" + (transform or ""))
         f.write(',"objects":{' + dump(name) + ':{"type":"GeometryCollection","geometries":[')
         for g in range(len(geoms)):
             geom = geometry(g)
             geom["properties"] = props[g]
             f.write(("," if g else "") + dump(geom))
-        f.write(']}},"arcs":[')
-        _write_arcs(f, delta, cs, length)
-        f.write("]}")
+        f.write("]}}}")
