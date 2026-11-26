@@ -9,7 +9,6 @@ from fastapi import FastAPI
 
 from src.api.routers import (
     analysis,
-    anki_export,
     clue_base,
     clue_draw,
     clue_pack,
@@ -30,6 +29,7 @@ from src.api.routers import (
 )
 from src.app_context import AppContext
 from src.explore.country_clues import regional_stain_areas as stain
+from src.explore.country_clues.anki import endpoints as anki_export
 from src.explore.country_clues.edit_mode import endpoints as clue_edit
 from src.i18n.lang import load as load_lang
 from src.shared import prefs

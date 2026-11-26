@@ -2,8 +2,8 @@
 
 import asyncio
 
-from src.anki.anki_connect import AnkiConnectClient
 from src.db.repositories.game_repository import GameRepository
+from src.explore.country_clues.anki.anki_connect import AnkiConnectClient
 from src.geo.enrichment_service import GeoEnrichClient
 from src.geoguessr.client import GeoguessrClient
 from src.geoguessr.normalize import infer_move_type_from_replays, move_type_from_challenge

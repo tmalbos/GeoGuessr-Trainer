@@ -6,10 +6,10 @@ from typing import TYPE_CHECKING
 
 import httpx
 
-from src.anki.anki_connect import AnkiConnectClient
 from src.db.pool import close_pool, init_pool
 from src.db.repositories.game_repository import GameRepository
 from src.db.repositories.geo_signal_repository import GeoSignalRepository
+from src.explore.country_clues.anki.anki_connect import AnkiConnectClient
 from src.geo.enrichment_service import GeoEnrichClient
 from src.geo.local_geo import DEFAULT_RESOLUTION, LocalGeo
 from src.geoguessr.cookie_store import load_cookie

@@ -3,7 +3,7 @@
 import httpx
 import pytest
 
-from anki.anki_connect import AnkiConnectClient
+from src.explore.country_clues.anki.anki_connect import AnkiConnectClient
 
 
 @pytest.mark.asyncio

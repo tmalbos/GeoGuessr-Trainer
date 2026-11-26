@@ -1,7 +1,7 @@
 """duels.py — Duel games: find unsaved duels and process one."""
 
-from src.anki.anki_connect import AnkiConnectClient
 from src.db.repositories.game_repository import GameRepository
+from src.explore.country_clues.anki.anki_connect import AnkiConnectClient
 from src.geo.enrichment_service import GeoEnrichClient
 from src.geoguessr.client import GeoguessrClient
 from src.geoguessr.normalize import normalize_duel_rounds
