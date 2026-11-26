@@ -14,7 +14,7 @@ const pathOf = (it, fwd) => {
 /** The subdivisions you click with the Fill tool. Memoized: moving the pointer while painting never re-renders them. */
 export const Units = memo(function Units({ paths, click, onPick }) {
   return paths.map((u) => <path key={u.id} data-id={u.id} className={`dm-unit ${click ? "click" : ""}`} d={u.d} fillRule="evenodd"
-    style={click ? undefined : { pointerEvents: "none" }} onClick={click ? (e) => onPick(u, e) : undefined}><title>{u.name}</title></path>);
+    onClick={click ? (e) => onPick(u, e) : undefined}><title>{u.name}</title></path>);
 });
 
 /** What the user has drawn, painted straight from the list of actions (no server round trip), so it shows instantly.
