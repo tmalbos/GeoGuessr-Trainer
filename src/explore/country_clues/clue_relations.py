@@ -9,7 +9,7 @@ from fastapi import HTTPException
 from src.explore.country_clues.clues import _cc, _load
 
 if TYPE_CHECKING:
-    from src.api.routers.clues import ClueBody
+    from src.explore.country_clues.edit_mode.endpoints import ClueBody
 
 NOTE_TYPES = ("same_as", "similar_to")  # relations that carry a sentence
 
