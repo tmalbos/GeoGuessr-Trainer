@@ -116,6 +116,9 @@ def _area_notes(src, cc: str, ranked: list[dict], real_pt, guess_pt) -> dict[str
     """
     out: dict[str, tuple] = {}
     for c in ranked[:MAX_CLUES]:
+        if c.get("_note"):
+            out[c["id"]] = (c["_note"], None)
+            continue
         if c.get("image"):
             continue
         try:
@@ -200,6 +203,27 @@ def _prefix_within(levels: list, clue: dict, real_pt, max_area: float) -> list[t
     return []
 
 
+def _shade_hit(shades, clue, real_pt, guess_pt) -> tuple | None:
+    """(is_good, the clue at its shade, area) for a clue with several shades, like _prefix_hit.
+    A point's shade is the darkest one holding it. Same shade (or none) = no hit. The frequency is
+    scaled by the shade (n shades: darkest n/n, next (n-1)/n...); two different shades add a note.
+    """
+
+    def at(pt):
+        return next((i for i, (_, g) in enumerate(shades) if g.intersects(pt)), None)
+
+    real, guess = at(real_pt), at(guess_pt)
+    if real == guess:
+        return None
+    i = real if real is not None else guess
+    n = len(shades)
+    out = {**clue, "frequency": (clue.get("frequency") or 0) * (n - i) / n}
+    if real is not None and guess is not None:
+        more = "more" if real < guess else "less"
+        out["_note"] = f"This clue should appear {more} often than in the area you pinned."
+    return real is not None, out, area_km2(shades[i][1])
+
+
 def regional_clues(src, cc: str, area_type: str, real_pt, guess_pt) -> list[dict]:
     """Regional clues that tell the real region from the guessed one (fallback: the reverse)."""
     good, fallback = [], []
@@ -209,6 +233,12 @@ def regional_clues(src, cc: str, area_type: str, real_pt, guess_pt) -> list[dict
         levels = src.depth_pieces(cc, c)
         if levels:
             hit = _prefix_hit(levels, c, real_pt, guess_pt)
+            if hit:
+                (good if hit[0] else fallback).append(hit[1:])
+            continue
+        shades = src.shade_pieces(cc, c)
+        if shades:
+            hit = _shade_hit(shades, c, real_pt, guess_pt)
             if hit:
                 (good if hit[0] else fallback).append(hit[1:])
             continue
