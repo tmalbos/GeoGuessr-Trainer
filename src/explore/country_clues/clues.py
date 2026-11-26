@@ -113,7 +113,7 @@ def _apply_medal(cc: str, entry: dict, request: Request, folder: Path, override=
 
 def _restandardize(path: Path) -> None:
     """Re-check the colors of a drawn-areas file before it is saved. Never blocks the save."""
-    from src.api.routers.clue_draw import (
+    from src.explore.country_clues.edit_mode.draw.canvas import (
         restandardize,
     )
 
@@ -236,6 +236,7 @@ def _countries_with_clues() -> set[str]:
 _SHAPES: dict[tuple, tuple | None] = {}
 _PIECES: dict[tuple, list[tuple]] = {}
 _NAMES: dict[tuple, list[tuple]] = {}
+_SHADES: dict[tuple, list[tuple]] = {}
 
 
 def _norm(s) -> str:
@@ -299,6 +300,35 @@ class ClueSource:
                 out = [one] if one else []
             _PIECES[key] = out
         return _PIECES[key]
+
+    def shade_pieces(self, cc: str, clue: dict) -> list[tuple]:
+        """[(shade, geometry)], darkest first, of a clue whose polygons carry 2+ shades; [] for any other clue."""
+        cc = cc.strip().upper()
+        name = clue.get("polygons")
+        if not name:
+            return []
+        path = CLUES_DIR / cc / name
+        try:
+            stamp = path.stat().st_mtime_ns
+        except OSError:
+            return []
+        key = (cc, name, stamp)
+        if key not in _SHADES:
+            out = []
+            try:
+                gdf = gpd.read_parquet(path)
+                if "shade" in gdf.columns and "name" not in gdf.columns:
+                    shades = gdf["shade"].fillna(0).astype(int).to_numpy()
+                    geoms = gdf.geometry.to_numpy()
+                    out = [
+                        (int(v), shapely.union_all(shapely.make_valid(geoms[shades == v])))
+                        for v in sorted(set(shades.tolist()))
+                    ]
+            except Exception:
+                logger.exception("Could not read the shades of %s", name)
+                out = []
+            _SHADES[key] = out if len(out) > 1 else []
+        return _SHADES[key]
 
     def depth_pieces(self, cc: str, clue: dict) -> list[tuple[int, list[tuple]]]:
         """[(depth, pieces)], lowest depth first, of a prefix-coloured clue ([] for any other clue)."""
