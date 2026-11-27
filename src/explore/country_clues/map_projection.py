@@ -73,9 +73,13 @@ def _conic(bb):
 
 
 class Projection:
-    """fwd / inv on (N, 2) arrays, and `extent` = (umin, vmin, umax, vmax) of the lon/lat box it was made for."""
+    """fwd / inv on (N, 2) arrays, and `extent` = (umin, vmin, umax, vmax) once projected.
 
-    def __init__(self, kind: str, bbox) -> None:
+    `pts` = the lon/lat points that will be drawn: the extent is then exact. Without them the edges of `bbox` are used,
+    which in a conic is much bigger than the country (its corners swing out into empty space).
+    """
+
+    def __init__(self, kind: str, bbox, pts=None) -> None:
         build = {"mercator": _mercator, "conic": _conic}.get(kind, _standard)
         self.fwd, self.inv = build(bbox)
         x0, y0, x1, y1 = bbox
@@ -90,7 +94,7 @@ class Projection:
                 np.column_stack([np.full_like(lat, x1), lat]),
             ]
         )
-        uv = self.fwd(edge)
+        uv = self.fwd(np.asarray(pts, dtype=float)[:, :2] if pts is not None and len(pts) else edge)
         self.extent = (
             float(uv[:, 0].min()),
             float(uv[:, 1].min()),
@@ -99,5 +103,5 @@ class Projection:
         )
 
 
-def make_projection(kind: str, bbox) -> Projection:
-    return Projection(kind, bbox)
+def make_projection(kind: str, bbox, pts=None) -> Projection:
+    return Projection(kind, bbox, pts)

@@ -183,7 +183,9 @@ def render_overlay(
     if not all(math.isfinite(v) for v in (x0, y0, x1, y1)):
         return None
 
-    mp = make_projection(projection, (x0, y0, x1, y1))
+    mp = make_projection(
+        projection, (x0, y0, x1, y1), shapely.get_coordinates(np.array(everything, dtype=object))
+    )
     umin, vmin, umax, vmax = mp.extent
     w = max(umax - umin, 1e-6)
     h = max(vmax - vmin, 1e-6)

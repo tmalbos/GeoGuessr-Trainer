@@ -57,10 +57,32 @@ function conic(bb) {
   };
 }
 
-// Extent of the lon/lat box once projected (its edges are sampled: they bend in a conic).
-function extentOf(raw, bb) {
+function walk(g, fn) {
+  if (!g) return;
+  switch (g.type) {
+    case "GeometryCollection": g.geometries.forEach((s) => walk(s, fn)); break;
+    case "Point": fn(g.coordinates); break;
+    case "MultiPoint": case "LineString": g.coordinates.forEach((c) => fn(c)); break;
+    case "MultiLineString": case "Polygon": g.coordinates.forEach((r) => r.forEach((c) => fn(c))); break;
+    case "MultiPolygon": g.coordinates.forEach((p) => p.forEach((r) => r.forEach((c) => fn(c)))); break;
+    default:
+  }
+}
+
+// Extent of what is drawn once projected. With the geometries it is exact: the lon/lat box of a country is NOT a good
+// stand-in in a conic, where its corners swing far out into empty space and the country would end up small in its map.
+// Without them, the edges of the box are sampled.
+function extentOf(raw, bb, geoms) {
   const [x0, y0, x1, y1] = bb;
   let umin = Infinity, vmin = Infinity, umax = -Infinity, vmax = -Infinity;
+  for (const g of geoms ?? []) {
+    walk(g, (c) => {
+      const [u, v] = raw.fwd([c[0], c[1]]);
+      umin = Math.min(umin, u); umax = Math.max(umax, u);
+      vmin = Math.min(vmin, v); vmax = Math.max(vmax, v);
+    });
+  }
+  if (umin !== Infinity) return [umin, vmin, umax, vmax];
   for (let i = 0; i <= EDGE_STEPS; i++) {
     const t = i / EDGE_STEPS;
     const lon = x0 + (x1 - x0) * t;
@@ -74,13 +96,13 @@ function extentOf(raw, bb) {
   return [umin, vmin, umax, vmax];
 }
 
-/** Fits the lon/lat box `bb` ([w, s, e, n]) into a 1000-wide map. -> { H, s, fwd, inv, perLat, toWorld? }
+/** Fits the lon/lat box `bb` ([w, s, e, n]) into a 1000-wide map; `geoms` (GeoJSON geometries, optional) = what will be drawn, so the map is sized to it. -> { H, s, fwd, inv, perLat, toWorld? }
  *  fwd([lon, lat]) -> [x, y] in map units; inv([x, y]) -> [lon, lat]; perLat([lon, lat]) = map units per degree of latitude there.
  *  `right` pushes the drawing against the right edge instead of centring it (overlay on a clue photo).
  *  toWorld(x, y) (Mercator only) = position in the 0..1 web-map world, which the map tiles need. */
-export function makeProjection(kind, bb, right = false) {
+export function makeProjection(kind, bb, right = false, geoms = null) {
   const raw = (kind === "mercator" ? mercator : kind === "conic" ? conic : standard)(bb);
-  const [umin, vmin, umax, vmax] = extentOf(raw, bb);
+  const [umin, vmin, umax, vmax] = extentOf(raw, bb, geoms);
   const w = Math.max(umax - umin, 1e-6);
   const h = Math.max(vmax - vmin, 1e-6);
   const H = Math.round(Math.min(1400, Math.max(200, (W * h) / w)));
