@@ -241,13 +241,13 @@ export function nameSpot(geom, name, project, px) {
 // nameSpot is the slow part and the map re-renders often: remember its answer per shape and size.
 // `sig` says which projection `project` is.
 const SPOTS = new WeakMap();
-export function areaNameSpot(geom, name, project, px, sig) {
+export function areaNameSpot(geom, name, project, px, sig, image = false) {
   let seen = SPOTS.get(geom);
   if (!seen) { seen = new Map(); SPOTS.set(geom, seen); }
-  const key = `${name}|${px.toFixed(2)}|${sig}`;
+  const key = `${image ? "\0img" : name}|${px.toFixed(2)}|${sig}`;
   if (!seen.has(key)) {
     if (seen.size > 60) seen.clear();
-    seen.set(key, nameSpot(geom, name, project, px));
+    seen.set(key, image ? thumbSpot(geom, project, px) : nameSpot(geom, name, project, px));
   }
   return seen.get(key);
 }
@@ -257,12 +257,15 @@ const GROUPS = new WeakMap();
 const groupsOf = (g) => {
   if (!GROUPS.has(g)) {
     const by = new Map();
+    const img = new Map();
     g.geometries.forEach((geom, i) => {
       const name = g.names?.[i];
+      const extra = g.extras?.[i];
       const polys = geom.type === "Polygon" ? [geom.coordinates] : geom.type === "MultiPolygon" ? geom.coordinates : [];
       if (name && polys.length) by.set(name, [...(by.get(name) ?? []), ...polys]);
+      if (name && !img.has(name) && typeof extra === "string" && extra.startsWith("data:image/")) img.set(name, extra);
     });
-    GROUPS.set(g, [...by].map(([name, coordinates]) => [name, { type: "MultiPolygon", coordinates }]));
+    GROUPS.set(g, [...by].map(([name, coordinates]) => [name, { type: "MultiPolygon", coordinates }, img.get(name) ?? null]));
   }
   return GROUPS.get(g);
 };
@@ -274,6 +277,128 @@ export function AreaName({ spot }) {
   return <text className="cl-area-name" x={x} y={spot.y.toFixed(1)} fontSize={spot.size} strokeWidth={spot.size * 0.3}>
     {spot.lines.map((t, i) => <tspan key={i} x={x} dy={i === 0 ? (-(spot.lines.length - 1) * gap) / 2 : gap}>{t}</tspan>)}
   </text>;
+}
+
+// ── Labels that don't fit on their area ──
+// An area with an image shows it as a miniature (THUMB_PX wide) instead of its name. When a label doesn't fit on its
+// area (whole map in view only), a dot inside the area is joined by a line to the label, which goes in the empty space
+// beside the country: a left or right column, stacked top to bottom without overlapping.
+const THUMB_PX = 36;
+const COL_SHARE = 0.2; // width of each label column, as a share of the map width
+const GAP_SHARE = 0.02; // space between the country and a column
+const STACK_GAP = 6;
+
+function thumbSpot(geom, project, t) {
+  for (const part of pieces(geom, project)) {
+    const hit = bestIn(part, t, t / 2);
+    if (hit) return { x: hit.x, y: hit.y, size: t };
+  }
+  return null;
+}
+
+// A point inside the area's biggest piece: its centre, or the middle of the widest stretch at that height.
+function anchorOf(geom, project) {
+  const part = pieces(geom, project)[0];
+  if (!part) return null;
+  const spans = spansAt(part.rings, part.cy);
+  if (!spans.length || spans.some(([a, b]) => part.cx >= a && part.cx <= b)) return [part.cx, part.cy];
+  const [a, b] = spans.reduce((m, s) => (s[1] - s[0] > m[1] - m[0] ? s : m));
+  return [(a + b) / 2, part.cy];
+}
+
+// Left and right edge of a country outline in map units (null when it has no polygons).
+function xRangeOf(g, project) {
+  const polys = g.type === "MultiPolygon" ? g.coordinates : g.type === "Polygon" ? [g.coordinates] : [];
+  let lo = Infinity;
+  let hi = -Infinity;
+  for (const p of polys) for (const [x] of p[0].map(project)) { lo = Math.min(lo, x); hi = Math.max(hi, x); }
+  return Number.isFinite(lo) ? [lo, hi] : null;
+}
+
+function wrapName(name, f, maxW) {
+  const per = Math.max(1, Math.floor(maxW / (f * CHAR_W)));
+  const lines = [];
+  let cur = "";
+  for (const word of name.split(" ")) {
+    if (cur && cur.length + 1 + word.length > per) { lines.push(cur); cur = word; }
+    else cur = cur ? `${cur} ${word}` : word;
+  }
+  lines.push(cur);
+  return { lines, size: Math.min(f, maxW / (Math.max(...lines.map((t) => t.length)) * CHAR_W)) };
+}
+
+/** groups = [[name, geometry, image | null]]. -> { on: labels sitting on their area, calls: labels in a side column
+ *  (with the dot `at` and the end of the line), x0 / x1: the horizontal extent the view needs to show the columns }.
+ *  Without `callouts` the labels that don't fit are left out. */
+function layoutLabels(groups, project, ext, W, H, scale, sig, callouts) {
+  const u = 1 / scale;
+  const colW = COL_SHARE * W;
+  const gap = GAP_SHARE * W;
+  const thumb = Math.min(THUMB_PX * u, colW);
+  const on = [];
+  const sides = { L: [], R: [] };
+  for (const [name, geom, image] of groups) {
+    if (!name) continue;
+    const spot = areaNameSpot(geom, name, project, image ? thumb : NAME_PX * u, sig, !!image);
+    if (spot) { on.push({ name, image, spot }); continue; }
+    const at = callouts ? anchorOf(geom, project) : null;
+    if (!at) continue;
+    let item = { name, image, at, bw: thumb, bh: thumb };
+    if (!image) {
+      const { lines, size } = wrapName(name, NAME_PX * u, colW);
+      item = { ...item, lines, size, bw: Math.max(...lines.map((t) => t.length)) * size * CHAR_W + size * 0.3, bh: lines.length * size * 1.1 };
+    }
+    sides[at[0] < (ext[0] + ext[1]) / 2 ? "L" : "R"].push(item);
+  }
+  const calls = [];
+  for (const side of ["L", "R"]) {
+    const items = sides[side].sort((a, b) => a.at[1] - b.at[1]);
+    let prev = -STACK_GAP;
+    for (const it of items) { it.y0 = Math.max(it.at[1] - it.bh / 2, prev + STACK_GAP); prev = it.y0 + it.bh; }
+    let limit = H;
+    for (let i = items.length - 1; i >= 0; i--) {
+      if (items[i].y0 + items[i].bh > limit) items[i].y0 = limit - items[i].bh;
+      limit = items[i].y0 - STACK_GAP;
+    }
+    const cx = side === "L" ? ext[0] - gap - colW / 2 : ext[1] + gap + colW / 2;
+    for (const it of items) {
+      if (it.y0 < -0.5) continue; // no room left in the column
+      const cy = it.y0 + it.bh / 2;
+      calls.push({
+        name: it.name, image: it.image, side, at: it.at,
+        end: [side === "L" ? cx + it.bw / 2 + 4 : cx - it.bw / 2 - 4, cy],
+        spot: it.image ? { x: cx, y: cy, size: it.bw } : { x: cx, y: cy, size: it.size, lines: it.lines },
+      });
+    }
+  }
+  const used = (s) => calls.some((c) => c.side === s);
+  return {
+    on, calls,
+    x0: used("L") ? Math.min(0, ext[0] - gap - colW) : 0,
+    x1: used("R") ? Math.max(W, ext[1] + gap + colW) : W,
+  };
+}
+
+/** The miniature of an area's image, centred on its spot (spot.size = side of the square). */
+export function AreaThumb({ spot, href }) {
+  const t = spot.size;
+  const x = (spot.x - t / 2).toFixed(1);
+  const y = (spot.y - t / 2).toFixed(1);
+  return <g style={{ pointerEvents: "none" }}>
+    <rect x={x} y={y} width={t.toFixed(1)} height={t.toFixed(1)} rx={t * 0.08} fill="#0d1117" stroke="#fff" strokeWidth="1.5" vectorEffect="non-scaling-stroke" />
+    <image href={href} x={x} y={y} width={t.toFixed(1)} height={t.toFixed(1)} preserveAspectRatio="xMidYMid meet" />
+  </g>;
+}
+
+/** A label in a side column: dot on the area, line out of the country, then the name or the miniature. `u` = map units per screen px. */
+function Callout({ c, u }) {
+  const d = `M${c.at[0].toFixed(1)} ${c.at[1].toFixed(1)}L${c.end[0].toFixed(1)} ${c.end[1].toFixed(1)}`;
+  return <g style={{ pointerEvents: "none" }}>
+    <path d={d} fill="none" stroke="#fff" strokeWidth="3.5" strokeLinecap="round" vectorEffect="non-scaling-stroke" />
+    <path d={d} fill="none" stroke="#0d1117" strokeWidth="1.5" strokeLinecap="round" vectorEffect="non-scaling-stroke" />
+    <circle cx={c.at[0].toFixed(1)} cy={c.at[1].toFixed(1)} r={(3.5 * u).toFixed(2)} fill="#0d1117" stroke="#fff" strokeWidth="1.5" vectorEffect="non-scaling-stroke" />
+    {c.image ? <AreaThumb spot={c.spot} href={c.image} /> : <AreaName spot={c.spot} />}
+  </g>;
 }
 
 // Pin drawn with its tip at (0, 0), about 46 map units tall. The big transparent circle makes it easy to click.
@@ -314,6 +439,12 @@ export default function RegionPreview({ cc, layers, stains, onStain, onArea, sel
     ro.observe(svgEl);
     return () => ro.disconnect();
   }, [svgEl, zoom?.k, focus]);
+  // The label columns change the viewBox without resizing the box: read the scale again after every render.
+  useEffect(() => {
+    const r = svgEl?.getBoundingClientRect();
+    const vb = svgEl?.viewBox.baseVal;
+    if (r?.width && vb?.width) setScale(Math.round(Math.min(r.width / vb.width, r.height / vb.height) * 1000) / 1000);
+  });
   useEffect(() => {
     let off = false;
     setBase(undefined);
@@ -356,6 +487,13 @@ export default function RegionPreview({ cc, layers, stains, onStain, onArea, sel
   const vh = H / (zv?.kh ?? zk);
   const vx = Math.min(Math.max((zv?.fx ?? 0.5) * W - vw / 2, 0), W - vw);
   const vy = Math.min(Math.max((zv?.fy ?? 0.5) * H - vh / 2, 0), H - vh);
+  // Names / miniatures: on the area when they fit; with the whole map in view the rest go in the empty space beside the country.
+  const flat = zk === 1 && vh === H;
+  const lay = showNames && scale > 0 && areaLayers.length
+    ? layoutLabels(areaLayers.flatMap(groupsOf), project, (outline && xRangeOf(outline, project)) || [0, W], W, H, scale, `${bb.join()}|${W}|${H}|${align}|${projection}`, flat)
+    : null;
+  const bx = lay && flat ? lay.x0 : vx;
+  const bw = lay && flat ? lay.x1 - lay.x0 : vw;
   const fire = (a) => { if (!pan?.current.moved) onArea?.(a); };
   const panDown = (e) => {
     if (!pan) return;
@@ -376,7 +514,7 @@ export default function RegionPreview({ cc, layers, stains, onStain, onArea, sel
   };
   const panEnd = () => { if (pan) pan.current.drag = null; };
 
-  return <svg ref={setSvgEl} className="cl-svg" style={{ ...style, "--stain": stainColor ?? undefined, touchAction: zk > 1 ? "none" : undefined }} viewBox={`${vx} ${vy} ${vw} ${vh}`} role="img" aria-label={label}
+  return <svg ref={setSvgEl} className="cl-svg" style={{ ...style, "--stain": stainColor ?? undefined, touchAction: zk > 1 ? "none" : undefined }} viewBox={`${bx} ${vy} ${bw} ${vh}`} role="img" aria-label={label}
     onPointerDown={panDown} onPointerMove={panMove} onPointerUp={panEnd} onPointerLeave={panEnd} onPointerCancel={panEnd}
     preserveAspectRatio={align === "right" ? "xMaxYMid meet" : undefined}>
     {land && <path className="cl-r" d={land} fillRule="evenodd" />}
@@ -429,10 +567,10 @@ export default function RegionPreview({ cc, layers, stains, onStain, onArea, sel
       ? <path key={`ring-${selected}-${i}`} className="cl-area-ring" d={shapes(geom, project).polys} fillRule="evenodd" /> : null)))}
     {hoveredArea && hoveredArea !== selected && areaLayers.flatMap((g) => g.geometries.map((geom, i) => (g.names?.[i] === hoveredArea
       ? <path key={`hover-${hoveredArea}-${i}`} className="cl-area-ring" d={shapes(geom, project).polys} fillRule="evenodd" /> : null)))}
-    {showNames && scale > 0 && areaLayers.flatMap((g) => groupsOf(g).map(([name, geom], i) => {
-      const spot = name ? areaNameSpot(geom, name, project, NAME_PX / scale, `${bb.join()}|${W}|${H}|${align}|${projection}`) : null;
-      return spot && <AreaName key={`name-${name}-${i}`} spot={spot} />;
-    }))}
+    {lay && lay.on.map((l, i) => (l.image
+      ? <AreaThumb key={`name-${l.name}-${i}`} spot={l.spot} href={l.image} />
+      : <AreaName key={`name-${l.name}-${i}`} spot={l.spot} />))}
+    {lay && lay.calls.map((c, i) => <Callout key={`call-${c.name}-${i}`} c={c} u={1 / scale} />)}
     {(stains ?? []).map((s) => {
       const toggle = () => onStain?.(s.id);
       const name = s.label ?? s.id;

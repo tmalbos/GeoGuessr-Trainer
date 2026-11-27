@@ -476,7 +476,7 @@ export default function ClueEditor({ cc, name, clue, prefill, onClose, onSaved, 
           </div>}
           {namedAreas && <div className="chk-line">
             <label className="chk-row"><input type="checkbox" checked={showNames} onChange={(e) => setShowNames(e.target.checked)} />
-              Show category names on the map</label>
+              Show categories</label>
             <span ref={setChkEl} />
           </div>}
           {namedAreas && <label className="chk-row"><input type="checkbox" checked={prefixColors} onChange={(e) => setPrefixColors(e.target.checked)} />
