@@ -34,6 +34,7 @@ from src.explore.country_clues.clues import (
     _valid,
     _write_overlay,
 )
+from src.explore.country_clues.country_projection import projection_for
 from src.explore.country_clues.regional_map_overlay import _render_overlay
 from src.explore.export_clues import FORMAT, KEEP
 
@@ -209,7 +210,7 @@ def _import(raw: bytes, request: Request) -> dict:
                     folder = CLUES_DIR / cc
                     geo = next((k for k in GEOM_KINDS if entry.get(k)), None)
                     if entry["scope"] == "reg" and geo:
-                        svg = _render_overlay(cc, folder / entry[geo], local)
+                        svg = _render_overlay(cc, folder / entry[geo], local, projection_for(cc))
                         if svg:
                             entry["overlay"] = _overlay_name(entry[geo])
                             _write_overlay(folder, entry["overlay"], svg)

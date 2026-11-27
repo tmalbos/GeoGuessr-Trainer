@@ -18,7 +18,6 @@ import { useDrawBusy } from "./drawBusy.js";
 import fileUrl from "./fileUrl.js";
 import { discardStaged, stageFile, stagePath } from "./imageTools.js";
 import { kindOfFile, kindOfName, resolveStreetView, streetViewShot } from "./mediaKinds.js";
-import { PROJECTIONS } from "./projections.js";
 import { NOTE_TYPES, REL_LABEL, VERBS, joinNames, sameRel, uniq, verbFor } from "./relations.js";
 import { LocationIcon } from "./tagUi.jsx";
 import { CATEGORY_ICONS, DEFAULT_LOCATION, GENERAL_TAGS, LOCATION_TAGS, RATINGS, tagHue } from "./tags.js";
@@ -104,6 +103,7 @@ export default function ClueEditor({ cc, name, clue, prefill, onClose, onSaved, 
       if (off) return;
       setDecks(s.decks ?? []);
       setDeck((d) => d || s.last_deck || s.decks?.[0] || "");
+      setProjection(s.country_projections?.[cc.toUpperCase()] ?? "flat");
     }).catch(() => {});
     return () => { off = true; };
   }, []);
@@ -112,7 +112,7 @@ export default function ClueEditor({ cc, name, clue, prefill, onClose, onSaved, 
   const [showNames, setShowNames] = useState(clue?.show_names !== false); // drawn areas: print their names on the map (on by default)
   const [prefixColors, setPrefixColors] = useState(!!clue?.prefix_colors); // drawn areas: colour by the start of the names (area codes...)
   const [view, setView] = useState(clue?.view ?? null); // drawn areas: the zoom / pan the card opens on (null = the whole country)
-  const [projection, setProjection] = useState(clue?.projection ?? "flat"); // regional clue: the map projection of the editor AND the card
+  const [projection, setProjection] = useState(clue?.projection ?? "flat"); // the country's rule from Settings (not editable per clue)
   const [img, setImg] = useState({ has: !!clue?.image, sig: ":0" }); // reported by ClueImage
   // The media slot: an image (handled by ClueImage), or an SVG / CSV / geometry staged here.
   const [media, setMedia] = useState(() => initialMedia(clue));
@@ -183,7 +183,7 @@ export default function ClueEditor({ cc, name, clue, prefill, onClose, onSaved, 
 
   // Only ratings set by hand count as "changes": the automatic ones alone shouldn't make a fresh form look dirty.
   const snapshot = () => JSON.stringify([scope, info, general, location, RATINGS.map(([k]) => (manual[k] ? rating[k] : null)), blur, maxH, showNames, prefixColors,
-    view, projection, img.sig, source, relations, notes, mainKind, media.upload?.token ?? "", area.kind, area.upload?.token ?? ""]);
+    view, img.sig, source, relations, notes, mainKind, media.upload?.token ?? "", area.kind, area.upload?.token ?? ""]);
   const initial = useRef(snapshot());
   const dirty = snapshot() !== initial.current;
   const requestClose = () => (dirty ? setConfirm(true) : onClose());
@@ -379,7 +379,6 @@ export default function ClueEditor({ cc, name, clue, prefill, onClose, onSaved, 
       show_names: isImage || showNames,
       prefix_colors: namedAreas && prefixColors,
       view: drawing || showArea ? view : null,
-      projection: scope === "reg" ? projection : "flat",
       frequency: num(rating.frequency), ease: num(rating.ease), reliability: num(rating.reliability),
       source: source.trim(),
       relations,
@@ -468,12 +467,6 @@ export default function ClueEditor({ cc, name, clue, prefill, onClose, onSaved, 
             blur={blur} onBlur={setBlur} maxH={maxH} onMaxH={setMaxH} trailing={modeToggle}
             onState={(h, sig) => setImg((p) => (p.has === h && p.sig === sig ? p : { has: h, sig }))} />}
           {mediaErr && <p className="err">{mediaErr}</p>}
-          {scope === "reg" && <div className="vis-row">
-            <label htmlFor="ed-projection">Map projection</label>
-            <select id="ed-projection" value={projection} onChange={(e) => setProjection(e.target.value)}>
-              {PROJECTIONS.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
-            </select>
-          </div>}
           {namedAreas && <div className="chk-line">
             <label className="chk-row"><input type="checkbox" checked={showNames} onChange={(e) => setShowNames(e.target.checked)} />
               Show categories</label>

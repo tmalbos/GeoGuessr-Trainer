@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import ErrorBox from "../components/ErrorBox.jsx";
 import DecksCard from "../components/DecksCard.jsx";
 import MapSourceCard from "../components/MapSourceCard.jsx";
+import ProjectionsCard from "../components/ProjectionsCard.jsx";
 import { Skeleton } from "../components/Skeleton.jsx";
 import StatusGrid from "../components/StatusGrid.jsx";
 import { useToast } from "../components/Toast.jsx";
@@ -116,5 +117,6 @@ export default function Settings() {
     <DecksCard />
     <h3>Maps</h3>
     <MapSourceCard />
+    <ProjectionsCard />
   </>;
 }

@@ -5,8 +5,10 @@ import os
 import httpx
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
+from starlette.concurrency import run_in_threadpool
 
 from src.api.deps import get_ctx
+from src.explore.country_clues import country_projection
 from src.explore.country_clues import decks as deck_store
 from src.geo import map_providers as mp
 from src.geoguessr.cookie_extraction import refresh_cookie
@@ -47,6 +49,10 @@ class DecksBody(BaseModel):
     decks: list[str]
 
 
+class ProjectionsBody(BaseModel):
+    rules: dict[str, str]  # country code -> projection kind
+
+
 class StainColorBody(BaseModel):
     color: str = Field(pattern=r"^#(c8283a|2f6fd0|e8c020|7b3fa0|1f6b3a|e0559a|7ac142|e07820)$")
 
@@ -62,6 +68,7 @@ async def get_settings():
         "draw_level_shortcuts": prefs.load().get("draw_level_shortcuts")
         or [f"Alt+{i}" for i in range(1, 6)],
         "decks": deck_store.load(),
+        "country_projections": country_projection.load(),
     }
 
 
@@ -119,6 +126,23 @@ async def put_decks(body: DecksBody):
         raise HTTPException(422, "Keep at least one deck")
     prefs.update(decks=names)
     return {"decks": deck_store.load()}
+
+
+@router.put("/settings/projections")
+async def put_projections(body: ProjectionsBody, request: Request):
+    """Country -> projection rules. Countries whose rule changed get their saved overlays redrawn."""
+    bad = sorted({k for k in body.rules.values() if k not in country_projection.KINDS})
+    if bad:
+        raise HTTPException(422, f"Unknown projection: {', '.join(bad)}")
+    rules = country_projection.clean(body.rules)
+    old = country_projection.load()
+    changed = sorted(cc for cc in old.keys() | rules.keys() if old.get(cc) != rules.get(cc))
+    local = get_ctx(request).local_geo
+    if changed and local is None:
+        raise HTTPException(503, "Geo layers are not loaded yet. Try again in a moment.")
+    prefs.update(country_projections=rules or None)
+    redrawn = await run_in_threadpool(country_projection.rerender, changed, local, old)
+    return {"rules": rules, "rerendered": redrawn}
 
 
 @router.get("/settings/map")

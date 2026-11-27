@@ -19,6 +19,7 @@ from src.explore.country_clues.clues import (
     _load,
     _summary,
 )
+from src.explore.country_clues.country_projection import projection_for
 from src.explore.country_clues.regional_map_overlay import recolour
 from src.explore.country_clues.subcontinents import SUBCONTINENTS
 from src.shared import prefs
@@ -58,7 +59,9 @@ def list_clues(cc: str):
     items = _load(cc)
     color = str(prefs.load().get("stain_color") or "#c8283a")
     depths = prefs.load().get("clue_depths") or {}
+    projection = projection_for(cc)
     for c in items:
+        c["projection"] = projection
         if f"{cc}/{c.get('id')}" in depths:
             c["depth"] = depths[f"{cc}/{c.get('id')}"]
         if c.get("csv"):
