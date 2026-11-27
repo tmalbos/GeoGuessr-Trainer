@@ -1,7 +1,7 @@
 // What a pasted file / path / link is, and how to turn a Street View link into a picture.
 
 const IMAGE_EXT = /\.(png|jpe?g|webp|gif|bmp|avif|tiff?)$/i;
-const GEO_EXT = /\.(geojson|json|gpkg|zip|parquet|kml|shp)$/i;
+const GEO_EXT = /\.(geojson|json|topojson|gpkg|zip|parquet|kml|shp)$/i;
 
 /** "image" | "svg" | "csv" | "geometry" | null, from a file name (or a path). */
 export function kindOfName(name = "") {

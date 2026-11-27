@@ -11,7 +11,7 @@ import RegionPreview from "./RegionPreview.jsx";
 import fileUrl from "./fileUrl.js";
 import ShapeControls, { SHAPE_DEFAULTS } from "../../Technical/ShapeControls.jsx";
 
-const ACCEPT = ".svg,.csv,.geojson,.json,.gpkg,.zip,.parquet,.kml,image/*";
+const ACCEPT = ".svg,.csv,.geojson,.json,.topojson,.gpkg,.zip,.parquet,.kml,image/*";
 const HINT = "The part of the country the clue applies to: an SVG map, a CSV of subdivisions, a geometry file, a mapmaking.app export (one tag becomes the region), or a picture of the map (the areas are then picked out of it)";
 const MIN_BOX = 0.04;
 

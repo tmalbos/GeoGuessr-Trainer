@@ -77,7 +77,101 @@ def _to_geojson(
     return out
 
 
+NAME_FIELDS = ("name", "nombre", "label", "title", "category", "tag", "id")
+
+
+def _topo_features(topo: dict) -> list[dict]:
+    """TopoJSON -> GeoJSON features (every object), decoding the shared arcs."""
+    tr = topo.get("transform")
+
+    def pos(p):
+        if not tr:
+            return [p[0], p[1]]
+        return [
+            p[0] * tr["scale"][0] + tr["translate"][0],
+            p[1] * tr["scale"][1] + tr["translate"][1],
+        ]
+
+    arcs = []
+    for arc in topo.get("arcs", []):
+        pts, x, y = [], 0, 0
+        for p in arc:
+            if tr:
+                x += p[0]
+                y += p[1]
+                pts.append(pos((x, y)))
+            else:
+                pts.append([p[0], p[1]])
+        arcs.append(pts)
+
+    def line(idx):
+        out: list = []
+        for i in idx:
+            seg = arcs[i] if i >= 0 else arcs[~i][::-1]
+            out.extend(seg if not out else seg[1:])
+        return out
+
+    def geom(o):
+        t = o.get("type")
+        if t == "Point":
+            return {"type": t, "coordinates": pos(o["coordinates"])}
+        if t == "MultiPoint":
+            return {"type": t, "coordinates": [pos(p) for p in o["coordinates"]]}
+        if t == "LineString":
+            return {"type": t, "coordinates": line(o["arcs"])}
+        if t == "MultiLineString":
+            return {"type": t, "coordinates": [line(a) for a in o["arcs"]]}
+        if t == "Polygon":
+            return {"type": t, "coordinates": [line(r) for r in o["arcs"]]}
+        if t == "MultiPolygon":
+            return {"type": t, "coordinates": [[line(r) for r in p] for p in o["arcs"]]}
+        return None
+
+    feats = []
+    for obj in topo.get("objects", {}).values():
+        items = obj.get("geometries", []) if obj.get("type") == "GeometryCollection" else [obj]
+        for it in items:
+            g = geom(it)
+            if g:
+                feats.append(
+                    {"type": "Feature", "properties": it.get("properties") or {}, "geometry": g}
+                )
+    return feats
+
+
+def _auto_names(gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
+    """Every distinct value of the name-like column becomes its own named, colored category."""
+    import colorsys
+
+    cols = {str(c).lower(): c for c in gdf.columns if c != gdf.geometry.name}
+    field = next((cols[k] for k in NAME_FIELDS if k in cols), None)
+    if field is None:
+        field = next((c for c in cols.values() if gdf[c].dtype == object), None)
+    if field is None:
+        return gdf
+    names = gdf[field].fillna("").astype(str).str.strip().replace("", "Unnamed")
+    hexes = {}
+    for i, n in enumerate(dict.fromkeys(names)):
+        r, g, b = colorsys.hls_to_rgb(((i * 137.5) % 360) / 360, 0.55, 0.65)
+        hexes[n] = f"#{round(r * 255):02x}{round(g * 255):02x}{round(b * 255):02x}"
+    gdf = gdf.copy()
+    gdf["name"] = names
+    if "color" not in gdf.columns:
+        gdf["color"] = names.map(hexes)
+    return gdf
+
+
 def _read_geo(data: bytes, suffix: str, tmp_dir: Path) -> gpd.GeoDataFrame:
+    if suffix in {".json", ".topojson"}:
+        try:
+            doc = json.loads(data)
+        except ValueError:
+            doc = None
+        if isinstance(doc, dict) and doc.get("type") == "Topology":
+            feats = _topo_features(doc)
+            if not feats:
+                raise HTTPException(422, "No geometries found in this TopoJSON")
+            return gpd.GeoDataFrame.from_features(feats, crs=4326)
     tmp = tmp_dir / f"{uuid.uuid4().hex}.upload{suffix}"
     tmp.write_bytes(data)
     try:
@@ -93,9 +187,13 @@ def _read_geo(data: bytes, suffix: str, tmp_dir: Path) -> gpd.GeoDataFrame:
         tmp.unlink(missing_ok=True)
 
 
-def _process_geo(data: bytes, suffix: str, out: Path) -> tuple[str, dict]:
+def _process_geo(
+    data: bytes, suffix: str, out: Path, outline=None, named: bool = False
+) -> tuple[str, dict]:
     gdf = _read_geo(data, suffix, out.parent)
     gdf = gdf.set_crs(4326) if gdf.crs is None else gdf.to_crs(4326)
+    if named and not {"name", "color"} <= set(gdf.columns):
+        gdf = _auto_names(gdf)
     arr = gdf.geometry.to_numpy()
     present = ~shapely.is_missing(arr)
     arr = arr[present]
@@ -126,6 +224,15 @@ def _process_geo(data: bytes, suffix: str, out: Path) -> tuple[str, dict]:
     before = _vertices(parts)
     keep = ~shapely.is_empty(parts)
     parts, shades = parts[keep], shades[keep]
+    if outline is not None and not outline.is_empty:
+        clipped, src = shapely.get_parts(
+            shapely.intersection(parts, shapely.make_valid(outline)), return_index=True
+        )
+        shades = shades[src]
+        keep = np.array([GEOM_KIND.get(g.geom_type) == kind for g in clipped], dtype=bool)
+        parts, shades = clipped[keep], shades[keep]
+        if not len(parts):
+            raise HTTPException(422, "Nothing in this file falls inside the country.")
     rows, shades = shades[:, 1], shades[:, 0]
 
     out = out.with_name(f"{out.stem}.{kind}{out.suffix}")

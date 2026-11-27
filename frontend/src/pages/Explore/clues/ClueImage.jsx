@@ -11,7 +11,7 @@ import "./editor.css";
 
 const MIN_H = 120; // smallest height limit the handle can set (px)
 const IMG_MAX_H = 500; // a loaded image is never taller than this on the card
-const ANY_ACCEPT = "image/*,.svg,.csv,.geojson,.json,.gpkg,.zip,.parquet,.kml";
+const ANY_ACCEPT = "image/*,.svg,.csv,.geojson,.json,.topojson,.gpkg,.zip,.parquet,.kml";
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
 
 // ── icons (the whole image column is icon-only; names live in tooltips / aria-labels) ──

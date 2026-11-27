@@ -68,6 +68,7 @@ from src.explore.country_clues.edit_mode.uploads.geospatial_files import (
 )
 from src.explore.country_clues.edit_mode.uploads.images import _process_image
 from src.explore.country_clues.regional_map_overlay import _render_overlay
+from src.explore.country_clues.regional_stain_areas import _outline
 from src.shared import prefs
 
 URL_RE = re.compile(r"https?://\S+", re.IGNORECASE)
@@ -91,6 +92,7 @@ def _stage(
     cc: str | None = None,
     local=None,
     base_dir: Path | None = None,
+    named: bool = False,
 ) -> dict:
     if kind not in STAGE_KINDS:
         raise HTTPException(404, "Unknown file kind")
@@ -111,7 +113,8 @@ def _stage(
             else:
                 info = _process_csv(data, STAGING / f"{token}.csv.csv")
         else:
-            _, info = _process_geo(data, suffix, STAGING / f"{token}.parquet")
+            outline = _outline(local, cc) if named and cc and local is not None else None
+            _, info = _process_geo(data, suffix, STAGING / f"{token}.parquet", outline, named)
     except HTTPException:
         _discard(token)
         raise
@@ -122,17 +125,20 @@ def _stage(
 
 
 @router.post("/clues/stage/{kind}")
-async def stage_upload(kind: str, filename: str, request: Request, cc: str | None = None):
+async def stage_upload(
+    kind: str, filename: str, request: Request, cc: str | None = None, named: bool = False
+):
     """Raw file bytes in the body (no multipart dependency)."""
     local = get_ctx(request).local_geo
     return await run_in_threadpool(
-        _stage, kind, filename, await request.body(), _cc(cc) if cc else None, local
+        _stage, kind, filename, await request.body(), _cc(cc) if cc else None, local, None, named
     )
 
 
 class PathBody(BaseModel):
     path: str
     cc: str | None = None
+    named: bool = False
 
 
 @router.post("/clues/stage-path/{kind}")
@@ -143,7 +149,14 @@ async def stage_from_path(kind: str, body: PathBody, request: Request):
         raise HTTPException(404, f"No file at {p}")
     local = get_ctx(request).local_geo
     return await run_in_threadpool(
-        _stage, kind, p.name, p.read_bytes(), _cc(body.cc) if body.cc else None, local, p.parent
+        _stage,
+        kind,
+        p.name,
+        p.read_bytes(),
+        _cc(body.cc) if body.cc else None,
+        local,
+        p.parent,
+        body.named,
     )
 
 

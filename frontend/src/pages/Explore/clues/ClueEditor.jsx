@@ -278,15 +278,15 @@ export default function ClueEditor({ cc, name, clue, prefill, onClose, onSaved, 
     const kind = input.file ? kindOfFile(input.file) : kindOfName(raw);
     if (!kind) throw new Error("That file isn't an image, SVG, CSV or geometry file.");
     const endpoint = kind === "geometry" ? "geometry" : kind;
-    const areasOf = kind === "csv" ? cc : undefined; // a CSV becomes named, colored areas for this country
-    const up = input.file ? await stageFile(input.file, endpoint, areasOf) : await stagePath(raw, endpoint, areasOf);
+    const areasOf = kind === "csv" || (kind === "geometry" && input.named) ? cc : undefined; // a CSV becomes named, colored areas; a geometry in the main box is clipped to the country
+    const up = input.file ? await stageFile(input.file, endpoint, areasOf, input.named) : await stagePath(raw, endpoint, areasOf, input.named);
     return { ...up, kind: up.kind ?? kind };
   };
 
   const takeMedia = async (input, { quiet = false } = {}) => {
     setMediaErr(""); setMediaBusy(true);
     try {
-      const up = await stageInput(input);
+      const up = await stageInput({ ...input, named: true });
       if (up.kind === "image") {
         setIncoming(up);
         setImageGone(false);
