@@ -349,9 +349,53 @@ export default function DrawMap({ cc, stage, onResult, trailing, optionsEl, show
     setLocked(next);
     onView?.(next);
   };
-  const lockBox = locked && proj
-    ? clampView({ w: W / locked.k, x: locked.fx * W - W / locked.k / 2, y: locked.fy * proj.H - proj.H / locked.k / 2 }, proj.H)
-    : null;
+  const lockBox = locked && proj ? (() => {
+    const w = W / locked.k;
+    const h = proj.H / (locked.kh ?? locked.k);
+    return { w, h, x: Math.min(Math.max(locked.fx * W - w / 2, 0), W - w), y: Math.min(Math.max(locked.fy * proj.H - h / 2, 0), proj.H - h) };
+  })() : null;
+
+  // Drag the border of the locked box to move it, a corner to resize it (width and height are free).
+  const lockDrag = useRef(null);
+  const lockTo = (x, y, w, h) => {
+    const next = {
+      k: Math.round((W / w) * 1000) / 1000,
+      kh: Math.round((proj.H / h) * 1000) / 1000,
+      fx: unitClamp(Math.round(((x + w / 2) / W) * 10000) / 10000),
+      fy: unitClamp(Math.round(((y + h / 2) / proj.H) * 10000) / 10000),
+    };
+    setLocked(next);
+    onView?.(next);
+  };
+  const lockDown = (mode) => (e) => {
+    if (e.button) return;
+    e.stopPropagation();
+    e.preventDefault();
+    e.currentTarget.setPointerCapture(e.pointerId);
+    lockDrag.current = { mode, p: toSvg(e), box: lockBox };
+  };
+  const lockMove = (e) => {
+    const d = lockDrag.current;
+    const p = d && toSvg(e);
+    if (!p) return;
+    e.stopPropagation();
+    const { x, y, w, h } = d.box;
+    if (d.mode === "move") {
+      lockTo(Math.min(Math.max(x + p[0] - d.p[0], 0), W - w), Math.min(Math.max(y + p[1] - d.p[1], 0), proj.H - h), w, h);
+      return;
+    }
+    const sx = d.mode.includes("e") ? 1 : -1;
+    const sy = d.mode.includes("s") ? 1 : -1;
+    const ax = sx > 0 ? x : x + w;
+    const ay = sy > 0 ? y : y + h;
+    const nw = Math.min(Math.max(sx * (p[0] - ax), W / MAX_ZOOM), sx > 0 ? W - ax : ax);
+    const nh = Math.min(Math.max(sy * (p[1] - ay), proj.H / MAX_ZOOM), sy > 0 ? proj.H - ay : ay);
+    lockTo(sx > 0 ? ax : ax - nw, sy > 0 ? ay : ay - nh, nw, nh);
+  };
+  const lockUp = (e) => {
+    if (lockDrag.current) e.stopPropagation();
+    lockDrag.current = null;
+  };
 
   const painting = tool !== "fill";
   const used = [...new Set(items.filter((i) => i.op !== "erase").map((i) => i.slot))].sort((a, b) => a - b);
@@ -505,8 +549,18 @@ export default function DrawMap({ cc, stage, onResult, trailing, optionsEl, show
           <Units paths={unitPaths} click={tool === "fill"} onPick={onPick} />
           <g className="dm-paint"><PaintedLayer items={items} fwd={proj.fwd} perLat={proj.perLat} H={proj.H} land={landD} fillOf={fillOf} /></g>
           {labels.map((l) => <AreaName key={l.name} spot={l.spot} />)}
-          {lockBox && <rect x={lockBox.x} y={lockBox.y} width={lockBox.w} height={(lockBox.w * proj.H) / W} fill="none" stroke="#ffd04d"
-            strokeWidth="2" strokeDasharray="8 5" vectorEffect="non-scaling-stroke" style={{ pointerEvents: "none" }} />}
+          {lockBox && <>
+            <rect x={lockBox.x} y={lockBox.y} width={lockBox.w} height={lockBox.h} fill="none" stroke="#ffd04d"
+              strokeWidth="2" strokeDasharray="8 5" vectorEffect="non-scaling-stroke" style={{ pointerEvents: "none" }} />
+            <rect x={lockBox.x} y={lockBox.y} width={lockBox.w} height={lockBox.h} fill="none" stroke="transparent" strokeWidth="14"
+              vectorEffect="non-scaling-stroke" style={{ pointerEvents: "stroke", cursor: "move" }}
+              onPointerDown={lockDown("move")} onPointerMove={lockMove} onPointerUp={lockUp} onPointerCancel={lockUp} />
+            {[["nw", 0, 0], ["ne", 1, 0], ["sw", 0, 1], ["se", 1, 1]].map(([m, cx, cy]) => <rect key={m}
+              x={lockBox.x + cx * lockBox.w - (view.w / W) * 12} y={lockBox.y + cy * lockBox.h - (view.w / W) * 12}
+              width={(view.w / W) * 24} height={(view.w / W) * 24} fill="#ffd04d" stroke="#0d1117" strokeWidth="1" vectorEffect="non-scaling-stroke"
+              style={{ cursor: m === "nw" || m === "se" ? "nwse-resize" : "nesw-resize" }}
+              onPointerDown={lockDown(m)} onPointerMove={lockMove} onPointerUp={lockUp} onPointerCancel={lockUp} />)}
+          </>}
           {live && <path d={pathOf(live)} fill="none" strokeLinecap="round" strokeLinejoin="round" strokeWidth={unit}
             stroke={tool === "erase" ? "#ff7357" : "#ffffff"} strokeOpacity=".5" style={{ pointerEvents: "none" }} />}
         </svg>

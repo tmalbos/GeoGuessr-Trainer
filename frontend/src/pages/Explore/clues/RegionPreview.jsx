@@ -352,7 +352,7 @@ export default function RegionPreview({ cc, layers, stains, onStain, onArea, sel
   const zv = focus ? { k: FOCUS_K, fx: project(focus)[0] / W, fy: project(focus)[1] / H } : zoom;
   const zk = zv?.k ?? 1;
   const vw = W / zk;
-  const vh = H / zk;
+  const vh = H / (zv?.kh ?? zk);
   const vx = Math.min(Math.max((zv?.fx ?? 0.5) * W - vw / 2, 0), W - vw);
   const vy = Math.min(Math.max((zv?.fy ?? 0.5) * H - vh / 2, 0), H - vh);
   const fire = (a) => { if (!pan?.current.moved) onArea?.(a); };
