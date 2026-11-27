@@ -1,10 +1,12 @@
 """endpoints.py — The routes that write a clue: stage an upload, add, edit, delete, reorder, depth, medal
-preview, and the geometry read the editor needs while drawing.
+preview, the geometry read the editor needs while drawing, the country base (outline + borders) and the
+"Draw" region editor (units, fill, build).
 
 The read routes live in src/explore/country_clues/endpoints.py.
 """
 
 import contextlib
+import json
 import re
 import shutil
 import uuid
@@ -13,6 +15,7 @@ from typing import Literal
 
 import geopandas as gpd
 import pandas as pd
+import shapely
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
@@ -47,7 +50,16 @@ from src.explore.country_clues.clues import (
     _set_has,
     _staged_path,
     _write_overlay,
+    base,
 )
+from src.explore.country_clues.edit_mode.draw.canvas import (
+    Item,
+    _canvas,
+    _polygonal,
+    _remember,
+    _units,
+)
+from src.explore.country_clues.edit_mode.draw.tools import _build, _payload
 from src.explore.country_clues.edit_mode.uploads.csvs import _process_csv, _process_csv_areas
 from src.explore.country_clues.edit_mode.uploads.geospatial_files import (
     _process_geo,
@@ -614,3 +626,106 @@ def delete_clue(cc: str, clue_id: str):
             if gone.get(kind) and ASSET_RE.fullmatch(gone[kind]):
                 (CLUES_DIR / cc / gone[kind]).unlink(missing_ok=True)
     return {"ok": True}
+
+
+# ── country base ───────────────────────────────────────────────────────────
+# Country outline + first-level borders, so a regional clue is drawn ON its country.
+#
+# GET /clues/{cc}/base -> {outline, borders}, both lon/lat GeoJSON (or null when the local geo layers
+# have nothing for that country). Cached in memory for the life of the server.
+#
+# Both come from regional_stain_areas._outline / regional_stain_areas._borders, which are already simplified TOGETHER (src/geo/simplify.py,
+# resolution based). Nothing is simplified again here: a second, fixed simplification is what made small
+# countries look heavily simplified and let the borders drift away from the outline.
+
+
+@router.get("/clues/{cc}/base")
+async def clue_base(cc: str, request: Request):
+    if not re.fullmatch(r"[A-Za-z]{2}", cc):
+        raise HTTPException(422, "Invalid country code")
+    local = get_ctx(request).local_geo
+    return await run_in_threadpool(base, cc, local)
+
+
+# ── draw editor ────────────────────────────────────────────────────────────
+# Backing for the "Draw" region editor of a regional clue.
+#
+# GET  /clues/{cc}/draw/units?level=N  -> {levels, units: [{id, name, geometry}]}. Level 0 is the whole country;
+#                                         1..levels are the local admin layer's levels (state, subregion, city).
+# POST /clues/{cc}/draw/build          -> GeoJSON FeatureCollection, one colored feature per category name, built from
+#                                         the drawing's items in order: fills of a subdivision and freeform strokes
+#                                         (clipped to the country outline). A later item wins over an earlier one.
+#
+# The canvas and the build live in src/explore/country_clues/edit_mode/draw/ (canvas.py, tools.py).
+
+
+def _local(request: Request):
+    local = get_ctx(request).local_geo
+    if local is None:
+        raise HTTPException(503, "Geo layers are not loaded yet. Check the Dashboard.")
+    return local
+
+
+@router.get("/clues/{cc}/draw/units")
+async def draw_units(cc: str, request: Request, level: int = 0):
+    return await run_in_threadpool(_payload, _local(request), _cc(cc), level)
+
+
+class BuildBody(BaseModel):
+    items: list[Item]
+    colored: bool = True  # False = every area keeps the pale land color
+
+
+class FillBody(BaseModel):
+    items: list[Item]
+    level: int = 0
+    id: int = 0
+    point: list[float]  # lon, lat of the click
+    erase: bool = False  # Shift + eraser: only report the painted part under the click (None when there is none)
+    whole: bool = False  # Shift + fill: every separate piece of the division (islands too), not just the one under the click
+
+
+def _fill(local, cc: str, body: FillBody) -> dict:
+    """Bucket fill inside one division. Clicked on empty space: the connected empty area around the click.
+    Clicked on a painted area: the connected part of that painted area. Never more than the division.
+    """
+    units = _units(local, cc, body.level)
+    if not 0 <= body.id < len(units) or len(body.point) != 2:
+        raise HTTPException(422, "Nothing to fill there.")
+    unit = units[body.id][1]
+    pt = shapely.Point(body.point)
+    canvas = _canvas(local, cc, body.items)
+    cat = canvas.at(pt)
+    if cat is not None and body.whole:
+        # Shift on a painted stain: that stain plus every unpainted gap of the division. Other stains stay as they are.
+        others = canvas.near(unit.bounds, cat, other=True)
+        area = shapely.difference(unit, shapely.union_all(others)) if len(others) else unit
+    elif cat is not None:
+        area = shapely.intersection(unit, shapely.union_all(canvas.near(unit.bounds, cat)))
+    elif body.erase:
+        return {"geometry": None}
+    else:
+        near = canvas.near(unit.bounds)
+        area = shapely.difference(unit, shapely.union_all(near)) if len(near) else unit
+    area = _polygonal(area)
+    parts = [] if area is None else [p for p in shapely.get_parts(area) if p.geom_type == "Polygon"]
+    if not parts:
+        raise HTTPException(422, "Nothing to fill there.")
+    part = (
+        shapely.union_all(parts) if body.whole else next((p for p in parts if p.covers(pt)), None)
+    )
+    if part is None:
+        part = min(parts, key=lambda p: p.distance(pt))
+    gid = uuid.uuid4().hex
+    _remember(gid, part)  # the browser sends this shape back by gid, not by geometry
+    return {"geometry": json.loads(shapely.to_geojson(part)), "gid": gid}
+
+
+@router.post("/clues/{cc}/draw/fill")
+async def draw_fill(cc: str, body: FillBody, request: Request):
+    return await run_in_threadpool(_fill, _local(request), _cc(cc), body)
+
+
+@router.post("/clues/{cc}/draw/build")
+async def draw_build(cc: str, body: BuildBody, request: Request):
+    return await run_in_threadpool(_build, _local(request), _cc(cc), body.items, body.colored)

@@ -9,8 +9,6 @@ from fastapi import FastAPI
 
 from src.api.routers import (
     analysis,
-    clue_base,
-    clue_draw,
     history,
     osm_extract,
     pbf_admin,
@@ -59,8 +57,6 @@ for router_module in (
     study_scripts,
     clue_read,
     clue_edit,
-    clue_base,
-    clue_draw,
     export_clues,
     import_clues,
     explore,
