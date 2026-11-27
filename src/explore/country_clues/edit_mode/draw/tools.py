@@ -10,9 +10,9 @@ from src.explore.country_clues.edit_mode.draw.canvas import (
     Item,
     _canvas,
     _layer,
+    _polygonal,
     _units,
 )
-from src.geo.simplify import _polygonal
 
 
 def _payload(local, cc: str, level: int) -> dict:

@@ -22,11 +22,11 @@ from src.explore.country_clues.clues import _cc  # noqa: PLC2701
 from src.explore.country_clues.edit_mode.draw.canvas import (
     Item,
     _canvas,
+    _polygonal,
     _remember,
     _units,
 )
 from src.explore.country_clues.edit_mode.draw.tools import _build, _payload
-from src.geo.simplify import _polygonal  # noqa: PLC2701
 
 router = APIRouter()
 

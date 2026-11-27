@@ -172,6 +172,9 @@ class ViewIn(BaseModel):
     """
 
     k: float = Field(ge=1, le=80)
+    kh: float | None = Field(
+        None, ge=1, le=80
+    )  # vertical zoom when the window isn't in the map's proportions (None = same as k)
     fx: float = Field(ge=0, le=1)
     fy: float = Field(ge=0, le=1)
 

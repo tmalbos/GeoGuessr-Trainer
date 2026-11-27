@@ -15,7 +15,6 @@ from pydantic import BaseModel
 
 from src.explore.country_clues.edit_mode.uploads.csvs import _lab, level_columns
 from src.explore.country_clues.regional_stain_areas import _outline
-from src.geo.simplify import _polygonal
 
 # Hand-picked, the app's coral / sea / sand / green accents softened to sit on the dark UI. After these, each new color
 # is the candidate farthest (Lab distance) from all used ones.
@@ -60,6 +59,21 @@ def _spread_colors(n: int) -> list[str]:
 
 COLORS = _spread_colors(40)
 _COLORS_LAB = np.array([_lab(_rgb(c)) for c in COLORS])
+
+
+def _polygonal(g):
+    """Only the polygons of a geometry, as one geometry (None when there are none)."""
+    parts = []
+    stack = [g]
+    while stack:
+        x = stack.pop()
+        if x is None or x.is_empty:
+            continue
+        if x.geom_type == "Polygon":
+            parts.append(x)
+        elif hasattr(x, "geoms"):
+            stack.extend(x.geoms)
+    return shapely.union_all(parts) if parts else None
 
 
 def _neighbours(geoms: list) -> list[set[int]]:
