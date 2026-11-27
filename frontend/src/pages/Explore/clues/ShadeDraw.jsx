@@ -6,7 +6,7 @@ import { discardStaged } from "./imageTools.js";
 import { markKnown, newGid, sendItems, wire } from "./drawItems.js";
 import PaintedLayer, { Units } from "./PaintedLayer.jsx";
 import { setDrawBusy } from "./drawBusy.js";
-import { TileBackdrop, TilesIcon } from "./drawTiles.jsx";
+import { TileBackdrop, TilesIcon, WarpedBackdrop } from "./drawTiles.jsx";
 import { makeProjection } from "./projections.js";
 import "./draw.css";
 
@@ -150,9 +150,8 @@ export default function ShadeDraw({ cc, stage, onResult, stored, storedView, onV
   useEffect(() => { setDrawBusy(busy); }, [busy]);
   useEffect(() => () => setDrawBusy(false), []);
 
-  const proj = useMemo(() => { const bb = base && bboxOf(base); return bb ? makeProjection(projection, bb) : null; }, [base, projection]);
+  const proj = useMemo(() => { const bb = base && bboxOf(base); return bb ? makeProjection(projection, bb, false, [base]) : null; }, [base, projection]);
   // A new projection moves everything on the map: start again from the whole country and drop the locked framing.
-  // The real map behind the drawing only exists in Mercator.
   const lastProjection = useRef(projection);
   useEffect(() => {
     if (lastProjection.current !== projection) {
@@ -161,8 +160,7 @@ export default function ShadeDraw({ cc, stage, onResult, stored, storedView, onV
       setLocked(null);
       onView?.(null);
     }
-    if (proj && !proj.toWorld) setTiles(false);
-  }, [projection, proj]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [projection]); // eslint-disable-line react-hooks/exhaustive-deps
   const landD = useMemo(() => (proj ? shapes(base, proj.fwd).polys : ""), [proj, base]);
   const unitPaths = useMemo(() => (proj && units ? units.map((u) => ({ id: u.id, name: u.name, d: shapes(u.geometry, proj.fwd).polys })) : []), [proj, units]);
   // Shades are drawn opaque (the colour mixed into the land colour), so overlapping strokes look the same as the server result.
@@ -367,7 +365,7 @@ export default function ShadeDraw({ cc, stage, onResult, stored, storedView, onV
   return <>
     <div className={`dm ${tiles ? "tiles" : ""}`}>
       {proj ? <>
-        {tiles && proj.toWorld && <TileBackdrop proj={proj} view={view} />}
+        {tiles && (proj.toWorld ? <TileBackdrop proj={proj} view={view} /> : <WarpedBackdrop proj={proj} view={view} />)}
         <div className="dm-levels" role="group" aria-label="Subdivision level">
           {(nLevels ? Array.from({ length: nLevels }, (_, i) => [i + 1, `Adm ${i + 1}`]) : [[0, "National"]]).map(([v, l]) =>
             <button key={l} type="button" className={level === v ? "on" : ""} aria-pressed={level === v} onClick={() => setLevel(v)}>{l}</button>)}
@@ -405,8 +403,8 @@ export default function ShadeDraw({ cc, stage, onResult, stored, storedView, onV
       <button type="button" className="ed-tool" aria-pressed={!!locked} aria-label={locked ? "Unlock view" : "Lock view"} disabled={!proj}
         title={locked ? "Unlock view (the card shows the whole map)" : "Lock view: the card opens on the zoom and position on screen now"} onClick={toggleLock}>
         <svg {...ico}><rect x="5" y="11" width="14" height="9" rx="2" /><path d={locked ? "M8 11V8a4 4 0 0 1 8 0v3" : "M8 11V8a4 4 0 0 1 7.5-2"} /></svg></button>
-      <button type="button" className="ed-tool" aria-pressed={tiles} aria-label="Show the map behind the drawing" disabled={!proj?.toWorld}
-        title={proj?.toWorld ? "Show the map behind the drawing" : "The map behind the drawing is only available with the Mercator projection"} onClick={() => setTiles((v) => !v)}><TilesIcon /></button>
+      <button type="button" className="ed-tool" aria-pressed={tiles} aria-label="Show the map behind the drawing" disabled={!proj}
+        title="Show the map behind the drawing" onClick={() => setTiles((v) => !v)}><TilesIcon /></button>
       <span className={`dm-status ${err && proj ? "err" : "muted"}`}>{proj && err ? err : busy ? "Saving…" : ""}</span>
     </div>
     {proj && <div className="dm-cats">
