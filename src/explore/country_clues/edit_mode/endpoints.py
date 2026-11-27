@@ -1,30 +1,38 @@
-"""endpoints.py — The routes that write a clue: add, edit, delete, reorder, depth, medal preview, and the
-geometry read the editor needs while drawing.
+"""endpoints.py — The routes that write a clue: stage an upload, add, edit, delete, reorder, depth, medal
+preview, and the geometry read the editor needs while drawing.
 
-Staging and the read routes still live in src/api/routers/clues.py for now.
+The read routes live in src/explore/country_clues/endpoints.py.
 """
 
 import contextlib
 import re
 import shutil
+import uuid
 from pathlib import Path
 from typing import Literal
 
 import geopandas as gpd
 import pandas as pd
 from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
+from starlette.concurrency import run_in_threadpool
 
 from src.api.deps import get_ctx
-from src.api.routers.clues import _LOCK, AREA_KINDS, GEOM_KINDS, _render_overlay
 from src.explore.country_clues import decks as deck_store
 from src.explore.country_clues.clue_relations import _relations_of, _sync_relations
 from src.explore.country_clues.clues import (
+    _LOCK,
+    AREA_KINDS,
     ASSET_RE,
     CLUES_DIR,
     GENERAL_TAGS,
+    GEOM_KINDS,
     KINDS,
     LOCATION_TAGS,
+    STAGE_KINDS,
+    STAGING,
+    TOKEN_RE,
     _apply_medal,
     _asset,
     _cc,
@@ -33,19 +41,115 @@ from src.explore.country_clues.clues import (
     _next_name,
     _next_num,
     _overlay_name,
+    _purge_staging,
     _restandardize,
     _save,
     _set_has,
     _staged_path,
     _write_overlay,
 )
-from src.explore.country_clues.edit_mode.uploads.geospatial_files import _shades_of, _to_geojson
+from src.explore.country_clues.edit_mode.uploads.csvs import _process_csv, _process_csv_areas
+from src.explore.country_clues.edit_mode.uploads.geospatial_files import (
+    _process_geo,
+    _shades_of,
+    _to_geojson,
+)
+from src.explore.country_clues.edit_mode.uploads.images import _process_image
+from src.explore.country_clues.regional_map_overlay import _render_overlay
 from src.shared import prefs
 
 URL_RE = re.compile(r"https?://\S+", re.IGNORECASE)
 
 
 router = APIRouter()
+
+
+# ── staging ────────────────────────────────────────────────────────────────
+
+
+def _discard(token: str) -> None:
+    for p in STAGING.glob(f"{token}.*"):
+        p.unlink(missing_ok=True)
+
+
+def _stage(
+    kind: str,
+    filename: str,
+    data: bytes,
+    cc: str | None = None,
+    local=None,
+    base_dir: Path | None = None,
+) -> dict:
+    if kind not in STAGE_KINDS:
+        raise HTTPException(404, "Unknown file kind")
+    if not data:
+        raise HTTPException(422, "Empty file")
+    STAGING.mkdir(parents=True, exist_ok=True)
+    _purge_staging()
+    token = uuid.uuid4().hex
+    suffix = Path(filename).suffix.lower()
+    try:
+        if kind == "image":
+            info = _process_image(data, STAGING / f"{token}.image.webp")
+        elif kind == "csv":
+            if cc:
+                info = _process_csv_areas(
+                    data, cc, local, base_dir, STAGING / f"{token}.polygons.parquet"
+                )
+            else:
+                info = _process_csv(data, STAGING / f"{token}.csv.csv")
+        else:
+            _, info = _process_geo(data, suffix, STAGING / f"{token}.parquet")
+    except HTTPException:
+        _discard(token)
+        raise
+    except Exception as e:
+        _discard(token)
+        raise HTTPException(422, f"Could not read {filename}: {e}") from e
+    return {"token": token, "name": filename, **info}
+
+
+@router.post("/clues/stage/{kind}")
+async def stage_upload(kind: str, filename: str, request: Request, cc: str | None = None):
+    """Raw file bytes in the body (no multipart dependency)."""
+    local = get_ctx(request).local_geo
+    return await run_in_threadpool(
+        _stage, kind, filename, await request.body(), _cc(cc) if cc else None, local
+    )
+
+
+class PathBody(BaseModel):
+    path: str
+    cc: str | None = None
+
+
+@router.post("/clues/stage-path/{kind}")
+async def stage_from_path(kind: str, body: PathBody, request: Request):
+    """Same as above for a file already on this machine (the backend runs locally)."""
+    p = Path(body.path.strip().strip('"'))
+    if not p.is_file():
+        raise HTTPException(404, f"No file at {p}")
+    local = get_ctx(request).local_geo
+    return await run_in_threadpool(
+        _stage, kind, p.name, p.read_bytes(), _cc(body.cc) if body.cc else None, local, p.parent
+    )
+
+
+@router.get("/clues/staged/{token}/{kind}")
+def staged_file(token: str, kind: str):
+    p = _staged_path(token, kind)
+    # An SVG has to be served as such for the editor to preview it.
+    return FileResponse(p, media_type="image/svg+xml" if p.suffix == ".svg" else None)
+
+
+# Must stay ABOVE DELETE /clues/{cc}/{clue_id}, or "staged" is read as a country code.
+@router.delete("/clues/staged/{token}")
+def discard_staged(token: str):
+    """Throw away a staged upload that was replaced or removed in the editor."""
+    if not TOKEN_RE.fullmatch(token):
+        raise HTTPException(422, "Invalid staged file")
+    _discard(token)
+    return {"ok": True}
 
 
 # ── clues ──────────────────────────────────────────────────────────────────

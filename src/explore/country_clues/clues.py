@@ -39,6 +39,12 @@ GENERAL_TAGS = [
 
 KINDS = ("image", "svg", "csv", "polygons", "lines", "points")
 
+AREA_KINDS = ("svg", "csv", "polygons", "lines", "points")  # what says which part of the country
+GEOM_KINDS = ("polygons", "lines", "points")
+STAGE_KINDS = ("image", "csv", "geometry")
+
+_LOCK = threading.Lock()
+
 # The overlay of a clue sits next to its geometry file and shares its name: reg_roads_00003.overlay.svg
 # So do the per-depth maps of a prefix-coloured clue (see prefix_levels.py): reg_phonenumbers_00003.d1.parquet
 ASSET_RE = re.compile(r"(nat|reg)_[a-z]+_\d{5}(\.(?:overlay|d\d{1,2}))?\.(webp|svg|csv|parquet)")

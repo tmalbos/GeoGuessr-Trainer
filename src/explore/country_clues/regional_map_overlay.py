@@ -19,10 +19,22 @@ The viewBox is tight around the drawing (a few units of margin), so the card ali
 Strokes use vector-effect="non-scaling-stroke": they stay the same width in screen px at any size.
 """
 
+import logging
 import math
+from pathlib import Path
 
+import geopandas as gpd
 import numpy as np
 import shapely
+
+from src.explore.country_clues.edit_mode.uploads.geospatial_files import (
+    PREVIEW_PRECISION,
+    _shades_of,
+)
+from src.explore.country_clues.map_projection import make_projection
+from src.explore.country_clues.regional_stain_areas import _borders, _outline
+
+logger = logging.getLogger("uvicorn.error")
 
 WIDTH = 1000  # map units across the country's width (same as the live preview)
 PAD = 6  # margin around the drawing, map units
@@ -149,13 +161,16 @@ def _opacity(op: float | None) -> str:
 
 
 def render_overlay(
-    outline, borders, layers: list[tuple[np.ndarray, np.ndarray | None]]
+    outline,
+    borders,
+    layers: list[tuple[np.ndarray, np.ndarray | None]],
+    projection: str = "flat",
 ) -> str | None:
     """SVG text, or None when there is nothing to draw.
 
     outline / borders: lon/lat shapely geometries (or None), already simplified together. layers:
     [(geometries, shades)] where `geometries` are the singular parts of the clue's file and `shades` has
-    one int per geometry.
+    one int per geometry. projection: one of map_projection.KINDS (the editor and the card draw with the same one).
     """
     everything = [
         g
@@ -168,14 +183,16 @@ def render_overlay(
     if not all(math.isfinite(v) for v in (x0, y0, x1, y1)):
         return None
 
-    k = math.cos(math.radians((y0 + y1) / 2)) or 1.0
-    w = max((x1 - x0) * k, 1e-6)
-    h = max(y1 - y0, 1e-6)
+    mp = make_projection(projection, (x0, y0, x1, y1))
+    umin, vmin, umax, vmax = mp.extent
+    w = max(umax - umin, 1e-6)
+    h = max(vmax - vmin, 1e-6)
     height = round(min(1400, max(200, WIDTH * h / w)))
     s = min((WIDTH - 2 * PAD) / w, (height - 2 * PAD) / h)
 
     def project(c: np.ndarray) -> np.ndarray:
-        return np.column_stack([PAD + (c[:, 0] - x0) * k * s, PAD + (y1 - c[:, 1]) * s])
+        uv = mp.fwd(c)
+        return np.column_stack([PAD + (uv[:, 0] - umin) * s, PAD + (vmax - uv[:, 1]) * s])
 
     def proj(g):
         return shapely.transform(g, project)
@@ -257,8 +274,7 @@ def render_overlay(
 
         for (x, y), v in pins:
             op = 0.85 * shade_factor(v) if v else None
-            lon = x0 + (x - PAD) / (k * s)
-            lat = y1 - (y - PAD) / s
+            lon, lat = mp.inv(np.array([[umin + (x - PAD) / s, vmax - (y - PAD) / s]]))[0]
             parts.append(
                 f'<g class="ov-pin" data-lon="{lon:.6f}" data-lat="{lat:.6f}" transform="translate({x:.1f} {y:.1f})" fill="#c8283a" '
                 f'stroke="#c8283a" stroke-width="1"{_opacity(op) or ' fill-opacity=".85"'}>'
@@ -281,3 +297,30 @@ def render_overlay(
         f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="{minx:.1f} {miny:.1f} {vw:.1f} {vh:.1f}" '
         f'width="{vw:.0f}" height="{vh:.0f}">' + "".join(parts) + "</svg>"
     )
+
+
+# ── overlay (the region pre-drawn on its country) ──────────────────────────
+
+
+def _render_overlay(cc: str, geo_file: Path, local) -> str | None:
+    """SVG text of a clue's geometry drawn on its country, or None when it can't be made
+    (geo layers not loaded, unreadable file). Never raises: the card then draws the geometry itself.
+    """
+    if local is None:
+        logger.warning("Clue overlay for %s skipped: the geo layers are not loaded yet", cc)
+        return None
+    try:
+        gdf = gpd.read_parquet(geo_file)
+        if "color" in gdf.columns:
+            return None
+        geoms = shapely.set_precision(gdf.geometry.to_numpy(), PREVIEW_PRECISION)
+        shades = _shades_of(gdf)
+        keep = ~shapely.is_empty(geoms)
+        outline = _outline(local, cc)
+        if outline is not None:
+            keep &= shapely.dwithin(geoms, outline, 0.01)  # nothing far from the trimmed outline
+        borders = _borders(local, cc) if outline is not None else None
+        return render_overlay(outline, borders, [(geoms[keep], shades[keep])])
+    except Exception:
+        logger.exception("Could not draw the overlay of %s", geo_file.name)
+        return None

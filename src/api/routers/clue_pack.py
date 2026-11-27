@@ -33,18 +33,15 @@ from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
 from src.api.deps import get_ctx
-from src.api.routers.clues import (
-    _LOCK,
-    AREA_KINDS,
-    GEOM_KINDS,
-    _render_overlay,
-)
 from src.explore.country_clues import decks as deck_store
 from src.explore.country_clues.clue_relations import _set_rels, _sync_relations
 from src.explore.country_clues.clues import (
+    _LOCK,
+    AREA_KINDS,
     ASSET_RE,
     CLUES_DIR,
     GENERAL_TAGS,
+    GEOM_KINDS,
     KINDS,
     LOCATION_TAGS,
     _apply_medal,
@@ -58,6 +55,7 @@ from src.explore.country_clues.clues import (
     _set_has,
     _write_overlay,
 )
+from src.explore.country_clues.regional_map_overlay import _render_overlay
 
 logger = logging.getLogger("uvicorn.error")
 router = APIRouter()

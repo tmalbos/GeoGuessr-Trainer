@@ -12,9 +12,6 @@ from src.api.routers import (
     clue_base,
     clue_draw,
     clue_pack,
-    clues,
-    countries,
-    coverage,
     history,
     osm_extract,
     pbf_admin,
@@ -27,6 +24,8 @@ from src.api.routers import (
     technical,
 )
 from src.app_context import AppContext
+from src.explore import endpoints as explore
+from src.explore.country_clues import endpoints as clue_read
 from src.explore.country_clues import regional_stain_areas as stain
 from src.explore.country_clues.anki import endpoints as anki_export
 from src.explore.country_clues.clue_imports import plonkit as plonkit_import
@@ -58,13 +57,12 @@ for router_module in (
     history,
     settings,
     study_scripts,
-    clues,
+    clue_read,
     clue_edit,
     clue_base,
     clue_draw,
     clue_pack,
-    countries,
-    coverage,
+    explore,
     replay_report,
     streetview,
     technical,
