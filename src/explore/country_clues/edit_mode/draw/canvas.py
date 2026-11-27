@@ -389,8 +389,8 @@ class _Canvas:
                 return int(self.cats[idx[ok][0]])
         return None
 
-    def near(self, bounds, cat: int | None = None) -> np.ndarray:
-        """The parts whose box meets `bounds` (only those of category `cat` when given)."""
+    def near(self, bounds, cat: int | None = None, other: bool = False) -> np.ndarray:
+        """The parts whose box meets `bounds` (only those of category `cat` when given, or all but those when `other`)."""
         b = self.bounds[: self.n]
         hit = (
             (b[:, 0] <= bounds[2])
@@ -399,7 +399,7 @@ class _Canvas:
             & (b[:, 3] >= bounds[1])
         )
         if cat is not None:
-            hit &= self.cats[: self.n] == cat
+            hit &= (self.cats[: self.n] != cat) if other else (self.cats[: self.n] == cat)
         return self.geoms[: self.n][hit]
 
     def shapes(self) -> dict[str, object]:

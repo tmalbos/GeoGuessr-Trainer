@@ -6,7 +6,8 @@ import { discardStaged } from "./imageTools.js";
 import { markKnown, newGid, sendItems, wire } from "./drawItems.js";
 import PaintedLayer, { Units } from "./PaintedLayer.jsx";
 import { setDrawBusy } from "./drawBusy.js";
-import { TileBackdrop, TilesIcon, makeProjection } from "./drawTiles.jsx";
+import { TileBackdrop, TilesIcon } from "./drawTiles.jsx";
+import { makeProjection } from "./projections.js";
 import "./draw.css";
 
 const W = 1000;
@@ -38,7 +39,7 @@ const alpha = (shade) => 0.85 * shadeFactor(shade);
  *  Shift + wheel changes the shade. Nothing is named and nothing is clickable on the card, so there is no renaming or images.
  *  The drawing is built by the same endpoint as DrawMap, turned into a GeoJSON with a `shade` per feature, staged through
  *  `stage` and handed to `onResult` (null when nothing is drawn). */
-export default function ShadeDraw({ cc, stage, onResult, stored, storedView, onView }) {
+export default function ShadeDraw({ cc, stage, onResult, stored, storedView, onView, projection }) {
   const [base, setBase] = useState(null);
   const [err, setErr] = useState("");
   const [level, setLevel] = useState(0);
@@ -149,7 +150,19 @@ export default function ShadeDraw({ cc, stage, onResult, stored, storedView, onV
   useEffect(() => { setDrawBusy(busy); }, [busy]);
   useEffect(() => () => setDrawBusy(false), []);
 
-  const proj = useMemo(() => { const bb = base && bboxOf(base); return bb ? makeProjection(bb) : null; }, [base]);
+  const proj = useMemo(() => { const bb = base && bboxOf(base); return bb ? makeProjection(projection, bb) : null; }, [base, projection]);
+  // A new projection moves everything on the map: start again from the whole country and drop the locked framing.
+  // The real map behind the drawing only exists in Mercator.
+  const lastProjection = useRef(projection);
+  useEffect(() => {
+    if (lastProjection.current !== projection) {
+      lastProjection.current = projection;
+      setView({ x: 0, y: 0, w: W });
+      setLocked(null);
+      onView?.(null);
+    }
+    if (proj && !proj.toWorld) setTiles(false);
+  }, [projection, proj]); // eslint-disable-line react-hooks/exhaustive-deps
   const landD = useMemo(() => (proj ? shapes(base, proj.fwd).polys : ""), [proj, base]);
   const unitPaths = useMemo(() => (proj && units ? units.map((u) => ({ id: u.id, name: u.name, d: shapes(u.geometry, proj.fwd).polys })) : []), [proj, units]);
   // Shades are drawn opaque (the colour mixed into the land colour), so overlapping strokes look the same as the server result.
@@ -301,7 +314,7 @@ export default function ShadeDraw({ cc, stage, onResult, stored, storedView, onV
     if (!d || d.kind !== "draw") return;
     setLive(null);
     // The brush is a screen size: zoomed in, the same brush covers less of the map.
-    const item = { op: tool === "erase" ? "erase" : "stroke", width: ((size * view.w) / W / proj.s) * Math.cos((proj.inv(d.pts[0])[1] * Math.PI) / 180), points: d.pts.map(proj.inv), w: (size * view.w) / W, d: pathOf(d.pts) };
+    const item = { op: tool === "erase" ? "erase" : "stroke", width: ((size * view.w) / W) / proj.perLat(proj.inv(d.pts[0])), points: d.pts.map(proj.inv), w: (size * view.w) / W, d: pathOf(d.pts) };
     setItems((it) => [...it, tool === "erase" ? item : { ...item, slot: sel }]);
   };
 
@@ -310,7 +323,7 @@ export default function ShadeDraw({ cc, stage, onResult, stored, storedView, onV
   return <>
     <div className={`dm ${tiles ? "tiles" : ""}`}>
       {proj ? <>
-        {tiles && <TileBackdrop proj={proj} view={view} />}
+        {tiles && proj.toWorld && <TileBackdrop proj={proj} view={view} />}
         <div className="dm-levels" role="group" aria-label="Subdivision level">
           {(nLevels ? Array.from({ length: nLevels }, (_, i) => [i + 1, `Adm ${i + 1}`]) : [[0, "National"]]).map(([v, l]) =>
             <button key={l} type="button" className={level === v ? "on" : ""} aria-pressed={level === v} onClick={() => setLevel(v)}>{l}</button>)}
@@ -320,7 +333,7 @@ export default function ShadeDraw({ cc, stage, onResult, stored, storedView, onV
           onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={up}>
           <path className="cl-r" d={landD} fillRule="evenodd" />
           <Units paths={unitPaths} click={tool === "fill"} onPick={onPick} />
-          <g className="dm-paint"><PaintedLayer items={items} fwd={proj.fwd} H={proj.H} land={landD} fillOf={fillOf} /></g>
+          <g className="dm-paint"><PaintedLayer items={items} fwd={proj.fwd} perLat={proj.perLat} H={proj.H} land={landD} fillOf={fillOf} /></g>
           {lockBox && <rect x={lockBox.x} y={lockBox.y} width={lockBox.w} height={(lockBox.w * proj.H) / W} fill="none" stroke="#ffd04d"
             strokeWidth="2" strokeDasharray="8 5" vectorEffect="non-scaling-stroke" style={{ pointerEvents: "none" }} />}
           {live && <path d={pathOf(live)} fill="none" strokeLinecap="round" strokeLinejoin="round" strokeWidth={unit}
@@ -338,8 +351,8 @@ export default function ShadeDraw({ cc, stage, onResult, stored, storedView, onV
       <button type="button" className="ed-tool" aria-pressed={!!locked} aria-label={locked ? "Unlock view" : "Lock view"} disabled={!proj}
         title={locked ? "Unlock view (the card shows the whole map)" : "Lock view: the card opens on the zoom and position on screen now"} onClick={toggleLock}>
         <svg {...ico}><rect x="5" y="11" width="14" height="9" rx="2" /><path d={locked ? "M8 11V8a4 4 0 0 1 8 0v3" : "M8 11V8a4 4 0 0 1 7.5-2"} /></svg></button>
-      <button type="button" className="ed-tool" aria-pressed={tiles} aria-label="Show the map behind the drawing" disabled={!proj}
-        title="Show the map behind the drawing" onClick={() => setTiles((v) => !v)}><TilesIcon /></button>
+      <button type="button" className="ed-tool" aria-pressed={tiles} aria-label="Show the map behind the drawing" disabled={!proj?.toWorld}
+        title={proj?.toWorld ? "Show the map behind the drawing" : "The map behind the drawing is only available with the Mercator projection"} onClick={() => setTiles((v) => !v)}><TilesIcon /></button>
       <span className={`dm-status ${err && proj ? "err" : "muted"}`}>{proj && err ? err : busy ? "Saving…" : ""}</span>
     </div>
     {proj && <div className="dm-cats">

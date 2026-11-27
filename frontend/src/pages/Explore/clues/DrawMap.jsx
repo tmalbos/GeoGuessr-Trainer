@@ -13,7 +13,8 @@ import { createPortal } from "react-dom";
 import { streetViewAvailable } from "../../../lib/mapProviders.js";
 import { stageFile } from "./imageTools.js";
 import { resolveStreetView, streetViewShot } from "./mediaKinds.js";
-import { TileBackdrop, TilesIcon, makeProjection } from "./drawTiles.jsx";
+import { TileBackdrop, TilesIcon } from "./drawTiles.jsx";
+import { makeProjection } from "./projections.js";
 import "./draw.css";
 
 const W = 1000;
@@ -99,7 +100,7 @@ function CategoryImage({ name, value, look, onChange, onLook }) {
  *  (null when nothing is drawn). `trailing` goes at the end of the toolbar row (the Import | Draw switch).
  *  Lock (toolbar): remembers the zoom and position on screen as `{ k, fx, fy }` (see ZoomableRegion) and hands it to `onView`;
  *  the card then opens on that framing instead of the whole country. `storedView` is the framing already locked (null = none). */
-export default function DrawMap({ cc, stage, onResult, trailing, optionsEl, showNames, prefixColors, stored, storedView, onView, maxH, onMaxH }) {
+export default function DrawMap({ cc, stage, onResult, trailing, optionsEl, showNames, prefixColors, stored, storedView, onView, maxH, onMaxH, projection }) {
   const [base, setBase] = useState(null);
   const [err, setErr] = useState("");
   const [level, setLevel] = useState(0);
@@ -243,7 +244,19 @@ export default function DrawMap({ cc, stage, onResult, trailing, optionsEl, show
   useEffect(() => { setDrawBusy(busy); }, [busy]);
   useEffect(() => () => setDrawBusy(false), []);
 
-  const proj = useMemo(() => { const bb = base && bboxOf(base); return bb ? makeProjection(bb) : null; }, [base]);
+  const proj = useMemo(() => { const bb = base && bboxOf(base); return bb ? makeProjection(projection, bb) : null; }, [base, projection]);
+  // A new projection moves everything on the map: start again from the whole country and drop the locked framing.
+  // The real map behind the drawing only exists in Mercator.
+  const lastProjection = useRef(projection);
+  useEffect(() => {
+    if (lastProjection.current !== projection) {
+      lastProjection.current = projection;
+      setView({ x: 0, y: 0, w: W });
+      setLocked(null);
+      onView?.(null);
+    }
+    if (proj && !proj.toWorld) setTiles(false);
+  }, [projection, proj]); // eslint-disable-line react-hooks/exhaustive-deps
   const landD = useMemo(() => (proj ? shapes(base, proj.fwd).polys : ""), [proj, base]);
   const unitPaths = useMemo(() => (proj && units ? units.map((u) => ({ id: u.id, name: u.name, d: shapes(u.geometry, proj.fwd).polys })) : []), [proj, units]);
   const fillOf = useMemo(() => (colored ? colorOf : () => PALE), [colored, palette, slotColors]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -264,7 +277,7 @@ export default function DrawMap({ cc, stage, onResult, trailing, optionsEl, show
   // The map is fitted inside its box (height cap), so the tighter side sets the screen px per map unit.
   const nameScale = svgBox[0] && proj ? Math.round(Math.min(svgBox[0] / view.w, svgBox[1] / ((view.w * proj.H) / W)) * 1000) / 1000 : 0;
   const labels = useMemo(() => (showNames && proj && nameScale > 0
-    ? shown.map((f) => ({ name: f.properties.name, spot: areaNameSpot(f.geometry, f.properties.name, proj.fwd, NAME_PX / nameScale, `${proj.H}|${proj.s}`) })).filter((l) => l.spot)
+    ? shown.map((f) => ({ name: f.properties.name, spot: areaNameSpot(f.geometry, f.properties.name, proj.fwd, NAME_PX / nameScale, `${proj.H}|${proj.s}|${projection}`) })).filter((l) => l.spot)
     : []), [showNames, proj, shown, nameScale]);
 
   // Wheel zoom around the cursor (needs a non-passive listener to stop the page from scrolling).
@@ -446,7 +459,7 @@ export default function DrawMap({ cc, stage, onResult, trailing, optionsEl, show
     if (!d || d.kind !== "draw") return;
     setLive(null);
     // The brush is a screen size: zoomed in, the same brush covers less of the map.
-    const item = { op: tool === "erase" ? "erase" : "stroke", width: ((size * view.w) / W / proj.s) * Math.cos((proj.inv(d.pts[0])[1] * Math.PI) / 180), points: d.pts.map(proj.inv), w: (size * view.w) / W, d: pathOf(d.pts) };
+    const item = { op: tool === "erase" ? "erase" : "stroke", width: ((size * view.w) / W) / proj.perLat(proj.inv(d.pts[0])), points: d.pts.map(proj.inv), w: (size * view.w) / W, d: pathOf(d.pts) };
     setItems((it) => [...it, tool === "erase" ? item : { ...item, slot: sel }]);
   };
 
@@ -480,7 +493,7 @@ export default function DrawMap({ cc, stage, onResult, trailing, optionsEl, show
   return <>
     <div className={`dm named ${tiles ? "tiles" : ""}`} ref={wrap}>
       {proj ? <>
-        {tiles && <TileBackdrop proj={proj} view={view} />}
+        {tiles && proj.toWorld && <TileBackdrop proj={proj} view={view} />}
         <div className="dm-levels" role="group" aria-label="Subdivision level">
           {(nLevels ? Array.from({ length: nLevels }, (_, i) => [i + 1, `Adm ${i + 1}`]) : [[0, "National"]]).map(([v, l]) =>
             <button key={l} type="button" className={level === v ? "on" : ""} aria-pressed={level === v} onClick={() => setLevel(v)}>{l}</button>)}
@@ -490,7 +503,7 @@ export default function DrawMap({ cc, stage, onResult, trailing, optionsEl, show
           onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={up}>
           <path className="cl-r" d={landD} fillRule="evenodd" />
           <Units paths={unitPaths} click={tool === "fill"} onPick={onPick} />
-          <g className="dm-paint"><PaintedLayer items={items} fwd={proj.fwd} H={proj.H} land={landD} fillOf={fillOf} /></g>
+          <g className="dm-paint"><PaintedLayer items={items} fwd={proj.fwd} perLat={proj.perLat} H={proj.H} land={landD} fillOf={fillOf} /></g>
           {labels.map((l) => <AreaName key={l.name} spot={l.spot} />)}
           {lockBox && <rect x={lockBox.x} y={lockBox.y} width={lockBox.w} height={(lockBox.w * proj.H) / W} fill="none" stroke="#ffd04d"
             strokeWidth="2" strokeDasharray="8 5" vectorEffect="non-scaling-stroke" style={{ pointerEvents: "none" }} />}
@@ -515,8 +528,8 @@ export default function DrawMap({ cc, stage, onResult, trailing, optionsEl, show
       <button type="button" className="ed-tool" aria-pressed={!!locked} aria-label={locked ? "Unlock view" : "Lock view"} disabled={!proj}
         title={locked ? "Unlock view (the card shows the whole map)" : "Lock view: the card opens on the zoom and position on screen now"} onClick={toggleLock}>
         <svg {...ico}><rect x="5" y="11" width="14" height="9" rx="2" /><path d={locked ? "M8 11V8a4 4 0 0 1 8 0v3" : "M8 11V8a4 4 0 0 1 7.5-2"} /></svg></button>
-      <button type="button" className="ed-tool" aria-pressed={tiles} aria-label="Show the map behind the drawing" disabled={!proj}
-        title="Show the map behind the drawing" onClick={() => setTiles((v) => !v)}><TilesIcon /></button>
+      <button type="button" className="ed-tool" aria-pressed={tiles} aria-label="Show the map behind the drawing" disabled={!proj?.toWorld}
+        title={proj?.toWorld ? "Show the map behind the drawing" : "The map behind the drawing is only available with the Mercator projection"} onClick={() => setTiles((v) => !v)}><TilesIcon /></button>
       <span className={`dm-status ${err && proj ? "err" : "muted"}`}>{proj && err ? err : busy ? "Saving…" : ""}</span>
       {trailing}
     </div>

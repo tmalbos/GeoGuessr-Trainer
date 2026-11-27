@@ -18,6 +18,7 @@ import { useDrawBusy } from "./drawBusy.js";
 import fileUrl from "./fileUrl.js";
 import { discardStaged, stageFile, stagePath } from "./imageTools.js";
 import { kindOfFile, kindOfName, resolveStreetView, streetViewShot } from "./mediaKinds.js";
+import { PROJECTIONS } from "./projections.js";
 import { NOTE_TYPES, REL_LABEL, VERBS, joinNames, sameRel, uniq, verbFor } from "./relations.js";
 import { LocationIcon } from "./tagUi.jsx";
 import { CATEGORY_ICONS, DEFAULT_LOCATION, GENERAL_TAGS, LOCATION_TAGS, RATINGS, tagHue } from "./tags.js";
@@ -111,6 +112,7 @@ export default function ClueEditor({ cc, name, clue, prefill, onClose, onSaved, 
   const [showNames, setShowNames] = useState(clue?.show_names !== false); // drawn areas: print their names on the map (on by default)
   const [prefixColors, setPrefixColors] = useState(!!clue?.prefix_colors); // drawn areas: colour by the start of the names (area codes...)
   const [view, setView] = useState(clue?.view ?? null); // drawn areas: the zoom / pan the card opens on (null = the whole country)
+  const [projection, setProjection] = useState(clue?.projection ?? "flat"); // regional clue: the map projection of the editor AND the card
   const [img, setImg] = useState({ has: !!clue?.image, sig: ":0" }); // reported by ClueImage
   // The media slot: an image (handled by ClueImage), or an SVG / CSV / geometry staged here.
   const [media, setMedia] = useState(() => initialMedia(clue));
@@ -181,7 +183,7 @@ export default function ClueEditor({ cc, name, clue, prefill, onClose, onSaved, 
 
   // Only ratings set by hand count as "changes": the automatic ones alone shouldn't make a fresh form look dirty.
   const snapshot = () => JSON.stringify([scope, info, general, location, RATINGS.map(([k]) => (manual[k] ? rating[k] : null)), blur, maxH, showNames, prefixColors,
-    view, img.sig, source, relations, notes, mainKind, media.upload?.token ?? "", area.kind, area.upload?.token ?? ""]);
+    view, projection, img.sig, source, relations, notes, mainKind, media.upload?.token ?? "", area.kind, area.upload?.token ?? ""]);
   const initial = useRef(snapshot());
   const dirty = snapshot() !== initial.current;
   const requestClose = () => (dirty ? setConfirm(true) : onClose());
@@ -377,6 +379,7 @@ export default function ClueEditor({ cc, name, clue, prefill, onClose, onSaved, 
       show_names: isImage || showNames,
       prefix_colors: namedAreas && prefixColors,
       view: drawing || showArea ? view : null,
+      projection: scope === "reg" ? projection : "flat",
       frequency: num(rating.frequency), ease: num(rating.ease), reliability: num(rating.reliability),
       source: source.trim(),
       relations,
@@ -419,10 +422,10 @@ export default function ClueEditor({ cc, name, clue, prefill, onClose, onSaved, 
   // What the media box shows when it is not a picture. A stored CSV / geometry is drawn on its country.
   const mediaPreview = media.kind && media.kind !== "image"
     ? media.upload
-      ? <Preview kind={media.kind} v={media.upload} cc={cc} showNames={showNames} />
+      ? <Preview kind={media.kind} v={media.upload} cc={cc} showNames={showNames} projection={projection} />
       : media.kind === "svg"
         ? <img className="ed-media-img" src={fileUrl(cc, clue?.svg, clue?.rev)} alt="" />
-        : clue ? <div className="clue-full"><ClueMap cc={cc} clue={{ ...clue, show_names: showNames }} /></div> : undefined
+        : clue ? <div className="clue-full"><ClueMap cc={cc} clue={{ ...clue, show_names: showNames, projection }} /></div> : undefined
     : undefined;
 
   // The region a stored photo already has. It is drawn on the photo (AreaPicker), so the slot only names it.
@@ -458,13 +461,19 @@ export default function ClueEditor({ cc, name, clue, prefill, onClose, onSaved, 
       {/* Same grid as the clue card: media on the left, body on the right. */}
       <div className="clue ed-clue">
         <div className="ed-left" ref={colRef}>
-          {drawing ? <DrawMap cc={cc} stage={stageInput} onResult={takeDrawn} trailing={modeToggle} optionsEl={chkEl} showNames={showNames} prefixColors={prefixColors} stored={clue?.polygons ?? null} storedView={view} onView={setView} maxH={maxH} onMaxH={setMaxH} /> : <ClueImage ref={imgApi} current={imageGone ? null : clue?.image ? fileUrl(cc, clue.image, clue.rev) : null} colRef={colRef} overlay={badges}
+          {drawing ? <DrawMap cc={cc} stage={stageInput} onResult={takeDrawn} trailing={modeToggle} optionsEl={chkEl} showNames={showNames} prefixColors={prefixColors} stored={clue?.polygons ?? null} storedView={view} onView={setView} maxH={maxH} onMaxH={setMaxH} projection={projection} /> : <ClueImage ref={imgApi} current={imageGone ? null : clue?.image ? fileUrl(cc, clue.image, clue.rev) : null} colRef={colRef} overlay={badges}
             preview={mediaPreview} incoming={incoming}
             regionSlot={showArea} onOverlay={setOvEl} loading={mediaBusy || (!!prefill?.pending && !mainKind)} reserve={reserve}
             onOtherFile={(f) => takeMedia({ file: f })} onOtherText={(t) => takeMedia({ text: t })} onRemove={removeMedia}
             blur={blur} onBlur={setBlur} maxH={maxH} onMaxH={setMaxH} trailing={modeToggle}
             onState={(h, sig) => setImg((p) => (p.has === h && p.sig === sig ? p : { has: h, sig }))} />}
           {mediaErr && <p className="err">{mediaErr}</p>}
+          {scope === "reg" && <div className="vis-row">
+            <label htmlFor="ed-projection">Map projection</label>
+            <select id="ed-projection" value={projection} onChange={(e) => setProjection(e.target.value)}>
+              {PROJECTIONS.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
+            </select>
+          </div>}
           {namedAreas && <div className="chk-line">
             <label className="chk-row"><input type="checkbox" checked={showNames} onChange={(e) => setShowNames(e.target.checked)} />
               Show category names on the map</label>
@@ -474,7 +483,7 @@ export default function ClueEditor({ cc, name, clue, prefill, onClose, onSaved, 
             Color by prefix</label>}
           {/* A photo can't say which region it is: the region is mandatory in that case. It is drawn on the photo above. */}
           {showArea && <AreaPicker cc={cc} value={area.upload} current={areaCurrent} onChange={takeArea} stage={stageInput}
-            initialPicture={prefill?.areaFile} overlayEl={ovEl} clue={clue} loading={!!prefill?.pending} reserve={prefill?.aspect} view={view} onView={setView} />}
+            initialPicture={prefill?.areaFile} overlayEl={ovEl} clue={clue} loading={!!prefill?.pending} reserve={prefill?.aspect} view={view} onView={setView} projection={projection} />}
           <div className="ed-rels">
             {relations.map((r) => {
               const o = snippetOf(r);

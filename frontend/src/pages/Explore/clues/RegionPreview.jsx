@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { api } from "../../../lib/api.js";
-import { bboxOf, fitProjection, shadeFactor, shapes } from "./geoDraw.js";
+import { bboxOf, shadeFactor, shapes } from "./geoDraw.js";
+import { makeProjection } from "./projections.js";
 import "./import-extras.css";
 import "./areas.css";
 
@@ -290,7 +291,7 @@ function Pin({ at: [x, y], className = "cl-poly", style, children, size = 1.5, .
  *  polygon. With `onStain(id)` each one can be clicked (or Enter / Space) to switch it off and on; an inactive stain is
  *  drawn grey, faint and dashed. A stain smaller than 2% of the country is drawn as a pin (see above).
  *  align="right": the country is drawn against the right edge of the box (used by the overlay on a clue photo). */
-export default function RegionPreview({ cc, layers, stains, onStain, onArea, selected, showNames, style, align, zoom, onZoom, pan, focus, onUnfocus, label = "Map of the country with the region painted on it" }) {
+export default function RegionPreview({ cc, layers, stains, onStain, onArea, selected, showNames, style, align, projection, zoom, onZoom, pan, focus, onUnfocus, label = "Map of the country with the region painted on it" }) {
   const [base, setBase] = useState(undefined); // undefined = loading, null = not available
   const [stainColor, setStainColor] = useState(null);
   const [svgEl, setSvgEl] = useState(null);
@@ -329,12 +330,11 @@ export default function RegionPreview({ cc, layers, stains, onStain, onArea, sel
   if (!bb) return null;
 
   const W = 1000;
-  const k = Math.cos((((bb[1] + bb[3]) / 2) * Math.PI) / 180) || 1;
-  const ratio = (bb[3] - bb[1]) / Math.max((bb[2] - bb[0]) * k, 1e-6);
-  const H = Math.round(Math.min(1400, Math.max(200, W * ratio)));
-  // A tall country is narrower than the viewBox: fitProjection would centre it, so right-align it there
+  // A tall country is narrower than the viewBox: makeProjection would centre it, so right-align it there
   // (and preserveAspectRatio below does the same when the box itself is wider than the drawing).
-  const project = fitProjection(bb, W, H, 6, align === "right" && !zoom && !focus);
+  const proj = makeProjection(projection, bb, align === "right" && !zoom && !focus);
+  const H = proj.H;
+  const project = proj.fwd;
   const land = outline ? shapes(outline, project).polys : "";
   const borders = base?.borders ? shapes(base.borders, project).lines : "";
 
@@ -429,7 +429,7 @@ export default function RegionPreview({ cc, layers, stains, onStain, onArea, sel
     {hoveredArea && hoveredArea !== selected && areaLayers.flatMap((g) => g.geometries.map((geom, i) => (g.names?.[i] === hoveredArea
       ? <path key={`hover-${hoveredArea}-${i}`} className="cl-area-ring" d={shapes(geom, project).polys} fillRule="evenodd" /> : null)))}
     {showNames && scale > 0 && areaLayers.flatMap((g) => groupsOf(g).map(([name, geom], i) => {
-      const spot = areaNameSpot(geom, name, project, NAME_PX / scale, `${bb.join()}|${W}|${H}|${align}`);
+      const spot = name ? areaNameSpot(geom, name, project, NAME_PX / scale, `${bb.join()}|${W}|${H}|${align}|${projection}`) : null;
       return spot && <AreaName key={`name-${name}-${i}`} spot={spot} />;
     }))}
     {(stains ?? []).map((s) => {

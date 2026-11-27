@@ -91,7 +91,7 @@ router = APIRouter()
 # ── overlay (the region pre-drawn on its country) ──────────────────────────
 
 
-def _render_overlay(cc: str, geo_file: Path, local) -> str | None:
+def _render_overlay(cc: str, geo_file: Path, local, projection: str = "flat") -> str | None:
     """SVG text of a clue's geometry drawn on its country, or None when it can't be made
     (geo layers not loaded, unreadable file). Never raises: the card then draws the geometry itself.
     """
@@ -109,7 +109,7 @@ def _render_overlay(cc: str, geo_file: Path, local) -> str | None:
         if outline is not None:
             keep &= shapely.dwithin(geoms, outline, 0.01)  # nothing far from the trimmed outline
         borders = _borders(local, cc) if outline is not None else None
-        return render_overlay(outline, borders, [(geoms[keep], shades[keep])])
+        return render_overlay(outline, borders, [(geoms[keep], shades[keep])], projection)
     except Exception:
         logger.exception("Could not draw the overlay of %s", geo_file.name)
         return None

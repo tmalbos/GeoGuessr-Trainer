@@ -90,6 +90,9 @@ class ClueBody(BaseModel):
     prefix_colors: bool = (
         False  # drawn regional clue: colour the areas by the start of their names (area codes...)
     )
+    projection: Literal["flat", "mercator", "conic"] = (
+        "flat"  # map projection of a regional clue: the editor and the card draw with the same one
+    )
     source: str = ""  # link to where the information came from (optional)
     relations: list[
         RelationIn
@@ -193,6 +196,9 @@ def add_clue(cc: str, body: ClueBody, request: Request):
                 "show_names": None if body.show_names else False,
                 "view": body.view.model_dump() if body.view and body.scope == "reg" else None,
                 "prefix_colors": True if body.prefix_colors and body.scope == "reg" else None,
+                "projection": body.projection
+                if body.projection != "flat" and body.scope == "reg"
+                else None,
                 **names,
             }
             entry = {k: v for k, v in entry.items() if v is not None}
@@ -200,7 +206,9 @@ def add_clue(cc: str, body: ClueBody, request: Request):
                 entry.pop("blur", None)
             geo_kind = next((k for k in GEOM_KINDS if k in names), None)
             if body.scope == "reg" and geo_kind:
-                svg = _render_overlay(cc, folder / names[geo_kind], get_ctx(request).local_geo)
+                svg = _render_overlay(
+                    cc, folder / names[geo_kind], get_ctx(request).local_geo, body.projection
+                )
                 if svg:
                     entry["overlay"] = _overlay_name(names[geo_kind])
                     _write_overlay(folder, entry["overlay"], svg)
@@ -402,6 +410,9 @@ def update_clue(cc: str, clue_id: str, body: ClueBody, request: Request):
                 "show_names": None if body.show_names else False,
                 "view": body.view.model_dump() if body.view and body.scope == "reg" else None,
                 "prefix_colors": True if body.prefix_colors and body.scope == "reg" else None,
+                "projection": body.projection
+                if body.projection != "flat" and body.scope == "reg"
+                else None,
                 **kept,
                 **names,
             }
@@ -412,7 +423,7 @@ def update_clue(cc: str, clue_id: str, body: ClueBody, request: Request):
             if entry["scope"] == "reg" and geo_kind:
                 # A geometry file that is being overwritten is still the staged one at this point.
                 geo_file = overwrite.get(geo_kind, folder / entry[geo_kind])
-                svg = _render_overlay(cc, geo_file, get_ctx(request).local_geo)
+                svg = _render_overlay(cc, geo_file, get_ctx(request).local_geo, body.projection)
                 if svg:
                     entry["overlay"] = _overlay_name(entry[geo_kind])
                     _write_overlay(folder, entry["overlay"], svg)

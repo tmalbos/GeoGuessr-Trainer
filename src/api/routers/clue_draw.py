@@ -68,7 +68,11 @@ def _fill(local, cc: str, body: FillBody) -> dict:
     pt = shapely.Point(body.point)
     canvas = _canvas(local, cc, body.items)
     cat = canvas.at(pt)
-    if cat is not None:
+    if cat is not None and body.whole:
+        # Shift on a painted stain: that stain plus every unpainted gap of the division. Other stains stay as they are.
+        others = canvas.near(unit.bounds, cat, other=True)
+        area = shapely.difference(unit, shapely.union_all(others)) if len(others) else unit
+    elif cat is not None:
         area = shapely.intersection(unit, shapely.union_all(canvas.near(unit.bounds, cat)))
     elif body.erase:
         return {"geometry": None}
