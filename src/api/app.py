@@ -11,7 +11,6 @@ from src.api.routers import (
     analysis,
     clue_base,
     clue_draw,
-    clue_pack,
     history,
     osm_extract,
     pbf_admin,
@@ -25,6 +24,7 @@ from src.api.routers import (
 )
 from src.app_context import AppContext
 from src.explore import endpoints as explore
+from src.explore import export_clues, import_clues
 from src.explore.country_clues import endpoints as clue_read
 from src.explore.country_clues import regional_stain_areas as stain
 from src.explore.country_clues.anki import endpoints as anki_export
@@ -61,7 +61,8 @@ for router_module in (
     clue_edit,
     clue_base,
     clue_draw,
-    clue_pack,
+    export_clues,
+    import_clues,
     explore,
     replay_report,
     streetview,

@@ -93,6 +93,12 @@ def _country_km2(local, code: str) -> float:
     return value
 
 
+def _valid(entry: dict) -> bool:
+    if entry["scope"] == "nat":
+        return "image" in entry
+    return any(k in entry for k in AREA_KINDS)
+
+
 def _apply_medal(cc: str, entry: dict, request: Request, folder: Path, override=None) -> None:
     """Store `score` and `medal` on a clue. Computed once, when the clue is saved (see badges.py).
 
