@@ -4,7 +4,7 @@ import { DEFAULT_DRAW_LEVEL_SHORTCUTS, sameShortcut } from "../../../lib/shortcu
 import { bboxOf, shapes } from "./geoDraw.js";
 import { discardStaged, loadImage, stagedUrl } from "./imageTools.js";
 import { markKnown, newGid, reuseGeometry, sendItems, wire } from "./drawItems.js";
-import { AreaName, NAME_PX, areaNameSpot } from "./RegionPreview.jsx";
+import { LabelLayer, layoutLabels, useImageDims } from "./RegionPreview.jsx";
 import ClueImage from "./ClueImage.jsx";
 import PaintedLayer, { Units } from "./PaintedLayer.jsx";
 import { setDrawBusy } from "./drawBusy.js";
@@ -274,9 +274,17 @@ export default function DrawMap({ cc, stage, onResult, trailing, optionsEl, show
   }, [proj]);
   // The map is fitted inside its box (height cap), so the tighter side sets the screen px per map unit.
   const nameScale = svgBox[0] && proj ? Math.round(Math.min(svgBox[0] / view.w, svgBox[1] / ((view.w * proj.H) / W)) * 1000) / 1000 : 0;
-  const labels = useMemo(() => (showNames && proj && nameScale > 0
-    ? shown.map((f) => ({ name: f.properties.name, spot: areaNameSpot(f.geometry, f.properties.name, proj.fwd, NAME_PX / nameScale, `${proj.H}|${proj.s}|${projection}`) })).filter((l) => l.spot)
-    : []), [showNames, proj, shown, nameScale]);
+  const imgVer = useImageDims(Object.values(images));
+  const labels = useMemo(() => {
+    if (!showNames || !proj || !(nameScale > 0)) return null;
+    const imageOf = new Map();
+    for (const it of items) if (it.op !== "erase" && images[it.slot] && !imageOf.has(nameOf(it.slot))) imageOf.set(nameOf(it.slot), images[it.slot]);
+    return layoutLabels({
+      groups: shown.map((f) => [f.properties.name, f.geometry, imageOf.get(f.properties.name) ?? null]),
+      project: proj.fwd, outline: base, view: { x: view.x, y: view.y, w: view.w, h: (view.w * proj.H) / W },
+      scale: nameScale, sig: `${proj.H}|${proj.s}|${projection}`,
+    });
+  }, [showNames, proj, shown, nameScale, items, images, custom, view, base, imgVer]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Wheel zoom around the cursor (needs a non-passive listener to stop the page from scrolling).
   useEffect(() => {
@@ -546,7 +554,7 @@ export default function DrawMap({ cc, stage, onResult, trailing, optionsEl, show
           <path className="cl-r" d={landD} fillRule="evenodd" />
           <Units paths={unitPaths} click={tool === "fill"} onPick={onPick} />
           <g className="dm-paint"><PaintedLayer items={items} fwd={proj.fwd} perLat={proj.perLat} H={proj.H} land={landD} fillOf={fillOf} /></g>
-          {labels.map((l) => <AreaName key={l.name} spot={l.spot} />)}
+          {labels && <LabelLayer lay={labels} u={1 / nameScale} />}
           {lockBox && <>
             <rect x={lockBox.x} y={lockBox.y} width={lockBox.w} height={lockBox.h} fill="none" stroke="#ffd04d"
               strokeWidth="2" strokeDasharray="8 5" vectorEffect="non-scaling-stroke" style={{ pointerEvents: "none" }} />

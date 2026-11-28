@@ -241,13 +241,13 @@ export function nameSpot(geom, name, project, px) {
 // nameSpot is the slow part and the map re-renders often: remember its answer per shape and size.
 // `sig` says which projection `project` is.
 const SPOTS = new WeakMap();
-export function areaNameSpot(geom, name, project, px, sig, image = false) {
+export function areaNameSpot(geom, name, project, px, sig) {
   let seen = SPOTS.get(geom);
   if (!seen) { seen = new Map(); SPOTS.set(geom, seen); }
-  const key = `${image ? "\0img" : name}|${px.toFixed(2)}|${sig}`;
+  const key = `${name}|${px.toFixed(2)}|${sig}`;
   if (!seen.has(key)) {
     if (seen.size > 60) seen.clear();
-    seen.set(key, image ? thumbSpot(geom, project, px) : nameSpot(geom, name, project, px));
+    seen.set(key, nameSpot(geom, name, project, px));
   }
   return seen.get(key);
 }
@@ -279,21 +279,46 @@ export function AreaName({ spot }) {
   </text>;
 }
 
-// ── Labels that don't fit on their area ──
-// An area with an image shows it as a miniature (THUMB_PX wide) instead of its name. When a label doesn't fit on its
-// area (whole map in view only), a dot inside the area is joined by a line to the label, which goes in the empty space
-// beside the country: a left or right column, stacked top to bottom without overlapping.
-const THUMB_PX = 36;
-const COL_SHARE = 0.2; // width of each label column, as a share of the map width
-const GAP_SHARE = 0.02; // space between the country and a column
-const STACK_GAP = 6;
+// ── Labels of named areas ──
+// An area with an image shows it as a miniature (its real proportions, as big as fits) instead
+// of its name. A label that doesn't fit on its area goes in empty space INSIDE the country's bounding box (outside the
+// country or on land nobody painted, never over a painted area): a dot on the area is joined by a line to the label. Lines never touch each other or another label. Where there
+// is no such space, nothing is shown. Works on whatever part of the map is in view (zoomed or not).
+const THUMB_SIDES = [640, 480, 360, 280, 220, 170, 130, 100, 80, 64, 50, 42, 36]; // px: longest side of a miniature, biggest first
+const CALL_MAX_SIDE = 100; // a miniature in free space stays this small, so it doesn't take the room other labels need
+const CELL_PX = 6; // resolution of the free-space search
+const MAX_TESTS = 300; // spots tried (nearest first) before giving up on a label
 
-function thumbSpot(geom, project, t) {
-  for (const part of pieces(geom, project)) {
-    const hit = bestIn(part, t, t / 2);
-    if (hit) return { x: hit.x, y: hit.y, size: t };
+// Natural size of every miniature, read once (the area's `extra` is a data URI).
+const DIMS = new Map(); // uri -> [w, h], or null when it can't be read
+const LOADING = new Set();
+const SUBS = new Set();
+function loadDims(uri) {
+  if (DIMS.has(uri) || LOADING.has(uri)) return;
+  LOADING.add(uri);
+  const img = new Image();
+  const done = (v) => { LOADING.delete(uri); DIMS.set(uri, v); SUBS.forEach((f) => f()); };
+  img.onload = () => done([img.naturalWidth, img.naturalHeight]);
+  img.onerror = () => done(null);
+  img.src = uri;
+}
+
+const fitBox = ([w, h], side) => (w >= h ? [side, (side * h) / w] : [(side * w) / h, side]);
+
+function areaThumbSpot(geom, project, bw, bh, sig) {
+  let seen = SPOTS.get(geom);
+  if (!seen) { seen = new Map(); SPOTS.set(geom, seen); }
+  const key = `img|${bw.toFixed(1)}x${bh.toFixed(1)}|${sig}`;
+  if (!seen.has(key)) {
+    if (seen.size > 60) seen.clear();
+    let spot = null;
+    for (const part of pieces(geom, project)) {
+      const hit = bestIn(part, bw, bh / 2);
+      if (hit) { spot = { x: hit.x, y: hit.y, w: bw, h: bh }; break; }
+    }
+    seen.set(key, spot);
   }
-  return null;
+  return seen.get(key);
 }
 
 // A point inside the area's biggest piece: its centre, or the middle of the widest stretch at that height.
@@ -306,91 +331,261 @@ function anchorOf(geom, project) {
   return [(a + b) / 2, part.cy];
 }
 
-// Left and right edge of a country outline in map units (null when it has no polygons).
-function xRangeOf(g, project) {
-  const polys = g.type === "MultiPolygon" ? g.coordinates : g.type === "Polygon" ? [g.coordinates] : [];
-  let lo = Infinity;
-  let hi = -Infinity;
-  for (const p of polys) for (const [x] of p[0].map(project)) { lo = Math.min(lo, x); hi = Math.max(hi, x); }
-  return Number.isFinite(lo) ? [lo, hi] : null;
-}
+const labelBox = (s) => {
+  const w = s.lines ? Math.max(...s.lines.map((t) => t.length)) * s.size * CHAR_W + s.size * 0.3 : s.w;
+  const h = s.lines ? s.lines.length * s.size * 1.1 : s.h;
+  return { x0: s.x - w / 2, y0: s.y - h / 2, x1: s.x + w / 2, y1: s.y + h / 2 };
+};
 
-function wrapName(name, f, maxW) {
-  const per = Math.max(1, Math.floor(maxW / (f * CHAR_W)));
-  const lines = [];
-  let cur = "";
-  for (const word of name.split(" ")) {
-    if (cur && cur.length + 1 + word.length > per) { lines.push(cur); cur = word; }
-    else cur = cur ? `${cur} ${word}` : word;
+// The country outline as horizontal-scan data, so "which stretches of this row are land" is cheap. Built once per projection.
+const OUTLINES = new WeakMap();
+const BUCKET = 4;
+function outlineIndex(outline, project, sig) {
+  let by = OUTLINES.get(outline);
+  if (!by) { by = new Map(); OUTLINES.set(outline, by); }
+  if (by.has(sig)) return by.get(sig);
+  if (by.size > 8) by.clear();
+  const polys = outline.type === "MultiPolygon" ? outline.coordinates : outline.type === "Polygon" ? [outline.coordinates] : [];
+  const edges = [];
+  let x0 = Infinity;
+  let x1 = -Infinity;
+  let y0 = Infinity;
+  let y1 = -Infinity;
+  for (const p of polys) {
+    for (const ring of p) {
+      const q = ring.map(project);
+      for (let i = 0; i < q.length; i++) {
+        const a = q[i];
+        const b = q[(i + 1) % q.length];
+        x0 = Math.min(x0, a[0]); x1 = Math.max(x1, a[0]); y0 = Math.min(y0, a[1]); y1 = Math.max(y1, a[1]);
+        if (a[1] !== b[1]) edges.push([a[0], a[1], b[0], b[1]]);
+      }
+    }
   }
-  lines.push(cur);
-  return { lines, size: Math.min(f, maxW / (Math.max(...lines.map((t) => t.length)) * CHAR_W)) };
+  const lo = Math.floor(y0 / BUCKET);
+  const buckets = Array.from({ length: Number.isFinite(y1) ? Math.floor(y1 / BUCKET) - lo + 1 : 0 }, () => []);
+  edges.forEach((e, k) => {
+    for (let i = Math.floor(Math.min(e[1], e[3]) / BUCKET) - lo; i <= Math.floor(Math.max(e[1], e[3]) / BUCKET) - lo; i++) buckets[i].push(k);
+  });
+  const index = { edges, buckets, lo, box: Number.isFinite(x0) ? { x0, y0, x1, y1 } : null };
+  by.set(sig, index);
+  return index;
 }
 
-/** groups = [[name, geometry, image | null]]. -> { on: labels sitting on their area, calls: labels in a side column
- *  (with the dot `at` and the end of the line), x0 / x1: the horizontal extent the view needs to show the columns }.
- *  Without `callouts` the labels that don't fit are left out. */
-function layoutLabels(groups, project, ext, W, H, scale, sig, callouts) {
+// Stretches [a, b] of the row at height y that are inside the country (even-odd, so holes count).
+function landSpans(ix, y) {
+  const b = Math.floor(y / BUCKET) - ix.lo;
+  if (b < 0 || b >= ix.buckets.length) return [];
+  const xs = [];
+  for (const k of ix.buckets[b]) {
+    const [x1, y1, x2, y2] = ix.edges[k];
+    if ((y1 <= y) !== (y2 <= y)) xs.push(x1 + ((y - y1) / (y2 - y1)) * (x2 - x1));
+  }
+  xs.sort((p, q) => p - q);
+  const out = [];
+  for (let i = 0; i + 1 < xs.length; i += 2) out.push([xs[i], xs[i + 1]]);
+  return out;
+}
+
+// Grid over `region` (the view inside the country's bounding box): 1 = a painted area (grown by one cell) or already used.
+// Land nobody painted is free, like the space outside the country.
+function freeGrid(painted, region, cell) {
+  const cols = Math.max(1, Math.ceil(region.w / cell));
+  const rows = Math.max(1, Math.ceil(region.h / cell));
+  const land = new Uint8Array(cols * rows);
+  const mark = (x, y) => {
+    const c = Math.floor((x - region.x) / cell);
+    const r = Math.floor((y - region.y) / cell);
+    if (c >= 0 && c < cols && r >= 0 && r < rows) land[r * cols + c] = 1;
+  };
+  for (const ix of painted) {
+    for (let r = 0; r < rows; r++) {
+      for (const [a, b] of landSpans(ix, region.y + (r + 0.5) * cell)) {
+        const c1 = Math.min(cols - 1, Math.floor((b - region.x) / cell));
+        for (let c = Math.max(0, Math.floor((a - region.x) / cell)); c <= c1; c++) land[r * cols + c] = 1;
+      }
+    }
+    for (const [x1, y1, x2, y2] of ix.edges) { mark(x1, y1); mark(x2, y2); } // thin or tiny areas the rows can miss
+  }
+  const grid = { cols, rows, occ: new Uint8Array(cols * rows), sat: null };
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      if (!land[r * cols + c]) continue;
+      for (let j = Math.max(0, r - 1); j <= Math.min(rows - 1, r + 1); j++) for (let i = Math.max(0, c - 1); i <= Math.min(cols - 1, c + 1); i++) grid.occ[j * cols + i] = 1;
+    }
+  }
+  rebuild(grid);
+  return grid;
+}
+
+function rebuild(g) {
+  const w = g.cols + 1;
+  g.sat = new Int32Array(w * (g.rows + 1));
+  for (let r = 0; r < g.rows; r++) {
+    for (let c = 0; c < g.cols; c++) g.sat[(r + 1) * w + c + 1] = g.occ[r * g.cols + c] + g.sat[r * w + c + 1] + g.sat[(r + 1) * w + c] - g.sat[r * w + c];
+  }
+}
+
+// Used cells in the block of columns [c0, c1) and rows [r0, r1).
+const used = (g, c0, r0, c1, r1) => { const w = g.cols + 1; return g.sat[r1 * w + c1] - g.sat[r0 * w + c1] - g.sat[r1 * w + c0] + g.sat[r0 * w + c0]; };
+
+// Where the segment a -> c first enters the box (null when it never does).
+function entryPoint(a, c, box) {
+  const dx = c[0] - a[0];
+  const dy = c[1] - a[1];
+  let t0 = 0;
+  let t1 = 1;
+  for (const [p, q] of [[-dx, a[0] - box.x0], [dx, box.x1 - a[0]], [-dy, a[1] - box.y0], [dy, box.y1 - a[1]]]) {
+    if (p === 0) { if (q < 0) return null; continue; }
+    const t = q / p;
+    if (p < 0) { if (t > t1) return null; t0 = Math.max(t0, t); } else { if (t < t0) return null; t1 = Math.min(t1, t); }
+  }
+  return t0 > t1 ? null : [a[0] + dx * t0, a[1] + dy * t0];
+}
+
+const pointGap = (p, a, b) => {
+  const dx = b[0] - a[0];
+  const dy = b[1] - a[1];
+  const t = dx || dy ? Math.max(0, Math.min(1, ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / (dx * dx + dy * dy))) : 0;
+  return Math.hypot(p[0] - a[0] - t * dx, p[1] - a[1] - t * dy);
+};
+// Distance between two segments (0 when they cross).
+function segGap(a, b, c, d) {
+  const o = (p, q, r) => (q[0] - p[0]) * (r[1] - p[1]) - (q[1] - p[1]) * (r[0] - p[0]);
+  const d1 = o(a, b, c);
+  const d2 = o(a, b, d);
+  const d3 = o(c, d, a);
+  const d4 = o(c, d, b);
+  if (((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)) && ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0))) return 0;
+  return Math.min(pointGap(a, c, d), pointGap(b, c, d), pointGap(c, a, b), pointGap(d, a, b));
+}
+
+// Nearest free spot for a w × h label whose line from `at` crosses no other line or label, or null.
+function placeIn(grid, region, cell, o, at, lines, rects, gap) {
+  const cw = Math.ceil(o.w / cell) + 1;
+  const ch = Math.ceil(o.h / cell) + 1;
+  if (cw > grid.cols || ch > grid.rows) return null;
+  const cand = [];
+  for (let r = 0; r + ch <= grid.rows; r++) {
+    for (let c = 0; c + cw <= grid.cols; c++) {
+      if (used(grid, c, r, c + cw, r + ch)) continue;
+      const cx = region.x + (c + cw / 2) * cell;
+      const cy = region.y + (r + ch / 2) * cell;
+      cand.push([Math.hypot(cx - at[0], cy - at[1]), cx, cy, c, r, cw, ch]);
+    }
+  }
+  cand.sort((p, q) => p[0] - q[0]);
+  for (let k = 0; k < Math.min(cand.length, MAX_TESTS); k++) {
+    const [, cx, cy, c, r] = cand[k];
+    const box = { x0: cx - o.w / 2, y0: cy - o.h / 2, x1: cx + o.w / 2, y1: cy + o.h / 2 };
+    const end = entryPoint(at, [cx, cy], box);
+    if (!end || lines.some(([a, b]) => segGap(at, end, a, b) < gap)) continue;
+    if (rects.some((q) => entryPoint(at, end, { x0: q.x0 - gap, y0: q.y0 - gap, x1: q.x1 + gap, y1: q.y1 + gap }))) continue;
+    return { cx, cy, end, box, c, r, cw, ch };
+  }
+  return null;
+}
+
+const nameOptions = (name, f) => {
+  const two = splitName(name);
+  return [[name], ...(two ? [two] : [])].map((lines) => ({
+    lines, size: f, w: Math.max(...lines.map((t) => t.length)) * f * CHAR_W + f * 0.3, h: lines.length * f * 1.1,
+  }));
+};
+
+/** groups = [[name, lon/lat geometry, image | null]]; view = { x, y, w, h } (the part of the map in view, map units);
+ *  outline = the country (lon/lat geometry); scale = screen px per map unit.
+ *  -> { on: labels sitting on their area, calls: labels placed in free space (with the dot `at` and the end of the line) }.
+ *  An image that is still loading is left out until it is known. */
+export function layoutLabels({ groups, project, outline, view, scale, sig }) {
   const u = 1 / scale;
-  const colW = COL_SHARE * W;
-  const gap = GAP_SHARE * W;
-  const thumb = Math.min(THUMB_PX * u, colW);
   const on = [];
-  const sides = { L: [], R: [] };
+  const rects = [];
+  const wanted = [];
   for (const [name, geom, image] of groups) {
     if (!name) continue;
-    const spot = areaNameSpot(geom, name, project, image ? thumb : NAME_PX * u, sig, !!image);
-    if (spot) { on.push({ name, image, spot }); continue; }
-    const at = callouts ? anchorOf(geom, project) : null;
-    if (!at) continue;
-    let item = { name, image, at, bw: thumb, bh: thumb };
-    if (!image) {
-      const { lines, size } = wrapName(name, NAME_PX * u, colW);
-      item = { ...item, lines, size, bw: Math.max(...lines.map((t) => t.length)) * size * CHAR_W + size * 0.3, bh: lines.length * size * 1.1 };
+    let dim = null;
+    if (image) {
+      dim = DIMS.get(image);
+      if (dim === undefined) continue;
+      if (dim && !(dim[0] > 0 && dim[1] > 0)) dim = null;
     }
-    sides[at[0] < (ext[0] + ext[1]) / 2 ? "L" : "R"].push(item);
+    let spot = null;
+    if (dim) {
+      for (const side of THUMB_SIDES) {
+        const [bw, bh] = fitBox(dim, side * u);
+        spot = areaThumbSpot(geom, project, bw, bh, sig);
+        if (spot) break;
+      }
+    } else {
+      spot = areaNameSpot(geom, name, project, NAME_PX * u, sig);
+    }
+    const shown = dim ? image : null;
+    if (spot) { on.push({ name, image: shown, spot }); rects.push(labelBox(spot)); continue; }
+    const at = anchorOf(geom, project);
+    if (at && at[0] >= view.x && at[0] <= view.x + view.w && at[1] >= view.y && at[1] <= view.y + view.h) wanted.push({ name, image: shown, dim, at });
   }
   const calls = [];
-  for (const side of ["L", "R"]) {
-    const items = sides[side].sort((a, b) => a.at[1] - b.at[1]);
-    let prev = -STACK_GAP;
-    for (const it of items) { it.y0 = Math.max(it.at[1] - it.bh / 2, prev + STACK_GAP); prev = it.y0 + it.bh; }
-    let limit = H;
-    for (let i = items.length - 1; i >= 0; i--) {
-      if (items[i].y0 + items[i].bh > limit) items[i].y0 = limit - items[i].bh;
-      limit = items[i].y0 - STACK_GAP;
-    }
-    const cx = side === "L" ? ext[0] - gap - colW / 2 : ext[1] + gap + colW / 2;
-    for (const it of items) {
-      if (it.y0 < -0.5) continue; // no room left in the column
-      const cy = it.y0 + it.bh / 2;
-      calls.push({
-        name: it.name, image: it.image, side, at: it.at,
-        end: [side === "L" ? cx + it.bw / 2 + 4 : cx - it.bw / 2 - 4, cy],
-        spot: it.image ? { x: cx, y: cy, size: it.bw } : { x: cx, y: cy, size: it.size, lines: it.lines },
-      });
+  if (wanted.length && outline) {
+    const ix = outlineIndex(outline, project, sig);
+    const bx = ix.box;
+    const x0 = bx ? Math.max(view.x, bx.x0) : view.x;
+    const y0 = bx ? Math.max(view.y, bx.y0) : view.y;
+    const x1 = bx ? Math.min(view.x + view.w, bx.x1) : view.x + view.w;
+    const y1 = bx ? Math.min(view.y + view.h, bx.y1) : view.y + view.h;
+    if (x1 > x0 && y1 > y0) {
+      const cell = CELL_PX * u;
+      const region = { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
+      const grid = freeGrid(groups.map(([, geom]) => outlineIndex(geom, project, sig)), region, cell);
+      const lines = [];
+      for (const w of wanted) {
+        const options = w.dim ? THUMB_SIDES.filter((s) => s <= CALL_MAX_SIDE).map((s) => { const [bw, bh] = fitBox(w.dim, s * u); return { w: bw, h: bh }; }) : nameOptions(w.name, NAME_PX * u);
+        for (const o of options) {
+          const hit = placeIn(grid, region, cell, o, w.at, lines, rects, 4 * u);
+          if (!hit) continue;
+          for (let r = Math.max(0, hit.r - 1); r < Math.min(grid.rows, hit.r + hit.ch + 1); r++) {
+            for (let c = Math.max(0, hit.c - 1); c < Math.min(grid.cols, hit.c + hit.cw + 1); c++) grid.occ[r * grid.cols + c] = 1;
+          }
+          rebuild(grid);
+          lines.push([w.at, hit.end]);
+          rects.push(hit.box);
+          calls.push({
+            name: w.name, image: w.image, at: w.at, end: hit.end,
+            spot: w.dim ? { x: hit.cx, y: hit.cy, w: o.w, h: o.h } : { x: hit.cx, y: hit.cy, size: o.size, lines: o.lines },
+          });
+          break;
+        }
+      }
     }
   }
-  const used = (s) => calls.some((c) => c.side === s);
-  return {
-    on, calls,
-    x0: used("L") ? Math.min(0, ext[0] - gap - colW) : 0,
-    x1: used("R") ? Math.max(W, ext[1] + gap + colW) : W,
-  };
+  return { on, calls };
 }
 
-/** The miniature of an area's image, centred on its spot (spot.size = side of the square). */
+/** Reads the size of the miniatures among `uris` (data URIs; anything else is ignored). Re-renders when one is known. */
+export function useImageDims(uris) {
+  const [ver, setVer] = useState(0);
+  useEffect(() => {
+    const bump = () => setVer((n) => n + 1);
+    SUBS.add(bump);
+    return () => SUBS.delete(bump);
+  }, []);
+  useEffect(() => { for (const uri of uris) if (uri.startsWith("data:image/")) loadDims(uri); });
+  return ver;
+}
+
+/** The miniature of an area's image, centred on its spot (spot.w × spot.h: the image's own proportions). */
 export function AreaThumb({ spot, href }) {
-  const t = spot.size;
-  const x = (spot.x - t / 2).toFixed(1);
-  const y = (spot.y - t / 2).toFixed(1);
+  const x = (spot.x - spot.w / 2).toFixed(1);
+  const y = (spot.y - spot.h / 2).toFixed(1);
+  const w = spot.w.toFixed(1);
+  const h = spot.h.toFixed(1);
   return <g style={{ pointerEvents: "none" }}>
-    <rect x={x} y={y} width={t.toFixed(1)} height={t.toFixed(1)} rx={t * 0.08} fill="#0d1117" stroke="#fff" strokeWidth="1.5" vectorEffect="non-scaling-stroke" />
-    <image href={href} x={x} y={y} width={t.toFixed(1)} height={t.toFixed(1)} preserveAspectRatio="xMidYMid meet" />
+    <image href={href} x={x} y={y} width={w} height={h} preserveAspectRatio="none" />
+    <rect x={x} y={y} width={w} height={h} fill="none" stroke="#fff" strokeWidth="1.5" vectorEffect="non-scaling-stroke" />
   </g>;
 }
 
-/** A label in a side column: dot on the area, line out of the country, then the name or the miniature. `u` = map units per screen px. */
+/** A label in free space: dot on the area, line to the label. `u` = map units per screen px. */
 function Callout({ c, u }) {
   const d = `M${c.at[0].toFixed(1)} ${c.at[1].toFixed(1)}L${c.end[0].toFixed(1)} ${c.end[1].toFixed(1)}`;
   return <g style={{ pointerEvents: "none" }}>
@@ -399,6 +594,16 @@ function Callout({ c, u }) {
     <circle cx={c.at[0].toFixed(1)} cy={c.at[1].toFixed(1)} r={(3.5 * u).toFixed(2)} fill="#0d1117" stroke="#fff" strokeWidth="1.5" vectorEffect="non-scaling-stroke" />
     {c.image ? <AreaThumb spot={c.spot} href={c.image} /> : <AreaName spot={c.spot} />}
   </g>;
+}
+
+/** Everything layoutLabels placed. */
+export function LabelLayer({ lay, u }) {
+  return <>
+    {lay.on.map((l, i) => (l.image
+      ? <AreaThumb key={`name-${l.name}-${i}`} spot={l.spot} href={l.image} />
+      : <AreaName key={`name-${l.name}-${i}`} spot={l.spot} />))}
+    {lay.calls.map((c, i) => <Callout key={`call-${c.name}-${i}`} c={c} u={u} />)}
+  </>;
 }
 
 // Pin drawn with its tip at (0, 0), about 46 map units tall. The big transparent circle makes it easy to click.
@@ -422,6 +627,7 @@ export default function RegionPreview({ cc, layers, stains, onStain, onArea, sel
   const [svgEl, setSvgEl] = useState(null);
   const [scale, setScale] = useState(0); // screen px per map unit: names are sized and fitted in real px
   const [hoveredArea, setHoveredArea] = useState(null);
+  useImageDims(layers.flatMap((g) => g.extras ?? []));
   useEffect(() => {
     let off = false;
     loadStainColor().then((c) => !off && setStainColor(c));
@@ -439,12 +645,6 @@ export default function RegionPreview({ cc, layers, stains, onStain, onArea, sel
     ro.observe(svgEl);
     return () => ro.disconnect();
   }, [svgEl, zoom?.k, focus]);
-  // The label columns change the viewBox without resizing the box: read the scale again after every render.
-  useEffect(() => {
-    const r = svgEl?.getBoundingClientRect();
-    const vb = svgEl?.viewBox.baseVal;
-    if (r?.width && vb?.width) setScale(Math.round(Math.min(r.width / vb.width, r.height / vb.height) * 1000) / 1000);
-  });
   useEffect(() => {
     let off = false;
     setBase(undefined);
@@ -487,13 +687,10 @@ export default function RegionPreview({ cc, layers, stains, onStain, onArea, sel
   const vh = H / (zv?.kh ?? zk);
   const vx = Math.min(Math.max((zv?.fx ?? 0.5) * W - vw / 2, 0), W - vw);
   const vy = Math.min(Math.max((zv?.fy ?? 0.5) * H - vh / 2, 0), H - vh);
-  // Names / miniatures: on the area when they fit; with the whole map in view the rest go in the empty space beside the country.
-  const flat = zk === 1 && vh === H;
+  // Names / miniatures of the areas: on the area when they fit, otherwise in free space inside the country's bounding box.
   const lay = showNames && scale > 0 && areaLayers.length
-    ? layoutLabels(areaLayers.flatMap(groupsOf), project, (outline && xRangeOf(outline, project)) || [0, W], W, H, scale, `${bb.join()}|${W}|${H}|${align}|${projection}`, flat)
+    ? layoutLabels({ groups: areaLayers.flatMap(groupsOf), project, outline, view: { x: vx, y: vy, w: vw, h: vh }, scale, sig: `${bb.join()}|${W}|${H}|${align}|${projection}` })
     : null;
-  const bx = lay && flat ? lay.x0 : vx;
-  const bw = lay && flat ? lay.x1 - lay.x0 : vw;
   const fire = (a) => { if (!pan?.current.moved) onArea?.(a); };
   const panDown = (e) => {
     if (!pan) return;
@@ -514,7 +711,7 @@ export default function RegionPreview({ cc, layers, stains, onStain, onArea, sel
   };
   const panEnd = () => { if (pan) pan.current.drag = null; };
 
-  return <svg ref={setSvgEl} className="cl-svg" style={{ ...style, "--stain": stainColor ?? undefined, touchAction: zk > 1 ? "none" : undefined }} viewBox={`${bx} ${vy} ${bw} ${vh}`} role="img" aria-label={label}
+  return <svg ref={setSvgEl} className="cl-svg" style={{ ...style, "--stain": stainColor ?? undefined, touchAction: zk > 1 ? "none" : undefined }} viewBox={`${vx} ${vy} ${vw} ${vh}`} role="img" aria-label={label}
     onPointerDown={panDown} onPointerMove={panMove} onPointerUp={panEnd} onPointerLeave={panEnd} onPointerCancel={panEnd}
     preserveAspectRatio={align === "right" ? "xMaxYMid meet" : undefined}>
     {land && <path className="cl-r" d={land} fillRule="evenodd" />}
@@ -567,10 +764,7 @@ export default function RegionPreview({ cc, layers, stains, onStain, onArea, sel
       ? <path key={`ring-${selected}-${i}`} className="cl-area-ring" d={shapes(geom, project).polys} fillRule="evenodd" /> : null)))}
     {hoveredArea && hoveredArea !== selected && areaLayers.flatMap((g) => g.geometries.map((geom, i) => (g.names?.[i] === hoveredArea
       ? <path key={`hover-${hoveredArea}-${i}`} className="cl-area-ring" d={shapes(geom, project).polys} fillRule="evenodd" /> : null)))}
-    {lay && lay.on.map((l, i) => (l.image
-      ? <AreaThumb key={`name-${l.name}-${i}`} spot={l.spot} href={l.image} />
-      : <AreaName key={`name-${l.name}-${i}`} spot={l.spot} />))}
-    {lay && lay.calls.map((c, i) => <Callout key={`call-${c.name}-${i}`} c={c} u={1 / scale} />)}
+    {lay && <LabelLayer lay={lay} u={1 / scale} />}
     {(stains ?? []).map((s) => {
       const toggle = () => onStain?.(s.id);
       const name = s.label ?? s.id;
